@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>anacraft — Google Analytics, mined block by block</title>
+<meta name="description" content="A Minecraft-themed TUI dashboard for Google Analytics 4. Real-time metrics, achievement toasts, and ore-colored bars in your terminal.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛏</text></svg>">
+<style>
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a24;
+    --border: #2a2a3a;
+    --text: #c8c8d0;
+    --dim: #6a6a7a;
+    --accent: #5d9b5a;
+    --gold: #d4a843;
+    --emerald: #4caf7d;
+    --redstone: #c75050;
+    --xp: #8b7fd4;
+    --code-bg: #14141e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    min-height: 100vh;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--emerald); }
+
+  .container { max-width: 720px; margin: 0 auto; padding: 0 24px; }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    padding: 80px 0 48px;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero-pick { font-size: 48px; margin-bottom: 16px; }
+  .hero h1 {
+    font-size: 32px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+  }
+  .hero h1 span { color: var(--gold); }
+  .hero p {
+    font-size: 15px;
+    color: var(--dim);
+    max-width: 480px;
+    margin: 0 auto 32px;
+  }
+
+  /* Install box */
+  .install-box {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    max-width: 560px;
+    margin: 0 auto 32px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .install-box:hover { border-color: var(--accent); }
+  .install-box .prompt { color: var(--dim); user-select: none; }
+  .install-box code { color: var(--emerald); font-size: 14px; word-break: break-all; }
+  .install-box .copy {
+    color: var(--dim);
+    font-size: 12px;
+    margin-left: auto;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .install-box:hover .copy { color: var(--text); }
+
+  /* Sections */
+  section { padding: 48px 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+  h2 {
+    font-size: 18px;
+    color: #fff;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2 .icon { color: var(--gold); }
+
+  /* Features */
+  .features { display: grid; gap: 16px; }
+  .feature {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+  }
+  .feature h3 {
+    font-size: 14px;
+    color: var(--emerald);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .feature p { font-size: 13px; color: var(--dim); }
+
+  /* Terminal preview */
+  .terminal {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .terminal-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .terminal-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+  .terminal-dot.r { background: var(--redstone); }
+  .terminal-dot.y { background: var(--gold); }
+  .terminal-dot.g { background: var(--emerald); }
+  .terminal-bar span { color: var(--dim); font-size: 11px; margin-left: 8px; }
+  .terminal pre {
+    padding: 16px;
+    overflow-x: auto;
+    color: var(--text);
+  }
+  .terminal .c-green { color: var(--accent); }
+  .terminal .c-gold { color: var(--gold); }
+  .terminal .c-dim { color: var(--dim); }
+  .terminal .c-red { color: var(--redstone); }
+  .terminal .c-xp { color: var(--xp); }
+  .terminal .c-bright { color: #fff; font-weight: bold; }
+  .terminal .bar { color: var(--accent); }
+  .terminal .bar-dim { color: #2a3a2a; }
+  .terminal .diamond { color: var(--emerald); }
+
+  /* Themes */
+  .themes { display: flex; gap: 12px; flex-wrap: wrap; }
+  .swatch {
+    display: flex; gap: 3px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  .swatch .block {
+    width: 12px; height: 12px;
+    border-radius: 2px;
+  }
+
+  /* Keys table */
+  .keys { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .keys td { padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .keys td:first-child {
+    color: var(--gold);
+    font-weight: 600;
+    width: 48px;
+    text-align: center;
+  }
+  .keys td:last-child { color: var(--dim); }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 40px 0;
+    color: var(--dim);
+    font-size: 12px;
+  }
+  footer a { color: var(--gold); }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="hero">
+    <div class="hero-pick">⛏</div>
+    <h1>anacraft</h1>
+    <p>Google Analytics, mined block by block. A Minecraft-themed TUI dashboard for GA4 in your terminal.</p>
+    <div class="install-box" onclick="navigator.clipboard.writeText('curl -fsSL https://raw.githubusercontent.com/smartloop-ai/anacraft/main/install.sh | bash').then(()=>{this.querySelector('.copy').textContent='copied!'})">
+      <span class="prompt">$</span>
+      <code>curl -fsSL https://raw.githubusercontent.com/smartloop-ai/anacraft/main/install.sh | bash</code>
+      <span class="copy">copy</span>
+    </div>
+    <div style="display:flex; gap:12px; justify-content:center; font-size:13px;">
+      <a href="https://github.com/smartloop-ai/anacraft">GitHub</a>
+      <span style="color:var(--border)">|</span>
+      <a href="https://github.com/smartloop-ai/anacraft#readme">Docs</a>
+    </div>
+  </div>
+
+  <section>
+    <h2><span class="icon">◆</span> What it does</h2>
+    <p style="color:var(--dim); font-size:14px; margin-bottom:20px;">
+      anacraft connects to your Google Analytics 4 property and renders a full-screen
+      dashboard with Minecraft ore colors, ore-textured bars, achievement toasts, and
+      a live event feed. No browser tabs — analytics in your terminal.
+    </p>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot r"></div>
+        <div class="terminal-dot y"></div>
+        <div class="terminal-dot g"></div>
+        <span>anacraft — REDSTONE LABS</span>
+      </div>
+      <pre>
+<span class="c-dim">╔═ ⛏  </span><span class="c-bright">REDSTONE LABS</span><span class="c-dim"> · last 7 days ═══════════════════╗</span>
+
+  <span class="c-dim">VILLAGERS</span> (users)              <span class="c-bright">12,481</span>  <span class="c-green">▲9%</span>
+  <span class="bar">█████████████████</span><span class="bar-dim">░░░░░░░</span>
+
+  <span class="c-dim">EXPEDITIONS</span> (sessions)         <span class="c-bright">18,203</span>  <span class="c-green">▲7%</span>
+  <span class="bar">█████████████████</span><span class="bar-dim">░░░░░░░</span>
+
+  <span class="c-dim">BLOCKS MINED</span> (page views)      <span class="c-bright">41,776</span>  <span class="c-green">▲7%</span>
+  <span class="bar">█████████████████</span><span class="bar-dim">░░░░░░░</span>
+
+  <span class="c-dim">DIAMONDS</span> (conversions)            <span class="c-bright">312</span>  <span class="c-green">▲21%</span>
+  <span class="diamond">◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆◆</span><span class="bar-dim">░░░░░</span>
+
+  <span class="c-dim">CREEPER RATE</span> (bounce)          <span class="c-bright">41.2%</span>  <span class="c-green">▼14%</span>
+  <span class="c-red">██████████</span><span class="bar-dim">░░░░░░░░░░░░░░</span>
+
+  <span class="c-dim">daily villagers</span>  ▂▁▃▃▆▇█
+
+  <span class="c-gold">⚑ ACHIEVEMENT GET!</span>
+    <span class="c-dim">"Diamond Streak"</span> — 3 days of back-to-back growth
+
+<span class="c-dim">╚═══════════════════════════════════════════════════════════╝</span></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="icon">◆</span> Features</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>7 toggleable panels</h3>
+        <p>World blocks, live count, top pages, daily trend, realms map, vitals, and ranked realms — all with number keys.</p>
+      </div>
+      <div class="feature">
+        <h3>Achievement toasts</h3>
+        <p>Diamond Streak, Creeper Repelled, Deep Vein — unlocks pop when your metrics hit milestones.</p>
+      </div>
+      <div class="feature">
+        <h3>4 ore themes</h3>
+        <p>Cobblestone, Deepslate, Nether, Tokyo Night. Persisted across sessions.</p>
+      </div>
+      <div class="feature">
+        <h3>Real-time events</h3>
+        <p>Live player count with spawn/despawn feed, fading as events age out.</p>
+      </div>
+      <div class="feature">
+        <h3>Page performance blocks</h3>
+        <p>Each page is a block — green gem means rising, red means falling. Traffic share drives block brightness.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="icon">◆</span> Quick start</h2>
+    <div style="font-size:13px; color:var(--dim);">
+      <pre style="color:var(--text); font-size:13px; line-height:2;">
+<span class="c-dim"># install</span>
+<span class="c-green">$</span> curl -fsSL https://raw.githubusercontent.com/smartloop-ai/anacraft/main/install.sh | bash
+
+<span class="c-dim"># see the dashboard (no Google account needed)</span>
+<span class="c-green">$</span> anacraft
+
+<span class="c-dim"># connect a real property</span>
+<span class="c-green">$</span> anacraft login
+<span class="c-green">$</span> anacraft props
+<span class="c-green">$</span> anacraft use 1234567
+
+<span class="c-dim"># one-shot reports</span>
+<span class="c-green">$</span> anacraft overview
+<span class="c-green">$</span> anacraft pages
+<span class="c-green">$</span> anacraft realms</pre>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="icon">◆</span> Controls</h2>
+    <table class="keys">
+      <tr><td>1–7</td><td>Toggle panel</td></tr>
+      <tr><td>t</td><td>Cycle theme</td></tr>
+      <tr><td>r</td><td>Force refresh</td></tr>
+      <tr><td>?</td><td>Help overlay</td></tr>
+      <tr><td>q</td><td>Quit</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2><span class="icon">◆</span> Requirements</h2>
+    <p style="color:var(--dim); font-size:13px;">
+      Rust 1.74+ &middot; A GA4 property &middot; A truecolor terminal
+    </p>
+  </section>
+
+  <footer>
+    <p>Mined with ⛏ by <a href="https://github.com/smartloop-ai">SmartLoop AI</a></p>
+    <p style="margin-top:8px;"><a href="https://github.com/smartloop-ai/anacraft/blob/main/LICENSE">Apache 2.0</a></p>
+  </footer>
+
+</div>
+</body>
+</html>
