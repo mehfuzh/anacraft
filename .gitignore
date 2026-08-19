@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Never commit OAuth material or captured credentials
+client.json
+*.secret.json
+.env
