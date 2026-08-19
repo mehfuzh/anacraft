@@ -16,7 +16,7 @@ A Minecraft-themed TUI dashboard for Google Analytics 4. Real-time metrics, achi
 ### Quick install (macOS / Linux)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/smartloop-ai/anacraft/main/install.sh | bash
+curl -fsSL https://anacraft.dev/install.sh | bash
 ```
 
 ### From source
