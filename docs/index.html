@@ -93,16 +93,21 @@
   .nav-links .nav-gh + .nav-gh { margin-left: -18px; }
   /* ── light/dark toggle ─────────────────────────── */
   .mode-toggle {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 32px; height: 32px; color: var(--dim); cursor: pointer;
-    border: 1px solid var(--line-2);
-    background: none; font-size: 16px; line-height: 1;
-    transition: border-color .15s, color .15s;
+    display: inline-flex; align-items: stretch; height: 32px;
+    border: 1px solid var(--line-2); overflow: hidden;
   }
-  .mode-toggle:hover { border-color: var(--jade); color: var(--jade); }
-  html.light nav { background: rgba(241,240,237,.82); }
-  html.light .mode-toggle, html.light .mode-toggle:hover { border-color: var(--line-2); color: var(--dim); }
-  html.light .mode-toggle:hover { border-color: var(--jade-deep); color: var(--jade-deep); }
+  .mode-toggle button {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0 10px; color: var(--dim); cursor: pointer;
+    background: none; border: none; font-size: 12px; font-weight: 600;
+    font-family: inherit; letter-spacing: .03em; text-transform: lowercase;
+    transition: background .12s, color .12s;
+  }
+  .mode-toggle button + button { border-left: 1px solid var(--line-2); }
+  .mode-toggle button[aria-pressed="true"] {
+    background: var(--jade); color: var(--ink);
+  }
+  html.light nav { background: rgba(253,246,227,.82); }
   @media (max-width: 720px) { .nav-links a:not(.nav-gh):not(.mode-toggle) { display: none; } }
 
   /* ── hero ──────────────────────────────────────────── */
@@ -355,22 +360,22 @@
     .code { font-size: 11.5px; padding: 18px 16px; }
     footer .r { margin-left: 0; flex-wrap: wrap; }
   }
-  /* ── light mode overrides ────────────────────────── */
+  /* ── light mode overrides (solarized-light) ───── */
   html.light {
-    --ground: #eff1f5;
-    --ink: #4c4f69;
-    --panel: #e6e9ef;
-    --line: rgba(76,79,105,.12);
-    --line-2: rgba(76,79,105,.22);
-    --fg: #4c4f69;
-    --white: #1e66f5;
-    --dim: #9ca0b0;
-    --jade: #40a02b;
-    --jade-deep: #179299;
-    --gold: #df8e1d;
-    --coral: #d20f39;
+    --ground: #fdf6e3;
+    --ink: #073642;
+    --panel: #eee8d5;
+    --line: rgba(214,206,184,.35);
+    --line-2: rgba(214,206,184,.55);
+    --fg: #657b83;
+    --white: #268bd2;
+    --dim: #93a1a1;
+    --jade: #859900;
+    --jade-deep: #268bd2;
+    --gold: #b58900;
+    --coral: #dc322f;
   }
-  html.light body { background: #eff1f5; color: #4c4f69; }
+  html.light body { background: #fdf6e3; color: #073642; }
 </style>
 </head>
 <body>
@@ -385,7 +390,7 @@
       <a href="#themes">Themes</a>
 
       <a class="nav-gh" href="https://github.com/smartloop-ai/anacraft" aria-label="anacraft on GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.64 7.64 0 0 1 8 3.87c.68 0 1.36.09 2 .26 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a>
-      <button class="mode-toggle" onclick="toggleMode()" aria-label="Toggle light/dark mode">☽</button>
+      <span class="mode-toggle"><button data-ground="ink" aria-pressed="true" onclick="setMode('ink')">ink</button><button data-ground="paper" aria-pressed="false" onclick="setMode('paper')">paper</button></span>
     </div>
   </div>
 </nav>
@@ -1598,21 +1603,19 @@
 </footer>
 
 <script>
-  function toggleMode() {
+  function setMode(mode) {
     var html = document.documentElement;
-    var btn = document.querySelector('.mode-toggle');
-    html.classList.toggle('light');
-    var isLight = html.classList.contains('light');
-    btn.textContent = isLight ? '☀' : '☽';
-    try { localStorage.setItem('mode', isLight ? 'light' : 'dark'); } catch (e) {}
+    var isPaper = mode === 'paper';
+    html.classList.toggle('light', isPaper);
+    document.querySelectorAll('.mode-toggle button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-ground') === mode));
+    });
+    try { localStorage.setItem('mode', mode); } catch (e) {}
   }
   (function () {
     try {
-      if (localStorage.getItem('mode') === 'light') {
-        document.documentElement.classList.add('light');
-        var b = document.querySelector('.mode-toggle');
-        if (b) b.textContent = '☀';
-      }
+      var saved = localStorage.getItem('mode');
+      if (saved === 'paper') setMode('paper');
     } catch (e) {}
   })();
   function cp(el) {
