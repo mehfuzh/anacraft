@@ -942,20 +942,20 @@ async fn event_loop(
                         KeyCode::Char('2') | KeyCode::Char('l') => {
                             dash.panels.live = !dash.panels.live
                         }
-                        KeyCode::Char('3') | KeyCode::Char('p') => {
-                            dash.panels.chunks = !dash.panels.chunks
-                        }
-                        KeyCode::Char('4') | KeyCode::Char('d') => {
-                            dash.panels.trend = !dash.panels.trend
-                        }
-                        KeyCode::Char('5') | KeyCode::Char('m') => {
+                        KeyCode::Char('3') | KeyCode::Char('m') => {
                             dash.panels.map = !dash.panels.map
                         }
-                        KeyCode::Char('6') | KeyCode::Char('v') => {
+                        KeyCode::Char('4') | KeyCode::Char('p') => {
+                            dash.panels.chunks = !dash.panels.chunks
+                        }
+                        KeyCode::Char('5') | KeyCode::Char('v') => {
                             dash.panels.vitals = !dash.panels.vitals
                         }
-                        KeyCode::Char('7') | KeyCode::Char('g') => {
+                        KeyCode::Char('6') | KeyCode::Char('g') => {
                             dash.panels.realms_ranked = !dash.panels.realms_ranked
+                        }
+                        KeyCode::Char('7') | KeyCode::Char('d') => {
+                            dash.panels.trend = !dash.panels.trend
                         }
                         // Nothing to announce: every color on screen changes,
                         // which is the feedback.
@@ -1473,11 +1473,11 @@ fn help_overlay(frame: &mut Frame, area: Rect) {
         ("r", "refresh now"),
         ("^1 / 1", "events panel"),
         ("^2 / 2", "right now panel"),
-        ("^3 / 3", "top chunks panel"),
-        ("^4 / 4", "daily villagers"),
-        ("^5 / 5", "realms map"),
-        ("^6 / 6", "vitals panel"),
-        ("^7 / 7", "top realms"),
+        ("^3 / 3", "realms map"),
+        ("^4 / 4", "top chunks panel"),
+        ("^5 / 5", "vitals panel"),
+        ("^6 / 6", "top realms"),
+        ("^7 / 7", "daily villagers"),
         ("t", "next theme"),
         ("? / h", "this list"),
     ];
@@ -1703,7 +1703,7 @@ fn metrics_panel(dash: &Dash) -> Paragraph<'static> {
         lines.push(Line::from(""));
     }
 
-    Paragraph::new(lines).block(framed("VITALS", "6", ore::grass()))
+    Paragraph::new(lines).block(framed("VITALS", "5", ore::grass()))
 }
 
 /// Rank badges: the top three chunks are ore, the rest are plain stone. It is
@@ -1779,7 +1779,7 @@ fn trend_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         Style::default().fg(theme::fade(theme::sage(), 0.2)),
     )));
 
-    Paragraph::new(lines).block(framed("DAILY VILLAGERS", "4", ore::grass()))
+    Paragraph::new(lines).block(framed("DAILY VILLAGERS", "7", ore::grass()))
 }
 
 /// How many days a panel this wide can draw, at one column per day minimum.
@@ -2086,7 +2086,7 @@ fn map_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
         Style::default().fg(theme::fade(theme::sage(), 0.2)),
     )));
 
-    Paragraph::new(lines).block(framed("REALMS", "5", ore::lapis()))
+    Paragraph::new(lines).block(framed("REALMS", "3", ore::lapis()))
 }
 
 /// What sits under the vitals in the left-hand column.
@@ -2368,7 +2368,7 @@ fn pages_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         lines.push(Line::from(spans));
     }
 
-    Paragraph::new(lines).block(framed("TOP CHUNKS", "3", ore::copper()))
+    Paragraph::new(lines).block(framed("TOP CHUNKS", "4", ore::copper()))
 }
 
 fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
@@ -2416,7 +2416,7 @@ fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         lines.push(Line::from(spans));
     }
 
-    Paragraph::new(lines).block(framed("TOP REALMS", "7", ore::lapis()))
+    Paragraph::new(lines).block(framed("TOP REALMS", "6", ore::lapis()))
 }
 
 fn footer(dash: &Dash) -> Paragraph<'static> {
