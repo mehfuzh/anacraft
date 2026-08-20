@@ -10,7 +10,6 @@
 <p align="center">
   <a href="https://anacraft.dev">anacraft.dev</a> ·
   <a href="https://github.com/mehfuzh/anacraft/releases">Releases</a> ·
-  <a href="https://github.com/sponsors/mehfuzh">Sponsor</a> ·
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
   <a href="https://www.rust-lang.org/"><img alt="Rust 1.74+" src="https://img.shields.io/badge/Rust-1.74+-orange.svg"></a>
 </p>
@@ -111,7 +110,7 @@ anacraft theme tokyo-night    # switch and persist
 anacraft --theme github dash  # override for one run
 ```
 
-`osaka-jade` (default) · `catppuccin` · `github` · `tokyo-night`
+`osaka-jade` (default) · `catppuccin` · `github` · `tokyo-night` · `light`
 
 The ore vocabulary — diamond, gold, redstone, lapis — is mapped onto whichever
 palette is selected, so the texture pack survives a theme swap.

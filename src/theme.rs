@@ -125,7 +125,34 @@ pub const TOKYO_NIGHT: Palette = Palette {
     lapis: Color::Rgb(125, 207, 255),
 };
 
-pub const THEMES: [&Palette; 4] = [&OSAKA_JADE, &CATPPUCCIN, &GITHUB, &TOKYO_NIGHT];
+/// Light — bright paper ground, dark ink, saturated ore accents.
+pub const LIGHT: Palette = Palette {
+    name: "light",
+    ink: Color::Rgb(230, 233, 240),
+    bg: Color::Rgb(250, 251, 254),
+    bg_lift: Color::Rgb(240, 243, 248),
+    fg: Color::Rgb(36, 41, 56),
+    sage: Color::Rgb(110, 118, 129),
+    shadow: Color::Rgb(200, 207, 218),
+    accent: Color::Rgb(9, 105, 218),
+    accent_deep: Color::Rgb(87, 141, 235),
+    bright: Color::Rgb(31, 111, 135),
+    moss: Color::Rgb(26, 127, 55),
+    leaf: Color::Rgb(14, 124, 82),
+    gold: Color::Rgb(153, 102, 0),
+    coral: Color::Rgb(201, 42, 42),
+    plum: Color::Rgb(130, 50, 203),
+    clay: Color::Rgb(190, 75, 21),
+    lapis: Color::Rgb(31, 88, 205),
+};
+
+pub const THEMES: [&Palette; 5] = [
+    &OSAKA_JADE,
+    &CATPPUCCIN,
+    &GITHUB,
+    &TOKYO_NIGHT,
+    &LIGHT,
+];
 
 static SELECTED: AtomicUsize = AtomicUsize::new(0);
 
