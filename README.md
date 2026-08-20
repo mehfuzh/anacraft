@@ -110,7 +110,7 @@ anacraft theme tokyo-night    # switch and persist
 anacraft --theme github dash  # override for one run
 ```
 
-`osaka-jade` (default) · `catppuccin` · `github` · `tokyo-night` · `light`
+`osaka-jade` (default) · `catppuccin` · `github` · `tokyo-night` · `catppuccin-latte`
 
 The ore vocabulary — diamond, gold, redstone, lapis — is mapped onto whichever
 palette is selected, so the texture pack survives a theme swap.

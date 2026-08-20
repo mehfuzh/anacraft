@@ -125,9 +125,9 @@ pub const TOKYO_NIGHT: Palette = Palette {
     lapis: Color::Rgb(125, 207, 255),
 };
 
-/// Light — bright paper ground, dark ink, saturated ore accents.
+/// Catppuccin Latte — Catppuccin's light variant.
 pub const LIGHT: Palette = Palette {
-    name: "light",
+    name: "catppuccin-latte",
     ink: Color::Rgb(230, 233, 240),
     bg: Color::Rgb(250, 251, 254),
     bg_lift: Color::Rgb(240, 243, 248),
