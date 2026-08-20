@@ -7,7 +7,7 @@ send a PR.
 ## Getting set up
 
 ```sh
-git clone https://github.com/mehfuzh/anacraft.git
+git clone https://github.com/smartloop-ai/anacraft.git
 cd anacraft
 cargo run -- dash --demo
 ```

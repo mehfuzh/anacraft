@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://anacraft.dev">anacraft.dev</a> ·
-  <a href="https://github.com/mehfuzh/anacraft/releases">Releases</a> ·
+  <a href="https://github.com/smartloop-ai/anacraft/releases">Releases</a> ·
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
   <a href="https://www.rust-lang.org/"><img alt="Rust 1.74+" src="https://img.shields.io/badge/Rust-1.74+-orange.svg"></a>
 </p>
@@ -38,10 +38,10 @@ curl -fsSL https://anacraft.dev/install.sh | INSTALL_DIR=~/bin bash
 **From source**
 
 ```sh
-cargo install --git https://github.com/mehfuzh/anacraft
+cargo install --git https://github.com/smartloop-ai/anacraft
 ```
 
-**Manual** — grab a binary from [Releases](https://github.com/mehfuzh/anacraft/releases), extract it, and put `anacraft` on your `PATH`.
+**Manual** — grab a binary from [Releases](https://github.com/smartloop-ai/anacraft/releases), extract it, and put `anacraft` on your `PATH`.
 
 ## Quick start
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="mehfuzh/anacraft"
+REPO="smartloop-ai/anacraft"
 BINARY="anacraft"
 GITHUB="https://github.com"
 API="https://api.github.com"
