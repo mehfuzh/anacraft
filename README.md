@@ -1,111 +1,145 @@
-```
-  ⛏  ANACRAFT
-```
+<h1 align="center">⛏ anacraft</h1>
 
-# anacraft
+<p align="center"><b>Google Analytics, mined block by block.</b></p>
 
-**Google Analytics, mined block by block.**
+<p align="center">
+  A terminal dashboard for Google Analytics 4 — seven live panels, ore-textured
+  bars, a realtime event feed, and achievement toasts when the numbers move.
+</p>
 
-A Minecraft-themed TUI dashboard for Google Analytics 4. Real-time metrics, achievement toasts, page performance blocks, and realm maps — all rendered with ore colors and ore-textured bars right in your terminal.
+<p align="center">
+  <a href="https://anacraft.dev">anacraft.dev</a> ·
+  <a href="https://github.com/mehfuzh/anacraft/releases">Releases</a> ·
+  <a href="https://github.com/sponsors/mehfuzh">Sponsor</a> ·
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
+  <a href="https://www.rust-lang.org/"><img alt="Rust 1.74+" src="https://img.shields.io/badge/Rust-1.74+-orange.svg"></a>
+</p>
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.74+-orange.svg)](https://www.rust-lang.org/)
+<p align="center">
+  <img src="docs/dash.png" alt="The anacraft dashboard: seven panels showing GA4 metrics in a terminal" width="960">
+</p>
+
+<p align="center"><sub><code>anacraft dash --demo</code> · osaka-jade · 132×52</sub></p>
 
 ## Install
 
-### Quick install (macOS / Linux)
+**macOS / Linux**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/smartloop-ai/anacraft/main/install.sh | bash
+curl -fsSL https://anacraft.dev/install.sh | bash
 ```
 
-### From source
+Installs to `/usr/local/bin` when that is writable, otherwise `~/.local/bin` —
+never with `sudo`. Set `INSTALL_DIR` to choose somewhere else:
 
 ```sh
-git clone https://github.com/smartloop-ai/anacraft.git
-cd anacraft
-cargo install --path .
+curl -fsSL https://anacraft.dev/install.sh | INSTALL_DIR=~/bin bash
 ```
 
-### Manual download
+**From source**
 
-Grab the latest binary from [Releases](https://github.com/smartloop-ai/anacraft/releases), extract, and put `anacraft` on your `PATH`.
+```sh
+cargo install --git https://github.com/mehfuzh/anacraft
+```
+
+**Manual** — grab a binary from [Releases](https://github.com/mehfuzh/anacraft/releases), extract it, and put `anacraft` on your `PATH`.
 
 ## Quick start
 
+`anacraft` with no command opens the dashboard — `dash` is the default. With no
+property saved it runs on synthetic data, so it works before you sign in.
+
 ```sh
-# See the dashboard with synthetic data — no Google account needed
+# The dashboard, on synthetic data — no Google account needed
 anacraft
 
 # Connect a real GA4 property
 anacraft login        # OAuth sign-in
-anacraft props        # list visible properties
-anacraft use 1234567  # set default property
+anacraft props        # list the properties this account can read
+anacraft use 1234567  # save it as the default
 
-# Launch the live TUI dashboard
+# Same bare command, now against your property
 anacraft
 ```
 
 ### One-shot reports
 
+Not everything needs a dashboard. These print and exit.
+
 ```sh
-anacraft overview          # headline metrics + achievements
-anacraft pages             # top pages ranked by views
-anacraft realms            # traffic by country
-anacraft live              # who is online right now
-anacraft demo              # render overview from synthetic data
+anacraft overview --days 30   # headline metrics, deltas, achievements
+anacraft pages                # most-visited pages
+anacraft portals              # where traffic arrives from
+anacraft realms               # traffic by country
+anacraft live                 # who is on the site right now
+anacraft demo                 # render an overview from synthetic data
 ```
 
-## Dashboard layout
+Two flags are global: `--property <id>` queries a property other than the saved
+default, and `--theme <name>` renders with a palette other than the saved one.
 
-The TUI dashboard has seven panels you can toggle with number keys:
+## The dashboard
+
+Seven panels, each toggleable. Turn off what you do not care about and the rest
+reflows to fill the terminal.
 
 | Key | Panel | What it shows |
 |-----|-------|---------------|
-| `1` | **WORLD** | Page performance blocks — green gem = rising, red = falling |
-| `2` | **RIGHT NOW** | Live player count + event feed |
-| `3` | **TOP CHUNKS** | Most-visited pages with view bars |
-| `4` | **DAILY VILLAGERS** | User trend over the period |
-| `5` | **REALMS MAP** | Traffic by country on a 10×5 grid map |
-| `6` | **VITALS** | Users, sessions, views, conversions, bounce rate, avg session |
-| `7` | **TOP REALMS** | Ranked countries with tier badges |
+| `1` | **WORLD** | Pages as blocks — brightness tracks traffic share, a gem marks a riser |
+| `2` | **RIGHT NOW** | Live player count plus a spawn / wander-off event feed |
+| `3` | **TOP CHUNKS** | Most-visited pages with view bars and rank movement |
+| `4` | **DAILY VILLAGERS** | User trend across the period |
+| `5` | **REALMS** | Traffic plotted on a world map |
+| `6` | **VITALS** | Users, sessions, views, conversions, bounce rate, avg. session |
+| `7` | **TOP REALMS** | Ranked countries with tier markers |
 
 ### Controls
 
 | Key | Action |
 |-----|--------|
-| `1`–`7` | Toggle panel |
-| `t` | Cycle theme (Cobblestone, Deepslate, Nether, Tokyo Night) |
-| `r` | Force refresh |
+| `1`–`7` | Toggle a panel — `b` `l` `p` `d` `m` `v` `g` do the same |
+| `t` | Cycle the palette, and save it |
+| `r` | Rebuild — force a refetch now |
 | `?` / `h` | Help overlay |
-| `q` / Esc | Quit |
+| `q` / `Esc` | Quit |
 
-## Themes
+## Palettes
 
 ```sh
-anacraft theme               # list palettes with color swatches
-anacraft theme tokyo-night   # switch and persist
+anacraft theme                # list the palettes with swatches
+anacraft theme tokyo-night    # switch and persist
+anacraft --theme github dash  # override for one run
 ```
 
-Saved to `~/.anacraft/config.json` — remembered across sessions.
+`osaka-jade` (default) · `catppuccin` · `github` · `tokyo-night`
+
+The ore vocabulary — diamond, gold, redstone, lapis — is mapped onto whichever
+palette is selected, so the texture pack survives a theme swap.
 
 ## Configuration
 
 | File | Purpose |
 |------|---------|
-| `~/.anacraft/credentials.json` | OAuth refresh token (created by `login`) |
-| `~/.anacraft/config.json` | Default property, theme selection |
+| `~/.anacraft/credentials.json` | OAuth refresh token, written by `login` |
+| `~/.anacraft/config.json` | Default property and palette |
+
+`ANACRAFT_PROPERTY_ID` overrides the saved property if you would rather not keep
+one on disk.
 
 ## Requirements
 
-- Rust 1.74+ (for building from source)
 - A Google Analytics 4 property
-- A terminal with truecolor support (most modern terminals)
+- A terminal with truecolor support
+- Rust 1.74+, if you are building from source
+
+## Contributing
+
+`cargo run -- dash --demo` gets you a working dashboard with no Google account
+attached. See [CONTRIBUTING.md](CONTRIBUTING.md) for the layout of the code and
+what CI expects.
 
 ## License
 
 [Apache License 2.0](LICENSE)
 
----
 
-*Mined with ⛏ by [SmartLoop AI](https://github.com/smartloop-ai)*

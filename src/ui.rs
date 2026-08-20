@@ -1002,7 +1002,7 @@ fn draw(frame: &mut Frame, dash: &Dash) {
         .spacing(1)
         .split(area);
 
-    frame.render_widget(header(dash), chunks[0]);
+    frame.render_widget(header(dash, chunks[0].width), chunks[0]);
     body(frame, dash, chunks[1], narrow);
     frame.render_widget(footer(dash), chunks[2]);
 
@@ -1080,9 +1080,7 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
         for ((stack, _), area) in extras.into_iter().zip(rows.iter()) {
             match stack {
                 Stack::Map => frame.render_widget(map_panel(dash, area.width, area.height), *area),
-                Stack::Block => {
-                    frame.render_widget(block_panel(dash, 0, 0, area.width), *area)
-                }
+                Stack::Block => frame.render_widget(block_panel(dash, 0, 0, area.width), *area),
             }
         }
         // Vitals is always last — it gets the remaining rows.
@@ -1102,7 +1100,11 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
     for (on, column, needs) in [
         (dash.panels.live, Column::Live, LIVE_ROWS),
         (dash.panels.chunks, Column::Chunks, CHUNKS_ROWS),
-        (dash.panels.realms_ranked, Column::RealmsRanked, REALMS_RANKED_ROWS),
+        (
+            dash.panels.realms_ranked,
+            Column::RealmsRanked,
+            REALMS_RANKED_ROWS,
+        ),
         (dash.panels.trend, Column::Trend, TREND_ROWS),
     ] {
         let gap = u16::from(!panels.is_empty());
@@ -1119,9 +1121,7 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
     // that can use them; failing that, to whatever is first.
     let stretch = panels
         .iter()
-        .position(|(column, _)| {
-            matches!(column, Column::Chunks | Column::RealmsRanked)
-        })
+        .position(|(column, _)| matches!(column, Column::Chunks | Column::RealmsRanked))
         .unwrap_or(0);
     let constraints: Vec<Constraint> = panels
         .iter()
@@ -1226,7 +1226,56 @@ fn framed(title: &str, key: &str, color: Color) -> Block<'static> {
         ]))
 }
 
-fn header(dash: &Dash) -> Paragraph<'static> {
+/// Width the spinner needs when a fetch is in flight: two spaces and a glyph.
+const SPINNER_COLUMN: usize = 3;
+
+/// A short label for a realm chip.
+///
+/// Truncating to three characters renders "United States" and "United Kingdom"
+/// as the same "Uni", so two different realms read identically in the header.
+/// Multi-word names collapse to their initials instead — US, UK, UAE — while
+/// single-word names keep their first three letters. Lowercase joining words
+/// ("and", "of") are skipped so "Bosnia and Herzegovina" is BH, not BAH.
+fn realm_abbrev(country: &str) -> String {
+    let initials: String = country
+        .split_whitespace()
+        .filter(|word| word.chars().next().is_some_and(char::is_uppercase))
+        .filter_map(|word| word.chars().next())
+        .collect();
+
+    if initials.chars().count() > 1 {
+        initials
+    } else {
+        country.chars().take(3).collect()
+    }
+}
+
+/// The country chips for the header, ordered by headcount and capped at five.
+///
+/// A chip is emitted only if it fits whole. Letting the terminal clip instead
+/// leaves a half-written country against the border — "Bra:8" arriving as "B"
+/// reads as a rendering fault rather than a boundary.
+fn realm_chips(realms: &[(String, f64)], budget: usize) -> Vec<(String, String)> {
+    let mut sorted: Vec<&(String, f64)> = realms.iter().collect();
+    sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+    let mut chips: Vec<(String, String)> = Vec::new();
+    let mut used = 0usize;
+    for (country, count) in sorted.iter().take(5) {
+        let sep = if chips.is_empty() { " · " } else { "  " };
+        let chip = format!("{}:{}", realm_abbrev(country), *count as u64);
+        // Count columns, not bytes — a realm name is not necessarily ASCII.
+        let width = sep.chars().count() + chip.chars().count();
+        if used + width > budget {
+            break;
+        }
+        used += width;
+        chips.push((sep.to_string(), chip));
+    }
+    chips
+}
+
+fn header(dash: &Dash, width: u16) -> Paragraph<'static> {
     let phase = dash.phase();
     // A slow sine breathes the live dot; the glyph steps through three sizes so
     // it still reads as a pulse on a terminal without truecolor.
@@ -1260,31 +1309,30 @@ fn header(dash: &Dash) -> Paragraph<'static> {
         ),
     ];
 
-    // Top realms with their counts — where the players are right now.
-    let mut sorted_realms: Vec<&(String, f64)> = dash.live_realms.iter().collect();
-    sorted_realms.sort_by(|a, b| b.1.total_cmp(&a.1));
-    for (i, (country, count)) in sorted_realms.iter().take(5).enumerate() {
-        let abbrev: String = country.chars().take(3).collect();
-        if i == 0 {
-            spans.push(Span::styled(
-                " · ".to_string(),
-                Style::default().fg(ore::netherite()),
-            ));
-        } else {
-            spans.push(Span::styled(
-                "  ".to_string(),
-                Style::default().fg(ore::netherite()),
-            ));
-        }
+    // Top realms with their counts — where the players are right now. They get
+    // whatever room is left inside the border, minus the space the spinner will
+    // want if a fetch is in flight.
+    let spinning = dash.in_flight > 0 || dash.live_fetching;
+    let spent: usize = spans.iter().map(|span| span.width()).sum();
+    let budget = (width as usize)
+        .saturating_sub(2) // the block's own borders
+        .saturating_sub(spent)
+        .saturating_sub(if spinning { SPINNER_COLUMN } else { 0 });
+
+    for (i, (sep, chip)) in realm_chips(&dash.live_realms, budget)
+        .into_iter()
+        .enumerate()
+    {
+        spans.push(Span::styled(sep, Style::default().fg(ore::netherite())));
         spans.push(Span::styled(
-            format!("{abbrev}:{}", *count as u64),
+            chip,
             Style::default()
                 .fg(theme::ramp(i))
                 .add_modifier(Modifier::BOLD),
         ));
     }
 
-    if dash.in_flight > 0 || dash.live_fetching {
+    if spinning {
         spans.push(Span::styled(
             format!("  {}", spinner(phase)),
             Style::default().fg(theme::accent_deep()),
@@ -1556,6 +1604,27 @@ const PLACES: [(&str, f64, f64); 46] = [
     ("Australia", -25.0, 134.0),
 ];
 
+/// Deterministic per-cell noise. Texture has to be a pure function of the
+/// cell's position, or it reshuffles on every frame and the dashboard crawls.
+fn cell_noise(x: usize, y: usize) -> usize {
+    (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)) >> 4
+}
+
+/// Which block a stretch of land is built from.
+///
+/// Two shades, picked from the cell's own coordinates, so terrain reads as
+/// placed blocks rather than the dithered wash a single shade gives. The choice
+/// is a pure function of the position, so a cell keeps its block between frames
+/// instead of shimmering as the dashboard animates.
+fn terrain_block(x: usize, y: usize) -> &'static str {
+    let hash = cell_noise(x, y);
+    if hash % 3 == 0 {
+        "\u{2593}" // ▓ — a block with the light catching it differently
+    } else {
+        "\u{2588}" // █
+    }
+}
+
 /// Where a country lands on a `cols` x `rows` grid, if we know it. The grid
 /// covers the template's latitude band rather than the whole globe.
 fn place(country: &str, cols: usize, rows: usize) -> Option<(usize, usize)> {
@@ -1659,18 +1728,23 @@ fn map_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
 
     let mut lines: Vec<Line> = grid
         .into_iter()
-        .map(|row| {
+        .enumerate()
+        .map(|(y, row)| {
             let mut spans = vec![Span::raw("  ")];
-            for cell in row {
+            for (x, cell) in row.into_iter().enumerate() {
                 spans.push(match cell {
+                    // Open water.
+                    None => Span::raw(" "),
+                    // Land nobody arrived from — terrain, built out of blocks.
                     Some(color) if color == theme::shadow() => {
-                        Span::styled("░", Style::default().fg(color))
+                        Span::styled(terrain_block(x, y), Style::default().fg(color))
                     }
+                    // A realm with traffic reads as an ore seam in that terrain:
+                    // same block, lit by the ore's own color.
                     Some(color) => Span::styled(
-                        "\u{25cf}",
+                        glyph::FULL.to_string(),
                         Style::default().fg(color).add_modifier(Modifier::BOLD),
                     ),
-                    None => Span::raw(" "),
                 });
             }
             Line::from(spans)
@@ -1760,11 +1834,11 @@ fn block_panel(dash: &Dash, _half: usize, _depth: usize, width: u16) -> Paragrap
         if i > 0 {
             gem_spans.push(Span::raw(" ".repeat(gap)));
         }
-        let rising = row.moved.map_or(false, |m| m > 0);
+        let rising = row.moved.is_some_and(|m| m > 0);
         let glyph = if rising { "\u{25c6}" } else { " " };
         let color = if rising {
             ore::emerald()
-        } else if row.moved.map_or(false, |m| m < 0) {
+        } else if row.moved.is_some_and(|m| m < 0) {
             ore::redstone()
         } else {
             theme::shadow()
@@ -1776,7 +1850,8 @@ fn block_panel(dash: &Dash, _half: usize, _depth: usize, width: u16) -> Paragrap
     }
     lines.push(Line::from(gem_spans));
 
-    // Row 1: block tops (grass cap).
+    // Row 1: the grass cap. Textured per cell rather than laid down as one flat
+    // swatch — a block face in this world is supposed to look quarried.
     let mut top_spans: Vec<Span> = Vec::new();
     top_spans.push(Span::raw(" ".repeat(pad)));
     for (i, row) in pages.iter().take(count).enumerate() {
@@ -1784,15 +1859,24 @@ fn block_panel(dash: &Dash, _half: usize, _depth: usize, width: u16) -> Paragrap
             top_spans.push(Span::raw(" ".repeat(gap)));
         }
         let brightness = row.frac.shown;
-        let color = theme::mix(ore::grass(), ore::emerald(), brightness);
-        top_spans.push(Span::styled(
-            "\u{2588}".repeat(block_w),
-            Style::default().fg(color),
-        ));
+        for cell in 0..block_w {
+            let noise = cell_noise(i * 16 + cell, 0);
+            let lit = brightness + (noise % 3) as f64 * 0.09;
+            top_spans.push(Span::styled(
+                if noise % 4 == 0 {
+                    "\u{2593}"
+                } else {
+                    "\u{2588}"
+                },
+                Style::default().fg(theme::mix(ore::grass(), ore::emerald(), lit.min(1.0))),
+            ));
+        }
     }
     lines.push(Line::from(top_spans));
 
-    // Row 2: block bodies (dirt).
+    // Row 2: the dirt below it. Grass does not stop in a straight line on a
+    // Minecraft block — it hangs over the edge in a ragged fringe, which is a
+    // half block of grass sitting on a dirt background.
     let mut body_spans: Vec<Span> = Vec::new();
     body_spans.push(Span::raw(" ".repeat(pad)));
     for (i, row) in pages.iter().take(count).enumerate() {
@@ -1800,11 +1884,30 @@ fn block_panel(dash: &Dash, _half: usize, _depth: usize, width: u16) -> Paragrap
             body_spans.push(Span::raw(" ".repeat(gap)));
         }
         let brightness = row.frac.shown;
-        let color = theme::mix(ore::dirt(), ore::gold(), brightness * 0.4);
-        body_spans.push(Span::styled(
-            "\u{2588}".repeat(block_w),
-            Style::default().fg(color),
-        ));
+        for cell in 0..block_w {
+            let noise = cell_noise(i * 16 + cell, 1);
+            let soil = theme::mix(
+                ore::dirt(),
+                ore::gold(),
+                brightness * 0.4 + (noise % 3) as f64 * 0.06,
+            );
+            if noise % 3 == 0 {
+                let grass = theme::mix(ore::grass(), ore::emerald(), brightness);
+                body_spans.push(Span::styled(
+                    "\u{2580}",
+                    Style::default().fg(grass).bg(soil),
+                ));
+            } else {
+                body_spans.push(Span::styled(
+                    if noise % 5 == 0 {
+                        "\u{2593}"
+                    } else {
+                        "\u{2588}"
+                    },
+                    Style::default().fg(soil),
+                ));
+            }
+        }
     }
     lines.push(Line::from(body_spans));
 
@@ -2040,11 +2143,7 @@ fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
     let cells = inner.saturating_sub(3 + 2 + VIEWS_COLUMN).clamp(4, 20);
     let label_cells = inner.saturating_sub(4 + MOVED_COLUMN);
 
-    let peak = dash
-        .realms
-        .iter()
-        .map(|(_, v)| *v)
-        .fold(0.0_f64, f64::max);
+    let peak = dash.realms.iter().map(|(_, v)| *v).fold(0.0_f64, f64::max);
 
     let mut sorted: Vec<&(String, f64)> = dash.realms.iter().collect();
     sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -2067,14 +2166,9 @@ fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         lines.push(Line::from(vec![
             Span::styled(
                 format!("{ore_badge} "),
-                Style::default()
-                    .fg(ore_color)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(ore_color).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                format!("{label:<label_cells$}"),
-                Style::default().fg(color),
-            ),
+            Span::styled(format!("{label:<label_cells$}"), Style::default().fg(color)),
             Span::raw(" ".repeat(MOVED_COLUMN)),
         ]));
 
@@ -2348,6 +2442,76 @@ mod tests {
             settled.windows(2).any(|w| w[0] != w[1]),
             "a settled bar stopped animating: {settled:?}"
         );
+    }
+
+    #[test]
+    fn header_realms_are_dropped_whole_never_sliced() {
+        let realms: Vec<(String, f64)> = vec![
+            ("United States".into(), 44.0),
+            ("India".into(), 18.0),
+            ("Germany".into(), 12.0),
+            ("United Kingdom".into(), 11.0),
+            ("Brazil".into(), 8.0),
+        ];
+        for budget in 0..=64 {
+            let chips = realm_chips(&realms, budget);
+            let drawn: usize = chips
+                .iter()
+                .map(|(sep, chip)| sep.chars().count() + chip.chars().count())
+                .sum();
+            assert!(drawn <= budget, "budget {budget}: drew {drawn}");
+            for (_, chip) in &chips {
+                let count = chip.split(':').nth(1);
+                assert!(
+                    count.is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())),
+                    "budget {budget}: truncated chip {chip:?}"
+                );
+            }
+        }
+        // Given room for everything, nothing is dropped.
+        assert_eq!(realm_chips(&realms, 200).len(), 5);
+
+        // The two "United ..." realms must not collapse onto the same label.
+        let labels: Vec<String> = realm_chips(&realms, 200)
+            .into_iter()
+            .map(|(_, chip)| chip.split(':').next().unwrap().to_string())
+            .collect();
+        let unique: std::collections::HashSet<&String> = labels.iter().collect();
+        assert_eq!(
+            unique.len(),
+            labels.len(),
+            "ambiguous realm labels: {labels:?}"
+        );
+    }
+
+    #[test]
+    fn realm_abbreviations_distinguish_similar_names() {
+        assert_eq!(realm_abbrev("United States"), "US");
+        assert_eq!(realm_abbrev("United Kingdom"), "UK");
+        assert_eq!(realm_abbrev("United Arab Emirates"), "UAE");
+        assert_eq!(realm_abbrev("Bosnia and Herzegovina"), "BH");
+        assert_eq!(realm_abbrev("India"), "Ind");
+        assert_eq!(realm_abbrev("Germany"), "Ger");
+    }
+
+    #[test]
+    fn terrain_blocks_are_stable_and_blocky() {
+        for y in 0..40 {
+            for x in 0..140 {
+                let block = terrain_block(x, y);
+                assert!(
+                    block == "\u{2588}" || block == "\u{2593}",
+                    "({x},{y}) drew {block:?}, which is not a block"
+                );
+                // Same cell, same block — otherwise the map shimmers per frame.
+                assert_eq!(block, terrain_block(x, y));
+            }
+        }
+        // Both shades actually get used, or this is just a solid fill.
+        let shades: std::collections::HashSet<&str> = (0..30)
+            .flat_map(|y| (0..30).map(move |x| terrain_block(x, y)))
+            .collect();
+        assert_eq!(shades.len(), 2, "terrain collapsed to one shade");
     }
 
     #[test]

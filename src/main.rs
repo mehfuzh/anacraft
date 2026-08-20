@@ -21,7 +21,10 @@ use theme::{ore, OVERVIEW};
     name = "anacraft",
     version,
     about = "Google Analytics, mined block by block",
-    long_about = None
+    long_about = None,
+    after_help = "Run `anacraft` with no command to open the live dashboard.\n\
+                  With no property saved it runs on synthetic data, so it works \
+                  before you sign in."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -85,7 +88,7 @@ enum Command {
         /// Palette name. Omit to list what is available.
         name: Option<String>,
     },
-    /// Full-screen live dashboard.
+    /// Full-screen live dashboard. Runs when no command is given.
     Dash {
         #[arg(long, short, default_value_t = 7)]
         days: u32,
