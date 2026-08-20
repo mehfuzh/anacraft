@@ -146,13 +146,7 @@ pub const LIGHT: Palette = Palette {
     lapis: Color::Rgb(31, 88, 205),
 };
 
-pub const THEMES: [&Palette; 5] = [
-    &OSAKA_JADE,
-    &CATPPUCCIN,
-    &GITHUB,
-    &TOKYO_NIGHT,
-    &LIGHT,
-];
+pub const THEMES: [&Palette; 5] = [&OSAKA_JADE, &CATPPUCCIN, &GITHUB, &TOKYO_NIGHT, &LIGHT];
 
 static SELECTED: AtomicUsize = AtomicUsize::new(0);
 
