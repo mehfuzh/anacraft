@@ -102,6 +102,9 @@ enum Command {
         #[arg(long)]
         demo: bool,
     },
+    /// Print the site's dashboard captures as HTML. Used by `make capture`.
+    #[command(hide = true)]
+    Capture,
 }
 
 #[tokio::main]
@@ -140,6 +143,10 @@ async fn run() -> Result<()> {
         demo: cfg.property_id.is_none(),
     }) {
         Command::Demo => cmd_demo(),
+        Command::Capture => {
+            print!("{}", ui::capture()?);
+            Ok(())
+        }
         Command::Theme { name } => cmd_theme(name.as_deref()),
         Command::Login => cmd_login().await,
         Command::Logout => cmd_logout().await,

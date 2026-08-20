@@ -7,7 +7,7 @@ send a PR.
 ## Getting set up
 
 ```sh
-git clone https://github.com/smartloop-ai/anacraft.git
+git clone https://github.com/mehfuzh/anacraft.git
 cd anacraft
 cargo run -- dash --demo
 ```
@@ -52,7 +52,7 @@ Clippy is set to deny warnings, so a lint is a build failure, not a suggestion.
 | `src/theme.rs` | Palettes, the ore vocabulary, glyphs, metric definitions |
 | `src/render.rs` | Shared drawing helpers — bars, deltas, sparklines |
 | `src/achievements.rs` | The milestone rules behind the toasts |
-| `src/config.rs` | `~/.anacraft/config.json` and `credentials.json` |
+| `src/config.rs` | `~/.anacraft/config.json` and `token.json` |
 | `docs/` | The anacraft.dev site, served by GitHub Pages |
 
 ### A note on the ore vocabulary
@@ -65,7 +65,7 @@ cost anyone the meaning.
 
 Colors go through `src/theme.rs` rather than being written inline. Reach for an
 ore name (`ore::diamond()`, `ore::redstone()`) instead of a literal, so whatever
-you add survives a theme swap across all four palettes.
+you add survives a theme swap across all five palettes.
 
 ## Testing UI code
 
@@ -85,9 +85,22 @@ were not looking at.
 ## The site
 
 `docs/` is the published site. The embedded dashboard on it is a real capture,
-not a mockup: `anacraft dash --demo` recorded through a pty, replayed, and
-converted to markup one cell at a time. If a change alters how the dashboard
-looks, the capture is stale — say so in the PR and it can be re-recorded.
+not a mockup — the dashboard rendered into a buffer and converted to markup one
+cell at a time, for every palette, at both the wide and the phone-sized reflow.
+
+If a change alters how the dashboard looks, the capture is stale. Regenerate it:
+
+```sh
+make capture
+```
+
+That runs the hidden `anacraft capture` subcommand and splices its output into
+`docs/index.html` between the `<!-- capture:start -->` markers. The demo data is
+seeded and the footer clock is frozen, so regenerating with nothing changed is a
+no-op diff — if `git diff` is noisy, the dashboard really did change.
+
+Please run it in the same PR as the change. These used to be maintained by hand,
+which is how the site came to advertise a panel the dashboard no longer drew.
 
 ## Releases
 

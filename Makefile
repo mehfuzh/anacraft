@@ -33,3 +33,6 @@ lint: ## Clippy, warnings denied
 
 test: ## Run the test suite
 	cargo test
+
+capture: ## Regenerate the site's dashboard captures from the real TUI
+	@cargo run --quiet --release -- capture | python3 scripts/splice-capture.py

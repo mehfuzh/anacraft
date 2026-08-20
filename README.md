@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://anacraft.dev">anacraft.dev</a> ·
-  <a href="https://github.com/smartloop-ai/anacraft/releases">Releases</a> ·
+  <a href="https://github.com/mehfuzh/anacraft/releases">Releases</a> ·
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
   <a href="https://www.rust-lang.org/"><img alt="Rust 1.74+" src="https://img.shields.io/badge/Rust-1.74+-orange.svg"></a>
 </p>
@@ -38,10 +38,10 @@ curl -fsSL https://anacraft.dev/install.sh | INSTALL_DIR=~/bin bash
 **From source**
 
 ```sh
-cargo install --git https://github.com/smartloop-ai/anacraft
+cargo install --git https://github.com/mehfuzh/anacraft
 ```
 
-**Manual** — grab a binary from [Releases](https://github.com/smartloop-ai/anacraft/releases), extract it, and put `anacraft` on your `PATH`.
+**Manual** — grab a binary from [Releases](https://github.com/mehfuzh/anacraft/releases), extract it, and put `anacraft` on your `PATH`.
 
 ## Quick start
 
@@ -84,7 +84,7 @@ reflows to fill the terminal.
 
 | Key | Panel | What it shows |
 |-----|-------|---------------|
-| `1` | **WORLD** | Pages as blocks — brightness tracks traffic share, a gem marks a riser |
+| `1` | **EVENTS** | Event count per day, this period drawn over the last one, with the total and its change |
 | `2` | **RIGHT NOW** | Live player count plus a spawn / wander-off event feed |
 | `3` | **TOP CHUNKS** | Most-visited pages with view bars and rank movement |
 | `4` | **DAILY VILLAGERS** | User trend across the period |
@@ -96,7 +96,7 @@ reflows to fill the terminal.
 
 | Key | Action |
 |-----|--------|
-| `1`–`7` | Toggle a panel — `b` `l` `p` `d` `m` `v` `g` do the same |
+| `1`–`7` | Toggle a panel — `e` `l` `p` `d` `m` `v` `g` do the same |
 | `t` | Cycle the palette, and save it |
 | `r` | Rebuild — force a refetch now |
 | `?` / `h` | Help overlay |
@@ -119,7 +119,7 @@ palette is selected, so the texture pack survives a theme swap.
 
 | File | Purpose |
 |------|---------|
-| `~/.anacraft/credentials.json` | OAuth refresh token, written by `login` |
+| `~/.anacraft/token.json` | OAuth refresh token, written by `login` |
 | `~/.anacraft/config.json` | Default property and palette |
 
 `ANACRAFT_PROPERTY_ID` overrides the saved property if you would rather not keep
