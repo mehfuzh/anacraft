@@ -13,7 +13,7 @@
 <meta property="og:image" content="https://anacraft.dev/dash.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://anacraft.dev/dash.png">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛏</text></svg>">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=2dd77504">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -73,10 +73,10 @@
   .nav-in { display: flex; align-items: center; gap: 32px; height: 60px; }
   .brand {
     font-family: 'Archivo', sans-serif; font-weight: 900;
-    font-size: 17px; letter-spacing: -.03em; color: var(--white);
-    display: flex; align-items: center; gap: 8px;
+    font-size: 20px; letter-spacing: -.03em; color: var(--white);
+    display: flex; align-items: baseline; gap: 0;
   }
-  .brand .pick { color: var(--jade); font-size: 15px; }
+  .brand .pick { width: 14px; height: 14px; display: block; margin-right: 2px; }
   .nav-links { display: flex; align-items: center; gap: 26px; margin-left: auto; font-size: 13.5px; color: var(--dim); }
   .nav-links a { transition: color .15s; }
   .nav-links a:hover { color: var(--white); }
@@ -368,7 +368,7 @@
 
 <nav>
   <div class="wrap nav-in">
-    <a class="brand" href="/"><span class="pick">⛏</span> anacraft</a>
+    <a class="brand" href="/"><img class="pick" src="mark.svg?v=7b310f6e" alt="A" width="14" height="14">nacraft</a>
     <div class="nav-links">
       <a href="#dashboard">Dashboard</a>
       <a href="#features">Features</a>

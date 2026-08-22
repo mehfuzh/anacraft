@@ -25,8 +25,9 @@ use crossterm::event::{
 };
 use crossterm::execute;
 use crossterm::terminal::supports_keyboard_enhancement;
+use rand::Rng;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Paragraph};
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc::{self, UnboundedSender};
 
@@ -64,6 +65,9 @@ const CHUNKS_ROWS: u16 = 6;
 const REALMS_RANKED_ROWS: u16 = 10;
 /// The map's box: nine rows of world, a caption, and borders.
 const MAP_ROWS: u16 = 12;
+/// The events chart: enough rows that the two lines are told apart, plus the
+/// axis labels, the legend and the borders.
+const EVENTS_ROWS: u16 = 14;
 /// Width of the view-count column on the chunk rows.
 const VIEWS_COLUMN: usize = 8;
 /// Width of the share-of-page-views column beside it.
@@ -133,6 +137,10 @@ fn flash_level(at: Option<Instant>) -> f64 {
 
 // ------------------------------------------------------------------ data ---
 
+/// Event counts keyed by GA's `YYYYMMDD`, for the period and the one before it,
+/// each already in chronological order.
+type EventCounts = (Vec<(String, f64)>, Vec<(String, f64)>);
+
 /// One report pass. The realtime number is not in here: it arrives on its own
 /// cadence, and folding it in would make it as stale as the reports.
 struct Snapshot {
@@ -141,6 +149,8 @@ struct Snapshot {
     daily: Vec<f64>,
     pages: Vec<(String, f64)>,
     realms: Vec<(String, f64)>,
+    /// Event counts per day, for the period and the one before it.
+    events: EventCounts,
 }
 
 /// A report arrives in pieces, and each piece is painted the moment it lands
@@ -155,6 +165,8 @@ enum Update {
     },
     Trend(Vec<f64>),
     Pages(Vec<(String, f64)>),
+    /// Event counts per day, for the period and the one before it.
+    Events(EventCounts),
     /// Users by country for the period — where they came from.
     Realms(Vec<(String, f64)>),
     Live {
@@ -180,6 +192,23 @@ struct PageRow {
     moved: Option<i64>,
 }
 
+/// Events per day for the period and for the period before it.
+///
+/// The points are kept in the chart's own coordinates so the datasets can borrow
+/// them straight out of the dashboard rather than being rebuilt every frame.
+#[derive(Default)]
+struct EventTrend {
+    current: Vec<(f64, f64)>,
+    /// The earlier period, laid over the same x range so the two read as a
+    /// comparison rather than as one series twice as long.
+    previous: Vec<(f64, f64)>,
+    /// Day-of-month labels, one per point in `current`.
+    days: Vec<String>,
+    total: f64,
+    total_previous: f64,
+    peak: f64,
+}
+
 /// Which panels are on screen. Hidden panels give their rows and columns back
 /// to whatever is left, so hiding one is a layout change rather than a blank
 /// rectangle.
@@ -190,12 +219,18 @@ struct Panels {
     realms_ranked: bool,
     trend: bool,
     map: bool,
-    block: bool,
+    events: bool,
 }
 
 impl Panels {
     fn any(&self) -> bool {
-        self.vitals || self.live || self.chunks || self.realms_ranked || self.trend || self.map
+        self.vitals
+            || self.live
+            || self.chunks
+            || self.realms_ranked
+            || self.trend
+            || self.map
+            || self.events
     }
 
     /// Panels that live in the right-hand column, top to bottom.
@@ -216,6 +251,8 @@ struct Dash {
     metrics: Vec<MetricRow>,
     daily: Vec<f64>,
     pages: Vec<PageRow>,
+    /// Events per day, this period against the last.
+    events: EventTrend,
     live: Eased,
     live_raw: f64,
     /// Realtime samples, oldest first — the live sparkline scrolls off this.
@@ -259,6 +296,7 @@ impl Dash {
             metrics: Vec::new(),
             daily: Vec::new(),
             pages: Vec::new(),
+            events: EventTrend::default(),
             live: Eased::new(live),
             live_raw: live,
             history: VecDeque::from(vec![live]),
@@ -276,7 +314,7 @@ impl Dash {
                 realms_ranked: true,
                 trend: true,
                 map: true,
-                block: true,
+                events: true,
             },
             help: false,
             peak: live.max(1.0),
@@ -297,6 +335,7 @@ impl Dash {
         self.apply_totals(snapshot.current, snapshot.previous);
         self.apply_trend(snapshot.daily);
         self.apply_pages(snapshot.pages);
+        self.apply_events(snapshot.events);
         self.realms = snapshot.realms;
     }
 
@@ -370,6 +409,35 @@ impl Dash {
                 }),
             }
         }
+
+        self.updated = stamp();
+        self.error = None;
+    }
+
+    /// The two periods are plotted against one x range, so day 1 of this period
+    /// sits under day 1 of the last however many days each actually returned.
+    fn apply_events(&mut self, (current, previous): EventCounts) {
+        let points = |counts: &[(String, f64)]| -> Vec<(f64, f64)> {
+            counts
+                .iter()
+                .enumerate()
+                .map(|(i, (_, count))| (i as f64, *count))
+                .collect()
+        };
+
+        self.events = EventTrend {
+            days: current.iter().map(|(date, _)| day_of_month(date)).collect(),
+            total: current.iter().map(|(_, count)| count).sum(),
+            total_previous: previous.iter().map(|(_, count)| count).sum(),
+            // One scale for both lines, or the comparison is meaningless.
+            peak: current
+                .iter()
+                .chain(previous.iter())
+                .map(|(_, count)| *count)
+                .fold(0.0_f64, f64::max),
+            current: points(&current),
+            previous: points(&previous),
+        };
 
         self.updated = stamp();
         self.error = None;
@@ -500,15 +568,56 @@ async fn fetch_pages(client: &Ga, property: &str, days: u32) -> Result<Vec<(Stri
         .collect())
 }
 
+/// Event counts per day, for the period and for the period before it — the pair
+/// the chart draws as one comparison.
+///
+/// Two requests rather than one: GA has no period comparison in a single report,
+/// and asking for both date ranges at once returns them interleaved with no way
+/// to tell which range a row came from.
+async fn fetch_events(client: &Ga, property: &str, days: u32) -> Result<EventCounts> {
+    let by_day = |range| {
+        ReportRequest::new(&["eventCount"])
+            .by(&["date"])
+            .range(range)
+    };
+
+    let (current, previous) = tokio::try_join!(
+        client.report(property, by_day(DateRange::last_days(days))),
+        client.report(property, by_day(DateRange::previous_days(days)))
+    )?;
+
+    // GA returns date rows unordered; a line chart needs them chronological.
+    let series = |report: &crate::ga::Report| {
+        let mut rows: Vec<(String, f64)> = report
+            .rows
+            .iter()
+            .map(|row| (row.dimension(0).to_string(), row.metric(0)))
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        rows
+    };
+
+    Ok((series(&current), series(&previous)))
+}
+
+/// `YYYYMMDD` down to the day, for the chart's x axis.
+fn day_of_month(date: &str) -> String {
+    date.get(6..8)
+        .map(|day| day.trim_start_matches('0').to_string())
+        .filter(|day| !day.is_empty())
+        .unwrap_or_else(|| date.to_string())
+}
+
 /// The whole set at once, for the fetch that happens before the screen is
-/// taken over. The three run concurrently, so this costs one round trip rather
-/// than three.
+/// taken over. The parts run concurrently, so this costs one round trip rather
+/// than one per part.
 async fn fetch_report(client: &Ga, property: &str, days: u32) -> Result<Snapshot> {
-    let (totals, daily, pages, realms) = tokio::try_join!(
+    let (totals, daily, pages, realms, events) = tokio::try_join!(
         fetch_totals(client, property, days),
         fetch_trend(client, property, days),
         fetch_pages(client, property, days),
-        fetch_realms(client, property, days)
+        fetch_realms(client, property, days),
+        fetch_events(client, property, days)
     )?;
 
     Ok(Snapshot {
@@ -517,6 +626,7 @@ async fn fetch_report(client: &Ga, property: &str, days: u32) -> Result<Snapshot
         daily,
         pages,
         realms,
+        events,
     })
 }
 
@@ -550,13 +660,14 @@ enum Source {
     Demo(std::sync::Mutex<Synthetic>),
 }
 
-/// The four requests a report pass is made of.
+/// The requests a report pass is made of.
 #[derive(Clone, Copy)]
 enum Part {
     Totals,
     Trend,
     Pages,
     Realms,
+    Events,
 }
 
 impl Source {
@@ -582,6 +693,9 @@ impl Source {
                             Part::Realms => fetch_realms(&client, &property, days)
                                 .await
                                 .map(Update::Realms),
+                            Part::Events => fetch_events(&client, &property, days)
+                                .await
+                                .map(Update::Events),
                         };
                         // Keep showing stale numbers rather than tearing the
                         // screen down.
@@ -593,10 +707,11 @@ impl Source {
                 spawn(Part::Trend);
                 spawn(Part::Pages);
                 spawn(Part::Realms);
-                4
+                spawn(Part::Events);
+                5
             }
             Source::Demo(synthetic) => {
-                let snapshot = synthetic.lock().unwrap().report();
+                let snapshot = synthetic.lock().unwrap().report(&mut rand::thread_rng());
                 let _ = tx.send(Update::Totals {
                     current: snapshot.current,
                     previous: snapshot.previous,
@@ -604,7 +719,8 @@ impl Source {
                 let _ = tx.send(Update::Trend(snapshot.daily));
                 let _ = tx.send(Update::Pages(snapshot.pages));
                 let _ = tx.send(Update::Realms(snapshot.realms));
-                4
+                let _ = tx.send(Update::Events(snapshot.events));
+                5
             }
         }
     }
@@ -623,7 +739,7 @@ impl Source {
                 });
             }
             Source::Demo(synthetic) => {
-                let (total, realms) = synthetic.lock().unwrap().live();
+                let (total, realms) = synthetic.lock().unwrap().live(&mut rand::thread_rng());
                 let _ = tx.send(Update::Live { total, realms });
             }
         }
@@ -665,13 +781,14 @@ pub async fn run(property: &str, days: u32, refresh: u64, live_refresh: u64) -> 
 /// is what makes it usable for screenshots and for tuning the animation.
 pub async fn run_demo(days: u32, refresh: u64, live_refresh: u64) -> Result<()> {
     let mut synthetic = Synthetic::new();
-    let snapshot = synthetic.report();
-    let (live, realms) = synthetic.live();
+    let mut rng = rand::thread_rng();
+    let snapshot = synthetic.report(&mut rng);
+    let (live, realms) = synthetic.live(&mut rng);
 
     let source = Source::Demo(std::sync::Mutex::new(synthetic));
     drive(
         source,
-        "Redstone Labs (demo)".to_string(),
+        "Contoso Labs (demo)".to_string(),
         days,
         snapshot,
         live,
@@ -756,6 +873,10 @@ async fn event_loop(
                     dash.apply_pages(pages);
                     dash.in_flight = dash.in_flight.saturating_sub(1);
                 }
+                Update::Events(events) => {
+                    dash.apply_events(events);
+                    dash.in_flight = dash.in_flight.saturating_sub(1);
+                }
                 Update::Realms(realms) => {
                     dash.realms = realms;
                     dash.updated = stamp();
@@ -815,26 +936,26 @@ async fn event_loop(
                         // Ctrl+digit and the bare digit do the same thing: the
                         // titles advertise Ctrl, but not every terminal can
                         // send it.
-                        KeyCode::Char('1') | KeyCode::Char('b') => {
-                            dash.panels.block = !dash.panels.block
+                        KeyCode::Char('1') | KeyCode::Char('e') => {
+                            dash.panels.events = !dash.panels.events
                         }
                         KeyCode::Char('2') | KeyCode::Char('l') => {
                             dash.panels.live = !dash.panels.live
                         }
-                        KeyCode::Char('3') | KeyCode::Char('p') => {
-                            dash.panels.chunks = !dash.panels.chunks
-                        }
-                        KeyCode::Char('4') | KeyCode::Char('d') => {
-                            dash.panels.trend = !dash.panels.trend
-                        }
-                        KeyCode::Char('5') | KeyCode::Char('m') => {
+                        KeyCode::Char('3') | KeyCode::Char('m') => {
                             dash.panels.map = !dash.panels.map
                         }
-                        KeyCode::Char('6') | KeyCode::Char('v') => {
+                        KeyCode::Char('4') | KeyCode::Char('p') => {
+                            dash.panels.chunks = !dash.panels.chunks
+                        }
+                        KeyCode::Char('5') | KeyCode::Char('v') => {
                             dash.panels.vitals = !dash.panels.vitals
                         }
-                        KeyCode::Char('7') | KeyCode::Char('g') => {
+                        KeyCode::Char('6') | KeyCode::Char('g') => {
                             dash.panels.realms_ranked = !dash.panels.realms_ranked
+                        }
+                        KeyCode::Char('7') | KeyCode::Char('d') => {
+                            dash.panels.trend = !dash.panels.trend
                         }
                         // Nothing to announce: every color on screen changes,
                         // which is the feedback.
@@ -870,10 +991,7 @@ impl Synthetic {
         }
     }
 
-    fn report(&mut self) -> Snapshot {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
+    fn report(&mut self, rng: &mut impl Rng) -> Snapshot {
         // Counts creep up, the bounce rate wobbles, the day's last bar grows.
         for (i, value) in self.current.iter_mut().enumerate() {
             *value *= 1.0 + rng.gen_range(-0.004..0.012) * if i == 4 { 0.4 } else { 1.0 };
@@ -929,6 +1047,31 @@ impl Synthetic {
                 )
             })
             .collect(),
+            events: {
+                // A fixed anchor date, not today's: the site's captures embed
+                // these day labels, and a moving window would rewrite them on
+                // every regeneration.
+                let anchor = chrono::NaiveDate::from_ymd_opt(2026, 8, 19).unwrap();
+                // A week that sags at the weekend and climbs into Monday. Shaped
+                // rather than random, so the two periods cross somewhere and the
+                // comparison has something to show.
+                const NOW: [f64; 7] = [0.61, 0.72, 0.54, 0.33, 0.44, 0.87, 1.00];
+                const BEFORE: [f64; 7] = [0.57, 0.48, 0.60, 0.38, 0.30, 0.66, 0.71];
+                // Events outnumber page views: every view is one, plus the rest.
+                let base = self.current[2] * 1.7 / 7.0;
+                let series = |shape: &[f64; 7], offset: i64| -> Vec<(String, f64)> {
+                    shape
+                        .iter()
+                        .enumerate()
+                        .map(|(day, scale)| {
+                            let back = offset + 6 - day as i64;
+                            let date = anchor - chrono::Duration::days(back);
+                            (date.format("%Y%m%d").to_string(), (base * scale).round())
+                        })
+                        .collect()
+                };
+                (series(&NOW, 0), series(&BEFORE, 7))
+            },
         };
 
         // GA returns these ranked; the jitter above would otherwise leave them
@@ -937,9 +1080,7 @@ impl Synthetic {
         snapshot
     }
 
-    fn live(&mut self) -> (f64, Vec<(String, f64)>) {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
+    fn live(&mut self, rng: &mut impl Rng) -> (f64, Vec<(String, f64)>) {
         // Random walk with a pull back toward 128, so it wanders without
         // drifting off the panel.
         let pull = (128.0 - self.live) * 0.15;
@@ -969,6 +1110,177 @@ impl Synthetic {
         .collect();
         (self.live, realms)
     }
+}
+
+// ---------------------------------------------------------------- capture ---
+
+/// The captures the site embeds: the wide one and the phone-sized reflow.
+const CAPTURES: [(u16, u16); 2] = [(132, 52), (74, 58)];
+/// Fixed, so `make capture` produces the same numbers every run and a regenerated
+/// site is a diff of what actually changed rather than of fresh demo jitter.
+const CAPTURE_SEED: u64 = 0x0a0e_c4af;
+
+/// The demo dashboard as the site shows it: eased fully into place, so nothing
+/// is captured half-animated.
+fn capture_dash() -> Dash {
+    use rand::SeedableRng;
+    let mut rng = rand::rngs::StdRng::seed_from_u64(CAPTURE_SEED);
+
+    let mut synthetic = Synthetic::new();
+    let snapshot = synthetic.report(&mut rng);
+    let (live, realms) = synthetic.live(&mut rng);
+    let mut dash = Dash::new(
+        "Contoso Labs (demo)".to_string(),
+        7,
+        snapshot,
+        live,
+        realms,
+        Duration::from_secs(30),
+        Duration::from_secs(5),
+    );
+
+    // Run the realtime poll forward for a while before capturing. A cold start
+    // has an empty trace and an empty feed, so capturing one shows the realtime
+    // panel with a flat line and "quiet out there" — the two things it exists to
+    // disprove.
+    for tick in 0..HISTORY {
+        if tick % 8 == 0 {
+            let (live, realms) = synthetic.live(&mut rng);
+            dash.apply_live(live, realms);
+        }
+        dash.step(FRAME.as_secs_f64());
+        dash.trace();
+    }
+    // Settle whatever is still easing, so nothing is caught mid-flight.
+    for _ in 0..120 {
+        dash.step(FRAME.as_secs_f64());
+    }
+    // The footer stamps the wall clock, which would otherwise be the one thing
+    // that differs every time the captures are regenerated.
+    dash.updated = "17:24:53".to_string();
+    dash
+}
+
+/// One layer of a capture. The site paints cell backgrounds and glyphs as two
+/// stacked plates, the order a terminal composites in — see the note on `.dash`
+/// in `docs/index.html` for why a single plate cannot hold both.
+fn plate(buffer: &Buffer, background: bool) -> String {
+    let area = *buffer.area();
+    let mut out = String::new();
+
+    for y in 0..area.height {
+        if y > 0 {
+            out.push('\n');
+        }
+        // Runs of cells sharing a color collapse into one tag, or the page
+        // would carry a span per cell and weigh several megabytes.
+        let mut run = String::new();
+        let mut key: Option<(Option<String>, bool)> = None;
+
+        let flush = |out: &mut String, run: &mut String, key: &Option<(Option<String>, bool)>| {
+            if run.is_empty() {
+                return;
+            }
+            let text = escape(run, !background);
+            match key {
+                Some((Some(hex), bold)) => {
+                    let property = if background { "background" } else { "color" };
+                    let weight = if *bold { ";font-weight:700" } else { "" };
+                    out.push_str(&format!("<b style=\"{property}:{hex}{weight}\">{text}</b>"));
+                }
+                // A cell the theme never colored: the plate leaves it bare.
+                _ => out.push_str(&text),
+            }
+            run.clear();
+        };
+
+        for x in 0..area.width {
+            let cell = &buffer[(x, y)];
+            let color = if background { cell.bg } else { cell.fg };
+            let bold = !background && cell.modifier.contains(Modifier::BOLD);
+            let next = (hex(color), bold);
+            if key.as_ref() != Some(&next) {
+                flush(&mut out, &mut run, &key);
+                key = Some(next);
+            }
+            run.push_str(cell.symbol());
+        }
+        flush(&mut out, &mut run, &key);
+    }
+
+    out
+}
+
+/// `Color::Rgb` is all the palettes use, so anything else is a cell nobody
+/// styled and the plate leaves it to the page's own background.
+fn hex(color: Color) -> Option<String> {
+    match color {
+        Color::Rgb(r, g, b) => Some(format!("#{r:02x}{g:02x}{b:02x}")),
+        _ => None,
+    }
+}
+
+/// HTML-escapes a run, and pins the pickaxe's width on the glyph plate: U+26CF
+/// is absent from JetBrains Mono and falls back to an emoji wider than its cell,
+/// which would shift everything after it out of the grid.
+fn escape(text: &str, pin_wide: bool) -> String {
+    let escaped = text
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    if pin_wide {
+        escaped.replace(
+            glyph::PICKAXE,
+            &format!(
+                "<i class=\"wide\" style=\"width:0.6em\">{}</i>",
+                glyph::PICKAXE
+            ),
+        )
+    } else {
+        escaped
+    }
+}
+
+/// Renders the demo dashboard for every palette, at both captures, as the
+/// two-plate HTML `docs/index.html` embeds between its capture markers.
+///
+/// The site used to carry these by hand, which is how it came to advertise a
+/// panel the dashboard had stopped drawing and a palette it never shipped.
+pub fn capture() -> Result<String> {
+    use ratatui::backend::TestBackend;
+
+    let mut out = String::new();
+
+    for (index, (width, height)) in CAPTURES.iter().enumerate() {
+        let class = if index == 0 { "wide" } else { "narrow" };
+        out.push_str(&format!("<div class=\"plate {class}\">"));
+
+        for (nth, palette) in theme::THEMES.iter().enumerate() {
+            if !theme::select(palette.name) {
+                anyhow::bail!("no palette named {}", palette.name);
+            }
+            let dash = capture_dash();
+
+            let mut terminal = Terminal::new(TestBackend::new(*width, *height))?;
+            terminal.draw(|frame| draw(frame, &dash))?;
+            let buffer = terminal.backend().buffer();
+
+            // Only the first is shown; the tabs unhide the others.
+            let hidden = if nth == 0 { "" } else { " hidden" };
+            out.push_str(&format!(
+                "<pre class=\"dash\" data-theme=\"{}\"{hidden}>\
+                 <span class=\"lyr bgl\" aria-hidden=\"true\">{}</span>\
+                 <span class=\"lyr fgl\">{}</span></pre>",
+                palette.name,
+                plate(buffer, true),
+                plate(buffer, false),
+            ));
+        }
+
+        out.push_str("</div>\n");
+    }
+
+    Ok(out)
 }
 
 // ------------------------------------------------------------------- draw ---
@@ -1046,16 +1358,17 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
     };
 
     if let Some(rect) = left {
-        // Block first, then the realms map, then vitals at the bottom: each
+        // Events first, then the realms map, then vitals at the bottom: each
         // takes a box of its own if the column still has the rows for it.
         let mut budget = rect.height;
         let mut extras: Vec<(Stack, u16)> = Vec::new();
 
-        // Block at the top — page block grid, fixed 6 rows.
-        if dash.panels.block {
-            let needs = 6u16;
+        // Events at the top — one row per event, so it wants its full box or
+        // the bottom rows get clipped away.
+        if dash.panels.events {
+            let needs = EVENTS_ROWS;
             if budget > needs {
-                extras.push((Stack::Block, needs));
+                extras.push((Stack::Events, needs));
                 budget -= needs + 1;
             }
         }
@@ -1080,7 +1393,7 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
         for ((stack, _), area) in extras.into_iter().zip(rows.iter()) {
             match stack {
                 Stack::Map => frame.render_widget(map_panel(dash, area.width, area.height), *area),
-                Stack::Block => frame.render_widget(block_panel(dash, 0, 0, area.width), *area),
+                Stack::Events => frame.render_widget(events_panel(dash), *area),
             }
         }
         // Vitals is always last — it gets the remaining rows.
@@ -1158,13 +1471,13 @@ fn help_overlay(frame: &mut Frame, area: Rect) {
     let keys = [
         ("q / Esc", "quit"),
         ("r", "refresh now"),
-        ("^1 / 1", "block"),
+        ("^1 / 1", "events panel"),
         ("^2 / 2", "right now panel"),
-        ("^3 / 3", "top chunks panel"),
-        ("^4 / 4", "daily villagers"),
-        ("^5 / 5", "realms map"),
-        ("^6 / 6", "vitals panel"),
-        ("^7 / 7", "top realms"),
+        ("^3 / 3", "realms map"),
+        ("^4 / 4", "top chunks panel"),
+        ("^5 / 5", "vitals panel"),
+        ("^6 / 6", "top realms"),
+        ("^7 / 7", "daily villagers"),
         ("t", "next theme"),
         ("? / h", "this list"),
     ];
@@ -1390,7 +1703,7 @@ fn metrics_panel(dash: &Dash) -> Paragraph<'static> {
         lines.push(Line::from(""));
     }
 
-    Paragraph::new(lines).block(framed("VITALS", "6", ore::grass()))
+    Paragraph::new(lines).block(framed("VITALS", "5", ore::grass()))
 }
 
 /// Rank badges: the top three chunks are ore, the rest are plain stone. It is
@@ -1466,7 +1779,7 @@ fn trend_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         Style::default().fg(theme::fade(theme::sage(), 0.2)),
     )));
 
-    Paragraph::new(lines).block(framed("DAILY VILLAGERS", "4", ore::grass()))
+    Paragraph::new(lines).block(framed("DAILY VILLAGERS", "7", ore::grass()))
 }
 
 /// How many days a panel this wide can draw, at one column per day minimum.
@@ -1604,26 +1917,14 @@ const PLACES: [(&str, f64, f64); 46] = [
     ("Australia", -25.0, 134.0),
 ];
 
-/// Deterministic per-cell noise. Texture has to be a pure function of the
-/// cell's position, or it reshuffles on every frame and the dashboard crawls.
-fn cell_noise(x: usize, y: usize) -> usize {
-    (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)) >> 4
-}
-
-/// Which block a stretch of land is built from.
+/// Land nobody arrived from — the map's ground.
 ///
-/// Two shades, picked from the cell's own coordinates, so terrain reads as
-/// placed blocks rather than the dithered wash a single shade gives. The choice
-/// is a pure function of the position, so a cell keeps its block between frames
-/// instead of shimmering as the dashboard animates.
-fn terrain_block(x: usize, y: usize) -> &'static str {
-    let hash = cell_noise(x, y);
-    if hash % 3 == 0 {
-        "\u{2593}" // ▓ — a block with the light catching it differently
-    } else {
-        "\u{2588}" // █
-    }
-}
+/// One quiet shade, not two. Mixing `█` and `▓` per cell was meant to read as
+/// placed blocks, but in a single color they differ only in density, so the map
+/// came out as dithered static that buried the realms lit on top of it. A light
+/// shade gives the continents their silhouette back and leaves the full block
+/// free to mean "somebody arrived from here".
+const LAND: &str = "\u{2591}";
 
 /// Where a country lands on a `cols` x `rows` grid, if we know it. The grid
 /// covers the template's latitude band rather than the whole globe.
@@ -1728,19 +2029,18 @@ fn map_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
 
     let mut lines: Vec<Line> = grid
         .into_iter()
-        .enumerate()
-        .map(|(y, row)| {
+        .map(|row| {
             let mut spans = vec![Span::raw("  ")];
-            for (x, cell) in row.into_iter().enumerate() {
+            for cell in row {
                 spans.push(match cell {
                     // Open water.
                     None => Span::raw(" "),
-                    // Land nobody arrived from — terrain, built out of blocks.
+                    // Land nobody arrived from — the ground the realms sit on.
                     Some(color) if color == theme::shadow() => {
-                        Span::styled(terrain_block(x, y), Style::default().fg(color))
+                        Span::styled(LAND, Style::default().fg(color))
                     }
-                    // A realm with traffic reads as an ore seam in that terrain:
-                    // same block, lit by the ore's own color.
+                    // A realm with traffic reads as an ore seam in that ground:
+                    // the full block, lit by the ore's own color.
                     Some(color) => Span::styled(
                         glyph::FULL.to_string(),
                         Style::default().fg(color).add_modifier(Modifier::BOLD),
@@ -1786,13 +2086,13 @@ fn map_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
         Style::default().fg(theme::fade(theme::sage(), 0.2)),
     )));
 
-    Paragraph::new(lines).block(framed("REALMS", "5", ore::lapis()))
+    Paragraph::new(lines).block(framed("REALMS", "3", ore::lapis()))
 }
 
 /// What sits under the vitals in the left-hand column.
 enum Stack {
     Map,
-    Block,
+    Events,
 }
 
 /// Which panel occupies a slot in the right-hand column.
@@ -1803,176 +2103,110 @@ enum Column {
     Trend,
 }
 
-/// The world scene: a row of small blocks, each representing a top page.
-/// Block color reflects share of traffic, a gem on top marks rising pages.
-fn block_panel(dash: &Dash, _half: usize, _depth: usize, width: u16) -> Paragraph<'static> {
-    let w = width.saturating_sub(2) as usize;
-    let phase = dash.phase();
-    let pages = &dash.pages;
+/// Events per day, this period drawn over the last one.
+///
+/// A line chart rather than the ranked bars this replaced: the question the
+/// panel answers is "are events climbing or falling", which a per-event
+/// leaderboard cannot show at all — it ranks names, and the ranking barely
+/// moves. Both periods share one y scale, and the current one is drawn second so
+/// it sits on top where they cross.
+fn events_panel(dash: &Dash) -> Chart<'_> {
+    let trend = &dash.events;
+    // An empty or flat series would collapse the y axis onto a single row.
+    let peak = trend.peak.max(1.0);
+    let last = trend.current.len().saturating_sub(1).max(1) as f64;
 
-    if pages.is_empty() {
-        return Paragraph::new(Line::from(Span::styled(
-            "  waiting for data...",
-            Style::default().fg(theme::fade(theme::sage(), 0.3)),
-        )))
-        .block(framed("WORLD", "1", ore::dirt()));
-    }
+    let datasets = vec![
+        Dataset::default()
+            .marker(symbols::Marker::HalfBlock)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(theme::accent_deep()))
+            .data(&trend.previous),
+        Dataset::default()
+            .marker(symbols::Marker::HalfBlock)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(theme::accent()))
+            .data(&trend.current),
+    ];
 
-    // How many blocks fit: each block is 4 chars wide + 1 gap.
-    let block_w = 4usize;
-    let gap = 1usize;
-    let count = ((w + gap) / (block_w + gap)).min(pages.len()).min(8);
-    let total_w = count * block_w + count.saturating_sub(1) * gap;
-    let pad = (w.saturating_sub(total_w)) / 2;
+    // The headline rides on the border, where the panel has room for it.
+    let headline = Line::from(vec![
+        Span::styled(
+            format!(" {} ", commas(trend.total)),
+            Style::default()
+                .fg(theme::bright())
+                .add_modifier(Modifier::BOLD),
+        ),
+        delta_span(trend.total, trend.total_previous, false),
+        Span::raw(" "),
+    ])
+    .right_aligned();
 
-    let mut lines: Vec<Line> = Vec::new();
+    // The legend rides the bottom border rather than sitting inside the plot:
+    // ratatui hides its own legend once the panel is short, and the left column
+    // never gives this one the rows it wants.
+    let legend = Line::from(vec![
+        Span::styled("\u{2501}\u{2501} ", Style::default().fg(theme::accent())),
+        Span::styled(
+            format!("last {} days  ", dash.days),
+            Style::default().fg(theme::sage()),
+        ),
+        Span::styled(
+            "\u{2501}\u{2501} ",
+            Style::default().fg(theme::accent_deep()),
+        ),
+        Span::styled("previous ", Style::default().fg(theme::sage())),
+    ])
+    .right_aligned();
 
-    // Row 0: gems for rising pages.
-    let mut gem_spans: Vec<Span> = Vec::new();
-    gem_spans.push(Span::raw(" ".repeat(pad)));
-    for (i, row) in pages.iter().take(count).enumerate() {
-        if i > 0 {
-            gem_spans.push(Span::raw(" ".repeat(gap)));
-        }
-        let rising = row.moved.is_some_and(|m| m > 0);
-        let glyph = if rising { "\u{25c6}" } else { " " };
-        let color = if rising {
-            ore::emerald()
-        } else if row.moved.is_some_and(|m| m < 0) {
-            ore::redstone()
-        } else {
-            theme::shadow()
-        };
-        gem_spans.push(Span::styled(
-            format!("{:^width$}", glyph, width = block_w),
-            Style::default().fg(color),
-        ));
-    }
-    lines.push(Line::from(gem_spans));
-
-    // Row 1: the grass cap. Textured per cell rather than laid down as one flat
-    // swatch — a block face in this world is supposed to look quarried.
-    let mut top_spans: Vec<Span> = Vec::new();
-    top_spans.push(Span::raw(" ".repeat(pad)));
-    for (i, row) in pages.iter().take(count).enumerate() {
-        if i > 0 {
-            top_spans.push(Span::raw(" ".repeat(gap)));
-        }
-        let brightness = row.frac.shown;
-        for cell in 0..block_w {
-            let noise = cell_noise(i * 16 + cell, 0);
-            let lit = brightness + (noise % 3) as f64 * 0.09;
-            top_spans.push(Span::styled(
-                if noise % 4 == 0 {
-                    "\u{2593}"
-                } else {
-                    "\u{2588}"
-                },
-                Style::default().fg(theme::mix(ore::grass(), ore::emerald(), lit.min(1.0))),
-            ));
-        }
-    }
-    lines.push(Line::from(top_spans));
-
-    // Row 2: the dirt below it. Grass does not stop in a straight line on a
-    // Minecraft block — it hangs over the edge in a ragged fringe, which is a
-    // half block of grass sitting on a dirt background.
-    let mut body_spans: Vec<Span> = Vec::new();
-    body_spans.push(Span::raw(" ".repeat(pad)));
-    for (i, row) in pages.iter().take(count).enumerate() {
-        if i > 0 {
-            body_spans.push(Span::raw(" ".repeat(gap)));
-        }
-        let brightness = row.frac.shown;
-        for cell in 0..block_w {
-            let noise = cell_noise(i * 16 + cell, 1);
-            let soil = theme::mix(
-                ore::dirt(),
-                ore::gold(),
-                brightness * 0.4 + (noise % 3) as f64 * 0.06,
-            );
-            if noise % 3 == 0 {
-                let grass = theme::mix(ore::grass(), ore::emerald(), brightness);
-                body_spans.push(Span::styled(
-                    "\u{2580}",
-                    Style::default().fg(grass).bg(soil),
-                ));
-            } else {
-                body_spans.push(Span::styled(
-                    if noise % 5 == 0 {
-                        "\u{2593}"
-                    } else {
-                        "\u{2588}"
-                    },
-                    Style::default().fg(soil),
-                ));
-            }
-        }
-    }
-    lines.push(Line::from(body_spans));
-
-    // Row 3: abbreviated page labels.
-    let mut label_spans: Vec<Span> = Vec::new();
-    label_spans.push(Span::raw(" ".repeat(pad)));
-    for (i, row) in pages.iter().take(count).enumerate() {
-        if i > 0 {
-            label_spans.push(Span::raw(" ".repeat(gap)));
-        }
-        let short = abbrev(&row.path, block_w);
-        label_spans.push(Span::styled(
-            format!("{:^width$}", short, width = block_w),
-            Style::default().fg(ore::stone()),
-        ));
-    }
-    lines.push(Line::from(label_spans));
-
-    // Row 4: views count under each block.
-    let mut view_spans: Vec<Span> = Vec::new();
-    view_spans.push(Span::raw(" ".repeat(pad)));
-    for (i, row) in pages.iter().take(count).enumerate() {
-        if i > 0 {
-            view_spans.push(Span::raw(" ".repeat(gap)));
-        }
-        let val = row.views.shown;
-        let label = if val >= 1000.0 {
-            format!("{:.0}k", val / 1000.0)
-        } else {
-            format!("{:.0}", val)
-        };
-        view_spans.push(Span::styled(
-            format!("{:^width$}", label, width = block_w),
-            Style::default().fg(theme::fade(ore::stone(), 0.2)),
-        ));
-    }
-    lines.push(Line::from(view_spans));
-
-    // Bottom: animated torch flicker.
-    let torch_x = ((phase * 3.0) as usize % (w / 2)) + w / 4;
-    let mut torch_spans: Vec<Span> = Vec::new();
-    torch_spans.push(Span::raw(" ".repeat(torch_x)));
-    let flicker = (phase * 8.0).sin() * 0.5 + 0.5;
-    torch_spans.push(Span::styled(
-        "\u{25cf}",
-        Style::default().fg(theme::mix(ore::gold(), ore::redstone(), flicker)),
-    ));
-    lines.push(Line::from(torch_spans));
-
-    Paragraph::new(lines).block(framed("WORLD", "1", ore::dirt()))
+    Chart::new(datasets)
+        .block(
+            framed("EVENTS", "1", ore::xp())
+                .title_top(headline)
+                .title_bottom(legend),
+        )
+        .legend_position(None)
+        .x_axis(
+            Axis::default()
+                .style(Style::default().fg(theme::shadow()))
+                .bounds([0.0, last])
+                .labels(axis_days(&trend.days)),
+        )
+        .y_axis(
+            Axis::default()
+                .style(Style::default().fg(theme::shadow()))
+                .bounds([0.0, peak])
+                .labels(axis_counts(peak)),
+        )
 }
 
-/// Shorten a page path to fit `max` characters.
-fn abbrev(path: &str, max: usize) -> String {
-    let clean = path.trim_start_matches('/');
-    if clean.len() <= max {
-        return clean.to_string();
+/// First, middle and last day of the period. Every day would not fit, and
+/// ratatui spreads whatever it is given evenly across the axis.
+fn axis_days(days: &[String]) -> Vec<Line<'static>> {
+    let label = |text: &str| {
+        Line::from(Span::styled(
+            text.to_string(),
+            Style::default().fg(theme::sage()),
+        ))
+    };
+    match days.len() {
+        0 => Vec::new(),
+        1 => vec![label(&days[0])],
+        n => vec![label(&days[0]), label(&days[n / 2]), label(&days[n - 1])],
     }
-    if max <= 1 {
-        return clean.chars().take(1).collect();
-    }
-    // Take first (max-1) chars and append "~".
-    let mut s: String = clean.chars().take(max - 1).collect();
-    s.push('~');
-    s
+}
+
+/// Zero, half and full scale up the y axis.
+fn axis_counts(peak: f64) -> Vec<Line<'static>> {
+    [0.0, peak / 2.0, peak]
+        .iter()
+        .map(|value| {
+            Line::from(Span::styled(
+                commas(value.round()),
+                Style::default().fg(theme::sage()),
+            ))
+        })
+        .collect()
 }
 
 /// The realtime panel: the count, an htop-style meter, the scrolling trace,
@@ -2134,7 +2368,7 @@ fn pages_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         lines.push(Line::from(spans));
     }
 
-    Paragraph::new(lines).block(framed("TOP CHUNKS", "3", ore::copper()))
+    Paragraph::new(lines).block(framed("TOP CHUNKS", "4", ore::copper()))
 }
 
 fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
@@ -2182,7 +2416,7 @@ fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         lines.push(Line::from(spans));
     }
 
-    Paragraph::new(lines).block(framed("TOP REALMS", "7", ore::lapis()))
+    Paragraph::new(lines).block(framed("TOP REALMS", "6", ore::lapis()))
 }
 
 fn footer(dash: &Dash) -> Paragraph<'static> {
@@ -2387,6 +2621,89 @@ fn truncate(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
 
+    /// A dashboard on the demo numbers, settled so nothing is mid-ease.
+    fn settled_demo() -> Dash {
+        let mut synthetic = Synthetic::new();
+        let snapshot = synthetic.report(&mut rand::thread_rng());
+        let mut dash = Dash::new(
+            "test".to_string(),
+            7,
+            snapshot,
+            128.0,
+            Vec::new(),
+            Duration::from_secs(30),
+            Duration::from_secs(5),
+        );
+        for _ in 0..80 {
+            dash.step(FRAME.as_secs_f64());
+        }
+        dash
+    }
+
+    /// Renders a widget into a fixed grid and hands back the rows as text.
+    fn rendered<W: ratatui::widgets::Widget>(width: u16, height: u16, widget: W) -> Vec<String> {
+        use ratatui::{backend::TestBackend, Terminal};
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| frame.render_widget(widget, frame.area()))
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    /// The chart is the panel's whole point, so the two things that make it
+    /// readable — a drawn line and the axis it is read against — have to survive
+    /// every width the left column can hand it.
+    ///
+    /// It also has to draw in glyphs the site's font actually carries. The
+    /// braille markers this started out with looked best in a terminal, but the
+    /// self-hosted JetBrains Mono subset has none of U+2800..U+28FF, so every
+    /// plotted cell fell back to a face with a different advance and dragged the
+    /// rest of its row out of the grid.
+    #[test]
+    fn the_events_chart_draws_both_periods_against_an_axis() {
+        let dash = settled_demo();
+        assert_eq!(dash.events.current.len(), 7);
+        assert_eq!(dash.events.previous.len(), 7);
+
+        for width in 40..=120u16 {
+            let rows = rendered(width, EVENTS_ROWS, events_panel(&dash));
+            let panel = rows.join("\n");
+
+            let plotted = panel
+                .chars()
+                .filter(|c| matches!(c, '\u{2588}' | '\u{2584}' | '\u{2580}'))
+                .count();
+            assert!(plotted > 20, "width {width}: only {plotted} plotted cells");
+
+            assert!(
+                !panel
+                    .chars()
+                    .any(|c| ('\u{2800}'..='\u{28ff}').contains(&c)),
+                "width {width}: braille has no glyph in the site's font"
+            );
+
+            // The scale the lines are read against.
+            let peak = commas(dash.events.peak.round());
+            assert!(
+                panel.contains(&peak),
+                "width {width}: y axis lost its {peak} label"
+            );
+            assert!(
+                panel.contains(&dash.events.days[0]),
+                "width {width}: x axis lost its first day"
+            );
+        }
+    }
+
     #[test]
     fn eased_settles_exactly_on_its_target() {
         let mut eased = Eased::new(1200.0);
@@ -2495,23 +2812,24 @@ mod tests {
     }
 
     #[test]
-    fn terrain_blocks_are_stable_and_blocky() {
-        for y in 0..40 {
-            for x in 0..140 {
-                let block = terrain_block(x, y);
-                assert!(
-                    block == "\u{2588}" || block == "\u{2593}",
-                    "({x},{y}) drew {block:?}, which is not a block"
-                );
-                // Same cell, same block — otherwise the map shimmers per frame.
-                assert_eq!(block, terrain_block(x, y));
-            }
-        }
-        // Both shades actually get used, or this is just a solid fill.
-        let shades: std::collections::HashSet<&str> = (0..30)
-            .flat_map(|y| (0..30).map(move |x| terrain_block(x, y)))
-            .collect();
-        assert_eq!(shades.len(), 2, "terrain collapsed to one shade");
+    fn the_map_separates_its_realms_from_its_land() {
+        let dash = settled_demo();
+        let rows = rendered(74, MAP_ROWS, map_panel(&dash, 74, MAP_ROWS));
+        // The map's own rows, without the border and the caption under it.
+        let map = &rows[1..rows.len() - 2];
+
+        let land: usize = map.iter().map(|row| row.matches(LAND).count()).sum();
+        let realms: usize = map.iter().map(|row| row.matches(glyph::FULL).count()).sum();
+
+        // Land has to be one shade and the realms another, or the lit cells are
+        // lost in the ground they sit on — which is what the two-shade terrain
+        // this replaced did to them.
+        assert_ne!(LAND, glyph::FULL.to_string());
+        assert!(land > 100, "expected a drawn landmass, got {land} cells");
+        assert!(
+            realms > 0 && realms < land,
+            "{realms} lit realms against {land} land cells"
+        );
     }
 
     #[test]
