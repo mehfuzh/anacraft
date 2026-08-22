@@ -79,8 +79,76 @@ jobs:
           name: ${{ matrix.target }}
           path: ${{ env.ASSET }}
 
+  # Release notes are written by Claude from the commit range: this repo lands
+  # work directly on main, and GitHub's own generator reads merged PRs, so it
+  # has almost nothing to go on here. A missing key or an API error falls back
+  # to the generated notes rather than failing the release.
+  notes:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    outputs:
+      notes: ${{ steps.write.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Write release notes
+        id: write
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          emit() { { echo "notes<<CLAUDE_NOTES_EOF"; printf '%s\n' "$1"; echo "CLAUDE_NOTES_EOF"; } >> "$GITHUB_OUTPUT"; }
+
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::warning::ANTHROPIC_API_KEY is not set; using generated notes"
+            emit ""; exit 0
+          fi
+
+          # The previous tag can be unreachable if history was rewritten, so fall
+          # back to the root commit rather than sending an empty range.
+          prev=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          if [ -z "$prev" ]; then prev=$(git rev-list --max-parents=0 HEAD | tail -1); fi
+          echo "range: $prev..$TAG"
+
+          prompt=$(printf '%s\n\nTag: %s\n\nCommits:\n%s\n\nDiffstat:\n%s\n' \
+            "$(cat .github/release-notes-prompt.md)" "$TAG" \
+            "$(git log --no-merges --max-count=200 --format='--- %s%n%b' "$prev..$TAG")" \
+            "$(git diff --stat "$prev" "$TAG" | tail -40)")
+
+          req=$(jq -n --arg p "$prompt" '{
+            model: "claude-opus-5",
+            max_tokens: 16000,
+            thinking: {type: "adaptive"},
+            fallbacks: "default",
+            messages: [{role: "user", content: $p}]
+          }')
+
+          response=$(curl -sS https://api.anthropic.com/v1/messages \
+            -H 'content-type: application/json' \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H 'anthropic-version: 2023-06-01' \
+            -H 'anthropic-beta: server-side-fallback-2026-07-01' \
+            -d "$req")
+
+          if [ "$(jq -r 'has("error")' <<<"$response")" = true ]; then
+            echo "::warning::$(jq -r '.error.message' <<<"$response")"
+            emit ""; exit 0
+          fi
+          if [ "$(jq -r '.stop_reason' <<<"$response")" = refusal ]; then
+            echo "::warning::model declined to write notes"
+            emit ""; exit 0
+          fi
+
+          notes=$(jq -r '[.content[] | select(.type == "text") | .text] | join("")' <<<"$response")
+          printf '%s\n' "$notes"
+          emit "$notes"
+
   publish:
-    needs: build
+    needs: [build, notes]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
@@ -93,4 +161,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          body: ${{ needs.notes.outputs.notes }}
           generate_release_notes: true
