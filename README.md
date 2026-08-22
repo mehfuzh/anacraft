@@ -119,8 +119,38 @@ palette is selected, so the texture pack survives a theme swap.
 
 | File | Purpose |
 |------|---------|
+| `~/.config/anacraft/config.toml` | Properties and their settings |
 | `~/.anacraft/token.json` | OAuth refresh token, written by `login` |
-| `~/.anacraft/config.json` | Default property and palette |
+
+Config honours `$XDG_CONFIG_HOME`. Tokens stay out of `~/.config` on purpose —
+that directory ends up in dotfile repos, and a refresh token has no business
+travelling with it. A pre-0.4 `~/.anacraft/config.json` is migrated on first run.
+
+### Multiple properties
+
+`anacraft use <id>` adds a property rather than replacing the last one, so the
+config accumulates. In the dashboard, `tab` cycles between them.
+
+```toml
+active = "397412345"
+theme  = "osaka-jade"        # palette for any property that doesn't name one
+
+[[property]]
+id           = "397412345"
+name         = "anacraft.dev"
+label        = "site"        # shown instead of name in the switcher
+theme        = "catppuccin"
+days         = 14
+refresh      = 60
+live_refresh = 5
+
+[[property]]
+id = "88820011"              # everything optional: inherits the defaults
+```
+
+Every key under `[[property]]` is optional and falls back to the global default,
+so switching to a property that saved nothing lands on the defaults rather than
+inheriting the previous property's window. Command-line flags beat both.
 
 `ANACRAFT_PROPERTY_ID` overrides the saved property if you would rather not keep
 one on disk.
