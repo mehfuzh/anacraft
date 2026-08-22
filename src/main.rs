@@ -440,7 +440,7 @@ fn cmd_demo() -> Result<()> {
     let previous = vec![11_450.0, 17_004.0, 39_210.0, 258.0, 0.478, 191.0];
 
     print_overview(
-        "Redstone Labs (demo)",
+        "Contoso Labs (demo)",
         7,
         &current,
         &previous,

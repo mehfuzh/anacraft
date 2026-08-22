@@ -86,17 +86,17 @@ reflows to fill the terminal.
 |-----|-------|---------------|
 | `1` | **EVENTS** | Event count per day, this period drawn over the last one, with the total and its change |
 | `2` | **RIGHT NOW** | Live player count plus a spawn / wander-off event feed |
-| `3` | **TOP CHUNKS** | Most-visited pages with view bars and rank movement |
-| `4` | **DAILY VILLAGERS** | User trend across the period |
-| `5` | **REALMS** | Traffic plotted on a world map |
-| `6` | **VITALS** | Users, sessions, views, conversions, bounce rate, avg. session |
-| `7` | **TOP REALMS** | Ranked countries with tier markers |
+| `3` | **REALMS** | Traffic plotted on a world map |
+| `4` | **TOP CHUNKS** | Most-visited pages with view bars and rank movement |
+| `5` | **VITALS** | Users, sessions, views, conversions, bounce rate, avg. session |
+| `6` | **TOP REALMS** | Ranked countries with tier markers |
+| `7` | **DAILY VILLAGERS** | User trend across the period |
 
 ### Controls
 
 | Key | Action |
 |-----|--------|
-| `1`–`7` | Toggle a panel — `e` `l` `p` `d` `m` `v` `g` do the same |
+| `1`–`7` | Toggle a panel — `e` `l` `m` `p` `v` `g` `d` do the same |
 | `t` | Cycle the palette, and save it |
 | `r` | Rebuild — force a refetch now |
 | `?` / `h` | Help overlay |

@@ -788,7 +788,7 @@ pub async fn run_demo(days: u32, refresh: u64, live_refresh: u64) -> Result<()> 
     let source = Source::Demo(std::sync::Mutex::new(synthetic));
     drive(
         source,
-        "Redstone Labs (demo)".to_string(),
+        "Contoso Labs (demo)".to_string(),
         days,
         snapshot,
         live,
@@ -942,20 +942,20 @@ async fn event_loop(
                         KeyCode::Char('2') | KeyCode::Char('l') => {
                             dash.panels.live = !dash.panels.live
                         }
-                        KeyCode::Char('3') | KeyCode::Char('p') => {
-                            dash.panels.chunks = !dash.panels.chunks
-                        }
-                        KeyCode::Char('4') | KeyCode::Char('d') => {
-                            dash.panels.trend = !dash.panels.trend
-                        }
-                        KeyCode::Char('5') | KeyCode::Char('m') => {
+                        KeyCode::Char('3') | KeyCode::Char('m') => {
                             dash.panels.map = !dash.panels.map
                         }
-                        KeyCode::Char('6') | KeyCode::Char('v') => {
+                        KeyCode::Char('4') | KeyCode::Char('p') => {
+                            dash.panels.chunks = !dash.panels.chunks
+                        }
+                        KeyCode::Char('5') | KeyCode::Char('v') => {
                             dash.panels.vitals = !dash.panels.vitals
                         }
-                        KeyCode::Char('7') | KeyCode::Char('g') => {
+                        KeyCode::Char('6') | KeyCode::Char('g') => {
                             dash.panels.realms_ranked = !dash.panels.realms_ranked
+                        }
+                        KeyCode::Char('7') | KeyCode::Char('d') => {
+                            dash.panels.trend = !dash.panels.trend
                         }
                         // Nothing to announce: every color on screen changes,
                         // which is the feedback.
@@ -1130,7 +1130,7 @@ fn capture_dash() -> Dash {
     let snapshot = synthetic.report(&mut rng);
     let (live, realms) = synthetic.live(&mut rng);
     let mut dash = Dash::new(
-        "Redstone Labs (demo)".to_string(),
+        "Contoso Labs (demo)".to_string(),
         7,
         snapshot,
         live,
@@ -1473,11 +1473,11 @@ fn help_overlay(frame: &mut Frame, area: Rect) {
         ("r", "refresh now"),
         ("^1 / 1", "events panel"),
         ("^2 / 2", "right now panel"),
-        ("^3 / 3", "top chunks panel"),
-        ("^4 / 4", "daily villagers"),
-        ("^5 / 5", "realms map"),
-        ("^6 / 6", "vitals panel"),
-        ("^7 / 7", "top realms"),
+        ("^3 / 3", "realms map"),
+        ("^4 / 4", "top chunks panel"),
+        ("^5 / 5", "vitals panel"),
+        ("^6 / 6", "top realms"),
+        ("^7 / 7", "daily villagers"),
         ("t", "next theme"),
         ("? / h", "this list"),
     ];
@@ -1703,7 +1703,7 @@ fn metrics_panel(dash: &Dash) -> Paragraph<'static> {
         lines.push(Line::from(""));
     }
 
-    Paragraph::new(lines).block(framed("VITALS", "6", ore::grass()))
+    Paragraph::new(lines).block(framed("VITALS", "5", ore::grass()))
 }
 
 /// Rank badges: the top three chunks are ore, the rest are plain stone. It is
@@ -1779,7 +1779,7 @@ fn trend_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         Style::default().fg(theme::fade(theme::sage(), 0.2)),
     )));
 
-    Paragraph::new(lines).block(framed("DAILY VILLAGERS", "4", ore::grass()))
+    Paragraph::new(lines).block(framed("DAILY VILLAGERS", "7", ore::grass()))
 }
 
 /// How many days a panel this wide can draw, at one column per day minimum.
@@ -2086,7 +2086,7 @@ fn map_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
         Style::default().fg(theme::fade(theme::sage(), 0.2)),
     )));
 
-    Paragraph::new(lines).block(framed("REALMS", "5", ore::lapis()))
+    Paragraph::new(lines).block(framed("REALMS", "3", ore::lapis()))
 }
 
 /// What sits under the vitals in the left-hand column.
@@ -2118,12 +2118,12 @@ fn events_panel(dash: &Dash) -> Chart<'_> {
 
     let datasets = vec![
         Dataset::default()
-            .marker(symbols::Marker::Braille)
+            .marker(symbols::Marker::HalfBlock)
             .graph_type(GraphType::Line)
             .style(Style::default().fg(theme::accent_deep()))
             .data(&trend.previous),
         Dataset::default()
-            .marker(symbols::Marker::Braille)
+            .marker(symbols::Marker::HalfBlock)
             .graph_type(GraphType::Line)
             .style(Style::default().fg(theme::accent()))
             .data(&trend.current),
@@ -2368,7 +2368,7 @@ fn pages_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         lines.push(Line::from(spans));
     }
 
-    Paragraph::new(lines).block(framed("TOP CHUNKS", "3", ore::copper()))
+    Paragraph::new(lines).block(framed("TOP CHUNKS", "4", ore::copper()))
 }
 
 fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
@@ -2416,7 +2416,7 @@ fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         lines.push(Line::from(spans));
     }
 
-    Paragraph::new(lines).block(framed("TOP REALMS", "7", ore::lapis()))
+    Paragraph::new(lines).block(framed("TOP REALMS", "6", ore::lapis()))
 }
 
 fn footer(dash: &Dash) -> Paragraph<'static> {
@@ -2662,6 +2662,12 @@ mod tests {
     /// The chart is the panel's whole point, so the two things that make it
     /// readable — a drawn line and the axis it is read against — have to survive
     /// every width the left column can hand it.
+    ///
+    /// It also has to draw in glyphs the site's font actually carries. The
+    /// braille markers this started out with looked best in a terminal, but the
+    /// self-hosted JetBrains Mono subset has none of U+2800..U+28FF, so every
+    /// plotted cell fell back to a face with a different advance and dragged the
+    /// rest of its row out of the grid.
     #[test]
     fn the_events_chart_draws_both_periods_against_an_axis() {
         let dash = settled_demo();
@@ -2672,12 +2678,18 @@ mod tests {
             let rows = rendered(width, EVENTS_ROWS, events_panel(&dash));
             let panel = rows.join("\n");
 
-            // Braille is how both series are plotted; no braille means no lines.
             let plotted = panel
                 .chars()
-                .filter(|c| ('\u{2800}'..='\u{28ff}').contains(c))
+                .filter(|c| matches!(c, '\u{2588}' | '\u{2584}' | '\u{2580}'))
                 .count();
             assert!(plotted > 20, "width {width}: only {plotted} plotted cells");
+
+            assert!(
+                !panel
+                    .chars()
+                    .any(|c| ('\u{2800}'..='\u{28ff}').contains(&c)),
+                "width {width}: braille has no glyph in the site's font"
+            );
 
             // The scale the lines are read against.
             let peak = commas(dash.events.peak.round());
