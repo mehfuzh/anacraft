@@ -90,14 +90,15 @@ enum Command {
     },
     /// Full-screen live dashboard. Runs when no command is given.
     Dash {
-        #[arg(long, short, default_value_t = 7)]
-        days: u32,
-        /// Seconds between refreshes.
-        #[arg(long, default_value_t = 30)]
-        refresh: u64,
+        /// Days to look back. Defaults to the property's setting, else 7.
+        #[arg(long, short)]
+        days: Option<u32>,
+        /// Seconds between refreshes. Defaults to the property's setting, else 30.
+        #[arg(long)]
+        refresh: Option<u64>,
         /// Seconds between realtime polls — the htop-style tick. Minimum 2.
-        #[arg(long, default_value_t = ui::LIVE_EVERY)]
-        live_refresh: u64,
+        #[arg(long)]
+        live_refresh: Option<u64>,
         /// Drive the dashboard from synthetic data — no Google account needed.
         #[arg(long)]
         demo: bool,
@@ -130,17 +131,25 @@ async fn run() -> Result<()> {
     // Resolve the palette before anything renders: the flag wins, then the
     // saved default. An unknown name is worth saying out loud rather than
     // silently falling back.
-    if let Some(name) = cli.theme.as_deref().or(cfg.theme.as_deref()) {
+    // A property may carry its own palette, so resolve which property we are
+    // on before picking one. No property configured yet is not an error here —
+    // `demo` and `login` both run fine without one.
+    let active_id = cfg.resolve_property(cli.property.as_deref()).ok();
+    let palette = cli.theme.as_deref().or(match active_id.as_deref() {
+        Some(id) => cfg.theme_for(id),
+        None => cfg.theme.as_deref(),
+    });
+    if let Some(name) = palette {
         if !theme::select(name) {
             anyhow::bail!("no theme called {name} — run `anacraft theme` to list them");
         }
     }
 
     match cli.command.unwrap_or(Command::Dash {
-        days: 7,
-        refresh: 30,
-        live_refresh: ui::LIVE_EVERY,
-        demo: cfg.property_id.is_none(),
+        days: None,
+        refresh: None,
+        live_refresh: None,
+        demo: cfg.active_property().is_none(),
     }) {
         Command::Demo => cmd_demo(),
         Command::Capture => {
@@ -205,10 +214,26 @@ async fn run() -> Result<()> {
                 // Checked before resolving a property, so the demo works on a
                 // machine that has never logged in. The report cadence is
                 // pinned short so the synthetic numbers visibly move.
-                return ui::run_demo(days, refresh.min(5), live_refresh).await;
+                return ui::run_demo(
+                    days.unwrap_or(7),
+                    refresh.unwrap_or(30).min(5),
+                    live_refresh.unwrap_or(ui::LIVE_EVERY),
+                )
+                .await;
             }
             let property = cfg.resolve_property(cli.property.as_deref())?;
-            ui::run(&property, days, refresh, live_refresh).await
+            // Flags win; otherwise fall back to what this property saved.
+            let saved = cfg.find(&property);
+            let settings = ui::Settings {
+                days: days.or_else(|| saved.and_then(|p| p.days)).unwrap_or(7),
+                refresh: refresh
+                    .or_else(|| saved.and_then(|p| p.refresh))
+                    .unwrap_or(30),
+                live_refresh: live_refresh
+                    .or_else(|| saved.and_then(|p| p.live_refresh))
+                    .unwrap_or(ui::LIVE_EVERY),
+            };
+            ui::run(&cfg, &property, settings).await
         }
     }
 }
@@ -224,7 +249,7 @@ async fn cmd_login() -> Result<()> {
 
     // A fresh login with no property selected is a dead end; nudge onward.
     let cfg = Config::load()?;
-    if cfg.property_id.is_none() {
+    if cfg.active_property().is_none() {
         println!("  next: {} to pick a property\n", bold("anacraft props"));
     }
     Ok(())
@@ -249,7 +274,7 @@ async fn cmd_props() -> Result<()> {
     let cfg = Config::load()?;
     println!("\n{}\n", panel_top("PROPERTIES"));
     for (i, prop) in props.iter().enumerate() {
-        let current = cfg.property_id.as_deref() == Some(prop.id.as_str());
+        let current = cfg.active.as_deref() == Some(prop.id.as_str());
         let marker = if current {
             paint("●", ore::emerald())
         } else {
@@ -262,7 +287,21 @@ async fn cmd_props() -> Result<()> {
             dim(&format!("id {}", prop.id)),
         );
     }
-    println!("\n  set one with {}\n", bold("anacraft use <id>"));
+    // `use` accumulates rather than replaces, which is the only hint that a
+    // rotation exists at all — worth saying once the list is non-trivial.
+    println!("\n  add one with {}", bold("anacraft use <id>"));
+    if cfg.properties.len() > 1 {
+        println!(
+            "  {} configured — {} between them in the dashboard\n",
+            cfg.properties.len(),
+            bold("tab")
+        );
+    } else {
+        println!(
+            "  {}\n",
+            dim("run it again for a second property, then tab between them")
+        );
+    }
     println!("{}\n", panel_bottom());
     Ok(())
 }
@@ -278,8 +317,7 @@ async fn cmd_use(id: &str) -> Result<()> {
         .with_context(|| format!("no property {wanted} on this account — run `anacraft props`"))?;
 
     let mut cfg = Config::load()?;
-    cfg.property_id = Some(found.id.clone());
-    cfg.property_name = Some(found.name.clone());
+    cfg.upsert(&found.id, Some(found.name.clone()));
     cfg.save()?;
 
     println!(
@@ -367,8 +405,8 @@ async fn cmd_overview(property: &str, days: u32) -> Result<()> {
     let empty = current.rows.is_empty() && current.totals.is_empty();
     let cfg = Config::load()?;
     let title = cfg
-        .property_name
-        .clone()
+        .find(property)
+        .map(|p| p.display())
         .unwrap_or_else(|| format!("property {property}"));
 
     let totals: Vec<f64> = (0..OVERVIEW.len()).map(|i| current.total(i)).collect();

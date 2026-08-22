@@ -31,7 +31,7 @@ use ratatui::widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, P
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc::{self, UnboundedSender};
 
-use crate::config::Config;
+use crate::config::{Config, Property};
 use crate::ga::{DateRange, Ga, ReportRequest};
 use crate::render::{commas, value};
 use crate::theme::{self, glyph, ore, OVERVIEW};
@@ -329,6 +329,25 @@ impl Dash {
             row.flash = None;
         }
         dash
+    }
+
+    /// Re-point the dashboard at another property. The numbers on screen
+    /// belong to the property we are leaving, so anything that is a running
+    /// tally of *this* site resets; the metric rows are left in place so the
+    /// eased values animate across instead of blanking the layout.
+    fn switch_to(&mut self, title: String, settings: Settings) {
+        self.title = title;
+        self.days = settings.days;
+        self.report_every = Duration::from_secs(settings.refresh.max(5));
+        self.live_every = Duration::from_secs(settings.live_refresh.max(LIVE_FLOOR));
+        self.error = None;
+        self.feed.clear();
+        self.history.clear();
+        self.history.push_back(self.live_raw);
+        self.peak = self.live_raw.max(1.0);
+        for row in &mut self.metrics {
+            row.flash = None;
+        }
     }
 
     fn apply_report(&mut self, snapshot: Snapshot) {
@@ -725,6 +744,14 @@ impl Source {
         }
     }
 
+    /// Point an API source at a different property. Inert for the demo, which
+    /// has only its synthetic site.
+    fn set_property(&mut self, id: &str) {
+        if let Source::Api { property, .. } = self {
+            *property = id.to_string();
+        }
+    }
+
     fn request_live(&self, tx: &UnboundedSender<Update>) {
         match self {
             Source::Api { client, property } => {
@@ -748,14 +775,53 @@ impl Source {
 
 // ------------------------------------------------------------------- loop ---
 
-pub async fn run(property: &str, days: u32, refresh: u64, live_refresh: u64) -> Result<()> {
+/// Cadence and window the dashboard runs at, after flags and the property's
+/// own saved settings have been folded together.
+#[derive(Clone, Copy)]
+pub struct Settings {
+    pub days: u32,
+    pub refresh: u64,
+    pub live_refresh: u64,
+}
+
+impl Settings {
+    /// This property's overrides on top of the resolved defaults. Switching to
+    /// a property that saved nothing lands back on the defaults rather than
+    /// inheriting whatever the previous property used.
+    fn for_property(&self, property: &Property) -> Settings {
+        Settings {
+            days: property.days.unwrap_or(self.days),
+            refresh: property.refresh.unwrap_or(self.refresh),
+            live_refresh: property.live_refresh.unwrap_or(self.live_refresh),
+        }
+    }
+}
+
+pub async fn run(cfg: &Config, property: &str, settings: Settings) -> Result<()> {
     let client = Arc::new(Ga::new()?);
-    let title = Config::load()?
-        .property_name
-        .unwrap_or_else(|| format!("property {property}"));
+
+    // Tab cycles this list. Start it on the property we were asked for, so
+    // `--property` decides where the dashboard opens, not just what it can
+    // reach. A property that isn't in the config still runs, alone.
+    let mut rotation: Vec<Property> = cfg.properties.clone();
+    if !rotation.iter().any(|p| p.id == property) {
+        rotation.insert(
+            0,
+            Property {
+                id: property.to_string(),
+                ..Property::default()
+            },
+        );
+    }
+    let index = rotation
+        .iter()
+        .position(|p| p.id == property)
+        .unwrap_or_default();
+    let opening = settings.for_property(&rotation[index]);
+    let title = rotation[index].display();
 
     // Fetch before taking over the screen so auth/API errors print normally.
-    let snapshot = fetch_report(&client, property, days).await?;
+    let snapshot = fetch_report(&client, property, opening.days).await?;
     let (live, realms) = fetch_live(&client, property)
         .await
         .unwrap_or((0.0, Vec::new()));
@@ -765,14 +831,7 @@ pub async fn run(property: &str, days: u32, refresh: u64, live_refresh: u64) -> 
         property: property.to_string(),
     };
     drive(
-        source,
-        title,
-        days,
-        snapshot,
-        live,
-        realms,
-        refresh,
-        live_refresh,
+        source, title, snapshot, live, realms, settings, rotation, index,
     )
     .await
 }
@@ -789,12 +848,16 @@ pub async fn run_demo(days: u32, refresh: u64, live_refresh: u64) -> Result<()> 
     drive(
         source,
         "Contoso Labs (demo)".to_string(),
-        days,
         snapshot,
         live,
         realms,
-        refresh,
-        live_refresh,
+        Settings {
+            days,
+            refresh,
+            live_refresh,
+        },
+        Vec::new(),
+        0,
     )
     .await
 }
@@ -803,21 +866,26 @@ pub async fn run_demo(days: u32, refresh: u64, live_refresh: u64) -> Result<()> 
 async fn drive(
     source: Source,
     title: String,
-    days: u32,
     snapshot: Snapshot,
     live: f64,
     realms: Vec<(String, f64)>,
-    refresh: u64,
-    live_refresh: u64,
+    settings: Settings,
+    rotation: Vec<Property>,
+    index: usize,
 ) -> Result<()> {
+    let opening = match rotation.get(index) {
+        Some(property) => settings.for_property(property),
+        None => settings,
+    };
+    let mut source = source;
     let mut dash = Dash::new(
         title,
-        days,
+        opening.days,
         snapshot,
         live,
         realms,
-        Duration::from_secs(refresh.max(5)),
-        Duration::from_secs(live_refresh.max(LIVE_FLOOR)),
+        Duration::from_secs(opening.refresh.max(5)),
+        Duration::from_secs(opening.live_refresh.max(LIVE_FLOOR)),
     );
 
     let mut terminal = ratatui::init();
@@ -832,14 +900,28 @@ async fn drive(
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         );
     }
-    let result = event_loop(&mut terminal, &source, days, &mut dash).await;
+    let result = event_loop(
+        &mut terminal,
+        &mut source,
+        &mut dash,
+        &rotation,
+        index,
+        settings,
+    )
+    .await;
     if enhanced {
         let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
     }
     ratatui::restore();
     // Persist the theme the user settled on — so the next launch starts there.
+    // It belongs to the property they were looking at when they pressed `t`,
+    // not to every property at once.
     if let Ok(mut cfg) = crate::config::Config::load() {
-        cfg.theme = Some(theme::palette().name.to_string());
+        let name = theme::palette().name.to_string();
+        match cfg.active.clone().filter(|id| cfg.find(id).is_some()) {
+            Some(id) => cfg.upsert(&id, None).theme = Some(name),
+            None => cfg.theme = Some(name),
+        }
         let _ = cfg.save();
     }
     result
@@ -847,9 +929,11 @@ async fn drive(
 
 async fn event_loop(
     terminal: &mut DefaultTerminal,
-    source: &Source,
-    days: u32,
+    source: &mut Source,
     dash: &mut Dash,
+    rotation: &[Property],
+    mut index: usize,
+    settings: Settings,
 ) -> Result<()> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut last_live = Instant::now();
@@ -905,7 +989,7 @@ async fn event_loop(
         terminal.draw(|frame| draw(frame, dash))?;
 
         if dash.in_flight == 0 && dash.last_report.elapsed() >= dash.report_every {
-            dash.in_flight = source.request_report(days, &tx);
+            dash.in_flight = source.request_report(dash.days, &tx);
             dash.last_report = now;
         }
         if !dash.live_fetching && last_live.elapsed() >= dash.live_every {
@@ -961,6 +1045,35 @@ async fn event_loop(
                         // which is the feedback.
                         KeyCode::Char('t') => {
                             theme::cycle();
+                        }
+                        // Tab walks the configured properties. A one-property
+                        // rotation has nothing to walk to, so the key is inert
+                        // rather than redrawing the same numbers.
+                        KeyCode::Tab | KeyCode::BackTab if rotation.len() > 1 => {
+                            let step = if key.code == KeyCode::Tab {
+                                1
+                            } else {
+                                rotation.len() - 1
+                            };
+                            index = (index + step) % rotation.len();
+                            let next = &rotation[index];
+                            let resolved = settings.for_property(next);
+
+                            source.set_property(&next.id);
+                            dash.switch_to(next.display(), resolved);
+                            // A property carrying its own palette should show it
+                            // immediately, not on the next launch.
+                            if let Some(name) = next.theme.as_deref() {
+                                theme::select(name);
+                            }
+
+                            // Re-fetch at once: the numbers on screen belong to
+                            // the property we just left.
+                            dash.in_flight = source.request_report(dash.days, &tx);
+                            dash.last_report = Instant::now();
+                            source.request_live(&tx);
+                            dash.live_fetching = true;
+                            last_live = Instant::now();
                         }
                         _ => {}
                     }
@@ -1479,6 +1592,7 @@ fn help_overlay(frame: &mut Frame, area: Rect) {
         ("^6 / 6", "top realms"),
         ("^7 / 7", "daily villagers"),
         ("t", "next theme"),
+        ("tab", "next property"),
         ("? / h", "this list"),
     ];
 
@@ -2714,6 +2828,33 @@ mod tests {
         }
         assert_eq!(eased.shown, 1200.0);
         assert!(!eased.moving());
+    }
+
+    #[test]
+    fn a_property_without_settings_falls_back_to_the_defaults() {
+        let defaults = Settings {
+            days: 7,
+            refresh: 30,
+            live_refresh: 3,
+        };
+        let bare = Property {
+            id: "222".into(),
+            ..Property::default()
+        };
+        let tuned = Property {
+            id: "111".into(),
+            days: Some(28),
+            refresh: Some(120),
+            ..Property::default()
+        };
+
+        let a = defaults.for_property(&tuned);
+        assert_eq!((a.days, a.refresh, a.live_refresh), (28, 120, 3));
+
+        // Switching to a bare property must land on the defaults, not inherit
+        // the 28 days the previous property asked for.
+        let b = defaults.for_property(&bare);
+        assert_eq!((b.days, b.refresh, b.live_refresh), (7, 30, 3));
     }
 
     #[test]
