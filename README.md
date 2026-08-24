@@ -158,6 +158,14 @@ inheriting the previous property's window. Command-line flags beat both.
 `ANACRAFT_PROPERTY_ID` overrides the saved property if you would rather not keep
 one on disk.
 
+### Your own OAuth client
+
+Official builds carry one, so `craft login` works with no setup. To use your own
+instead, set `ANACRAFT_OAUTH_CLIENT_ID` and `ANACRAFT_OAUTH_CLIENT_SECRET`, or
+write `~/.anacraft/client.json`. Both take precedence over the built-in client,
+and registering your own Google Cloud project also insulates you from other
+people's quota consumption.
+
 ## Requirements
 
 - A Google Analytics 4 property

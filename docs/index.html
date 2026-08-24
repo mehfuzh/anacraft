@@ -1582,16 +1582,12 @@
     <div class="sec-label">Quick start</div>
     <h2>Two minutes from curl to numbers.</h2>
     <p class="sec-sub">
-      The command is <code style="font-family:var(--mono);color:var(--fg)">craft</code>; <code style="font-family:var(--mono);color:var(--fg)">anacraft</code> still works as an alias.
       Official builds carry their own OAuth client, so <code style="font-family:var(--mono);color:var(--fg)">craft login</code> needs no
-      Google Cloud project. Prefer your own? Set
-      <code style="font-family:var(--mono);color:var(--fg)">ANACRAFT_OAUTH_CLIENT_ID</code> and <code style="font-family:var(--mono);color:var(--fg)">ANACRAFT_OAUTH_CLIENT_SECRET</code>,
-      or drop in <code style="font-family:var(--mono);color:var(--fg)">~/.anacraft/client.json</code> — both take precedence.
-      What anacraft reads, and what it never stores, is in the <a href="/privacy.html">privacy policy</a>.
+      Google Cloud project.
     </p>
     <div class="two">
       <div>
-        <pre class="code"><span class="d"># install</span>
+        <pre class="code"><span class="d"># install — gives you `craft`, and `anacraft` as an alias</span>
 <span class="c">$</span> <span class="w">curl -fsSL https://anacraft.dev/install.sh | bash</span>
 
 <span class="d"># no command = the dashboard; no property = synthetic data</span>
