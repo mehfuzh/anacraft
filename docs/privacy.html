@@ -134,7 +134,7 @@
 
 <div class="eyebrow">Legal</div>
 <h1>Privacy Policy</h1>
-<div class="stamp">Last updated 20 August 2026</div>
+<div class="stamp">Last updated 24 August 2026</div>
 
 <div class="tldr">
   <div class="h">The short version</div>
@@ -155,14 +155,47 @@ name, email, profile, or any other Google service, so it never learns who you ar
 from your machine to Google's Analytics APIs and to nothing else.</p>
 
 <h2><span class="n">02</span>What is stored on your computer</h2>
-<p>Three files, all under <code>~/.anacraft/</code>: your Google tokens in <code>token.json</code>
-(written <code>0600</code> on macOS and Linux, so only your user can read it), your chosen property and
-theme in <code>config.json</code>, and — only if you create it — your own OAuth credentials in
-<code>client.json</code>.</p>
+<p>Two files, plus one you may never create. Your Google tokens live in
+<code>~/.anacraft/token.json</code>, written <code>0600</code> on macOS and Linux so only your user
+account can read it. Your chosen properties and their display settings live in
+<code>~/.config/anacraft/config.toml</code>, which holds no credentials. If you supply your own OAuth
+client, it goes in <code>~/.anacraft/client.json</code>.</p>
+<p>The split is deliberate: <code>~/.config</code> is a directory people commonly sync to dotfile
+repositories, so nothing secret is kept there.</p>
 <p>That is the whole list. <b>Analytics figures are never written to disk</b>; they live in memory while
 the dashboard is open and are gone when you quit.</p>
 
-<h2><span class="n">03</span>What anacraft does not do</h2>
+<h2><span class="n">03</span>How that data is protected</h2>
+<p><b>In transit.</b> Every request anacraft makes — the authorization exchange, token refreshes, and
+each Analytics query — goes over HTTPS with TLS, using the <code>rustls</code> stack compiled into the
+binary. There is no plaintext transport and no option to disable verification.</p>
+<p><b>At rest.</b> The OAuth refresh token is the only sensitive value anacraft keeps. It is written to
+<code>~/.anacraft/token.json</code> with permissions <code>0600</code> on macOS and Linux, so no other
+user account on the machine can read it. On Windows it is written into your user profile and protected
+by that account's own file permissions. Your Analytics figures are never written to disk at all — they
+exist in memory while the dashboard is open and are gone when you quit, so there is no cache or export
+for anyone to recover.</p>
+<p><b>During sign-in.</b> The login uses the OAuth 2.0 authorization code flow with
+<a href="https://datatracker.ietf.org/doc/html/rfc7636">PKCE</a>, deriving an <code>S256</code>
+challenge from a single-use random verifier, so an intercepted authorization code cannot be redeemed
+by anyone else. Google redirects to a loopback address on <code>127.0.0.1</code> using a port the
+operating system assigns for that one login, and the reply is checked against a random
+<code>state</code> value — a mismatch aborts the login rather than proceeding.</p>
+<p><b>By scope.</b> anacraft requests one scope,
+<code>https://www.googleapis.com/auth/analytics.readonly</code>. Being read-only, the token it holds
+cannot modify or delete anything in your Analytics account even if it were misused.</p>
+<p><b>By not transmitting it.</b> The strongest protection here is structural: there is no anacraft
+server to breach, no account to compromise, and no copy of your data anywhere but your own machine.
+Nothing is sent to the maintainers or to any third party.</p>
+<p><b>Revocation.</b> You can withdraw access at any time — <code>anacraft logout</code> revokes the
+token with Google and deletes it from disk, and
+<a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a> revokes it from
+Google's side independently of this program.</p>
+<p><b>Auditable.</b> anacraft is open source under Apache 2.0. The entire authentication path is in
+<a href="https://github.com/mehfuzh/anacraft/blob/main/src/auth.rs"><code>src/auth.rs</code></a>, so
+none of the above has to be taken on trust.</p>
+
+<h2><span class="n">04</span>What anacraft does not do</h2>
 <ul>
   <li>No telemetry, usage analytics, or crash reporting.</li>
   <li>No phoning home — no version pings, no install counters.</li>
@@ -170,7 +203,7 @@ the dashboard is open and are gone when you quit.</p>
   <li>No account or profile with us. We hold no record that you exist.</li>
 </ul>
 
-<h2><span class="n">04</span>Google API Services Limited Use</h2>
+<h2><span class="n">05</span>Google API Services Limited Use</h2>
 <p>anacraft's use of information received from Google APIs adheres to the
 <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User
 Data Policy</a>, including the Limited Use requirements. Data obtained through the Google Analytics APIs
@@ -178,7 +211,7 @@ is used only to draw the dashboard on your own screen, in response to a command 
 transmitted to the maintainers or any third party, not used for advertising, and not used to train
 machine-learning models.</p>
 
-<h2><span class="n">05</span>The OAuth client in official builds</h2>
+<h2><span class="n">06</span>The OAuth client in official builds</h2>
 <p>Release binaries have an OAuth client compiled in so that login works without you registering a
 Google Cloud project first. It only tells Google which application is asking — the resulting token is
 issued to your machine and used from your machine, so it gives the maintainers no access to anything.</p>
@@ -186,7 +219,7 @@ issued to your machine and used from your machine, so it gives the maintainers n
 supply your own instead, via environment variables or <code>~/.anacraft/client.json</code>; see the
 <a href="https://github.com/mehfuzh/anacraft#readme">README</a> for details.</p>
 
-<h2><span class="n">06</span>Revoking access and deleting data</h2>
+<h2><span class="n">07</span>Revoking access and deleting data</h2>
 <ul>
   <li><code>anacraft logout</code> — revokes the token with Google and deletes it from disk.</li>
   <li>Delete <code>~/.anacraft/</code> — removes everything anacraft keeps.</li>
@@ -195,7 +228,7 @@ supply your own instead, via environment variables or <code>~/.anacraft/client.j
 </ul>
 <p>Since we never receive your data, there is nothing for us to delete on your behalf.</p>
 
-<h2><span class="n">07</span>The website, changes, and contact</h2>
+<h2><span class="n">08</span>The website, changes, and contact</h2>
 <p>anacraft.dev is a static site on GitHub Pages with no cookies and no analytics. GitHub may log request
 metadata such as IP addresses, and two typefaces are fetched from Google Fonts.</p>
 <p>If this policy changes materially, the date above changes with it and the revision stays visible in the
