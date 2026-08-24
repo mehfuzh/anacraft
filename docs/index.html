@@ -425,7 +425,7 @@
 <div class="dashview" id="dashboard">
   <div class="wrap">
     <div class="dash-head">
-      <p>The real thing — <code style="font-family:var(--mono);color:var(--fg)">anacraft dash --demo</code>, captured at <span class="at-wide">132×52</span><span class="at-narrow">74×58</span>.</p>
+      <p>The real thing — <code style="font-family:var(--mono);color:var(--fg)">craft dash --demo</code>, captured at <span class="at-wide">132×52</span><span class="at-narrow">74×58</span>.</p>
       <div class="tabs" role="tablist">
         <button role="tab" aria-selected="true" data-theme="osaka-jade" data-bg="#09100d"><span class="sw" style="background:#2dd5b7"></span>Osaka Jade</button>
         <button role="tab" aria-selected="false" data-theme="catppuccin" data-bg="#11111b"><span class="sw" style="background:#94e2d5"></span>Catppuccin</button>
@@ -1553,7 +1553,7 @@
       <div class="row"><span class="n">03</span><h3>Achievement toasts</h3><p>Diamond Streak, Creeper Repelled, Deep Vein — unlocks pop in when a metric crosses a milestone, then get out of the way.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">04</span><h3>Five palettes, one texture pack</h3><p>Osaka Jade, Catppuccin, GitHub, Tokyo Night and Catppuccin Latte. The ore vocabulary survives the swap; <code style="font-family:var(--mono)">t</code> cycles, and the choice persists.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">05</span><h3>One-shot reports</h3><p>Not everything needs a dashboard. <code style="font-family:var(--mono)">overview</code>, <code style="font-family:var(--mono)">pages</code>, <code style="font-family:var(--mono)">portals</code>, <code style="font-family:var(--mono)">realms</code> and <code style="font-family:var(--mono)">live</code> print and exit — pipe them anywhere.</p><span class="arw">→</span></div>
-      <div class="row"><span class="n">06</span><h3>Runs before you sign in</h3><p><code style="font-family:var(--mono)">anacraft</code> on its own opens the dashboard, and with no property saved it drives the whole thing from synthetic data — so you see it working before touching OAuth.</p><span class="arw">→</span></div>
+      <div class="row"><span class="n">06</span><h3>Runs before you sign in</h3><p><code style="font-family:var(--mono)">craft</code> on its own opens the dashboard, and with no property saved it drives the whole thing from synthetic data — so you see it working before touching OAuth.</p><span class="arw">→</span></div>
     </div>
 
     <div class="sec-label" style="margin-top:64px">On the roadmap</div>
@@ -1570,7 +1570,7 @@
       <a class="row soon" href="https://github.com/mehfuzh/anacraft/issues/2">
         <span class="n"><span class="tag review">Review</span></span>
         <h3>One-click Google sign-in</h3>
-        <p>Collapse <code style="font-family:var(--mono)">anacraft login</code> into a single round trip — consent, redirect, token stored, done.</p>
+        <p>Collapse <code style="font-family:var(--mono)">craft login</code> into a single round trip — consent, redirect, token stored, done.</p>
         <span class="arw">→</span>
       </a>
     </div>
@@ -1582,7 +1582,8 @@
     <div class="sec-label">Quick start</div>
     <h2>Two minutes from curl to numbers.</h2>
     <p class="sec-sub">
-      Official builds carry their own OAuth client, so <code style="font-family:var(--mono);color:var(--fg)">anacraft login</code> needs no
+      The command is <code style="font-family:var(--mono);color:var(--fg)">craft</code>; <code style="font-family:var(--mono);color:var(--fg)">anacraft</code> still works as an alias.
+      Official builds carry their own OAuth client, so <code style="font-family:var(--mono);color:var(--fg)">craft login</code> needs no
       Google Cloud project. Prefer your own? Set
       <code style="font-family:var(--mono);color:var(--fg)">ANACRAFT_OAUTH_CLIENT_ID</code> and <code style="font-family:var(--mono);color:var(--fg)">ANACRAFT_OAUTH_CLIENT_SECRET</code>,
       or drop in <code style="font-family:var(--mono);color:var(--fg)">~/.anacraft/client.json</code> — both take precedence.
@@ -1594,17 +1595,17 @@
 <span class="c">$</span> <span class="w">curl -fsSL https://anacraft.dev/install.sh | bash</span>
 
 <span class="d"># no command = the dashboard; no property = synthetic data</span>
-<span class="c">$</span> <span class="w">anacraft</span>
+<span class="c">$</span> <span class="w">craft</span>
 
 <span class="d"># connect a real GA4 property</span>
-<span class="c">$</span> <span class="w">anacraft login</span>
-<span class="c">$</span> <span class="w">anacraft props</span>
-<span class="c">$</span> <span class="w">anacraft use 1234567</span>
+<span class="c">$</span> <span class="w">craft login</span>
+<span class="c">$</span> <span class="w">craft props</span>
+<span class="c">$</span> <span class="w">craft use 1234567</span>
 
 <span class="d"># one-shot reports</span>
-<span class="c">$</span> <span class="w">anacraft overview --days 30</span>
-<span class="c">$</span> <span class="w">anacraft pages</span>
-<span class="c">$</span> <span class="w">anacraft realms</span>
+<span class="c">$</span> <span class="w">craft overview --days 30</span>
+<span class="c">$</span> <span class="w">craft pages</span>
+<span class="c">$</span> <span class="w">craft realms</span>
 
 <span class="d"># build from source instead</span>
 <span class="c">$</span> <span class="w">cargo install --git https://github.com/mehfuzh/anacraft</span></pre>
@@ -1613,7 +1614,7 @@
         <table class="keys">
           <tr><th>Key</th><th>In the dashboard</th></tr>
           <tr><td><kbd>1</kbd>–<kbd>7</kbd></td><td><b>Toggle a panel</b> — or <kbd>b</kbd> <kbd>l</kbd> <kbd>p</kbd> <kbd>d</kbd> <kbd>m</kbd> <kbd>v</kbd> <kbd>g</kbd></td></tr>
-          <tr><td><kbd>tab</kbd></td><td><b>Next property</b> — cycles what <code style="font-family:var(--mono)">anacraft use</code> has added</td></tr>
+          <tr><td><kbd>tab</kbd></td><td><b>Next property</b> — cycles what <code style="font-family:var(--mono)">craft use</code> has added</td></tr>
           <tr><td><kbd>t</kbd></td><td><b>Cycle the palette</b>, and save it</td></tr>
           <tr><td><kbd>r</kbd></td><td><b>Rebuild</b> — force a refetch now</td></tr>
           <tr><td><kbd>?</kbd> <kbd>h</kbd></td><td><b>Help overlay</b></td></tr>
@@ -1621,7 +1622,7 @@
         </table>
         <table class="keys" style="margin-top:38px">
           <tr><th>Command</th><th>What it does</th></tr>
-          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">anacraft</code></td><td>Opens the dashboard — <code style="font-family:var(--mono)">dash</code> is the default</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">craft</code></td><td>Opens the dashboard — <code style="font-family:var(--mono)">dash</code> is the default</td></tr>
         </table>
         <table class="keys" style="margin-top:38px">
           <tr><th>Path</th><th>What lives there</th></tr>
@@ -1638,7 +1639,7 @@
     <div class="sec-label">Palettes</div>
     <h2>Five grounds to mine on.</h2>
     <p class="sec-sub">
-      <code style="font-family:var(--mono);color:var(--fg)">anacraft theme &lt;name&gt;</code> saves one as the default;
+      <code style="font-family:var(--mono);color:var(--fg)">craft theme &lt;name&gt;</code> saves one as the default;
       <code style="font-family:var(--mono);color:var(--fg)">--theme</code> overrides it for a single run.
     </p>
     <div class="pals">

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Splice `anacraft capture` output into the site, reading the HTML on stdin.
+"""Splice `craft capture` output into the site, reading the HTML on stdin.
 
 The captures sit between two markers so regenerating them is a replace rather
 than a hand-edit. They used to be maintained by hand, which is how the page came
@@ -18,7 +18,7 @@ page = root / "docs" / "index.html"
 
 captures = sys.stdin.read().strip()
 if not captures:
-    sys.exit("nothing on stdin — did `anacraft capture` fail?")
+    sys.exit("nothing on stdin — did `craft capture` fail?")
 
 text = page.read_text()
 if START not in text or END not in text:

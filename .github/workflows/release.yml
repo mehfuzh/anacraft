@@ -64,12 +64,17 @@ jobs:
           mkdir -p "$staging"
           cp README.md LICENSE "$staging/"
 
+          # The command is `craft`; `anacraft` ships alongside as an alias so
+          # existing installs keep working. Windows gets a copy rather than a
+          # symlink, which needs elevation there.
           if [[ "${{ matrix.target }}" == *windows* ]]; then
-            cp "target/${{ matrix.target }}/release/anacraft.exe" "$staging/"
+            cp "target/${{ matrix.target }}/release/craft.exe" "$staging/"
+            cp "$staging/craft.exe" "$staging/anacraft.exe"
             7z a "$staging.zip" "$staging"
             echo "ASSET=$staging.zip" >> "$GITHUB_ENV"
           else
-            cp "target/${{ matrix.target }}/release/anacraft" "$staging/"
+            cp "target/${{ matrix.target }}/release/craft" "$staging/"
+            ln -s craft "$staging/anacraft"
             tar czf "$staging.tar.gz" "$staging"
             echo "ASSET=$staging.tar.gz" >> "$GITHUB_ENV"
           fi

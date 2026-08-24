@@ -18,11 +18,11 @@ use theme::{ore, OVERVIEW};
 
 #[derive(Parser)]
 #[command(
-    name = "anacraft",
+    name = "craft",
     version,
     about = "Google Analytics, mined block by block",
     long_about = None,
-    after_help = "Run `anacraft` with no command to open the live dashboard.\n\
+    after_help = "Run `craft` with no command to open the live dashboard.\n\
                   With no property saved it runs on synthetic data, so it works \
                   before you sign in."
 )]
@@ -141,7 +141,7 @@ async fn run() -> Result<()> {
     });
     if let Some(name) = palette {
         if !theme::select(name) {
-            anyhow::bail!("no theme called {name} — run `anacraft theme` to list them");
+            anyhow::bail!("no theme called {name} — run `craft theme` to list them");
         }
     }
 
@@ -250,7 +250,7 @@ async fn cmd_login() -> Result<()> {
     // A fresh login with no property selected is a dead end; nudge onward.
     let cfg = Config::load()?;
     if cfg.active_property().is_none() {
-        println!("  next: {} to pick a property\n", bold("anacraft props"));
+        println!("  next: {} to pick a property\n", bold("craft props"));
     }
     Ok(())
 }
@@ -289,7 +289,7 @@ async fn cmd_props() -> Result<()> {
     }
     // `use` accumulates rather than replaces, which is the only hint that a
     // rotation exists at all — worth saying once the list is non-trivial.
-    println!("\n  add one with {}", bold("anacraft use <id>"));
+    println!("\n  add one with {}", bold("craft use <id>"));
     if cfg.properties.len() > 1 {
         println!(
             "  {} configured — {} between them in the dashboard\n",
@@ -314,7 +314,7 @@ async fn cmd_use(id: &str) -> Result<()> {
     let found = props
         .iter()
         .find(|p| p.id == wanted)
-        .with_context(|| format!("no property {wanted} on this account — run `anacraft props`"))?;
+        .with_context(|| format!("no property {wanted} on this account — run `craft props`"))?;
 
     let mut cfg = Config::load()?;
     cfg.upsert(&found.id, Some(found.name.clone()));
@@ -333,7 +333,7 @@ async fn cmd_use(id: &str) -> Result<()> {
 fn cmd_theme(name: Option<&str>) -> Result<()> {
     if let Some(name) = name {
         if !theme::select(name) {
-            anyhow::bail!("no theme called {name} — run `anacraft theme` to list them");
+            anyhow::bail!("no theme called {name} — run `craft theme` to list them");
         }
         let mut cfg = Config::load()?;
         cfg.theme = Some(name.to_string());
@@ -363,7 +363,7 @@ fn cmd_theme(name: Option<&str>) -> Result<()> {
             .join("");
         println!("  {marker} {:<14} {swatch}", bold(palette.name));
     }
-    println!("\n  set one with {}\n", bold("anacraft theme <name>"));
+    println!("\n  set one with {}\n", bold("craft theme <name>"));
     println!("{}\n", panel_bottom());
     Ok(())
 }
@@ -488,7 +488,7 @@ fn cmd_demo() -> Result<()> {
 
     println!(
         "  {}\n",
-        dim("synthetic data — run `anacraft login` to connect a real property")
+        dim("synthetic data — run `craft login` to connect a real property")
     );
     Ok(())
 }

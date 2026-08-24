@@ -1,6 +1,6 @@
 [package]
 name = "anacraft"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.74"
 description = "Google Analytics in your terminal, with a Minecraft texture pack"
@@ -11,7 +11,8 @@ keywords = ["analytics", "cli", "tui", "google-analytics", "minecraft"]
 categories = ["command-line-utilities"]
 
 [[bin]]
-name = "anacraft"
+# The command is `craft`; the crate, brand and data paths stay anacraft.
+name = "craft"
 path = "src/main.rs"
 
 [dependencies]

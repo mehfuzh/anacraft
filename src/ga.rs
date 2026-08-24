@@ -361,7 +361,7 @@ fn explain(status: u16, body: &str) -> String {
         .unwrap_or_else(|_| body.chars().take(300).collect());
 
     match status {
-        401 => format!("login expired — run `anacraft login`\n  ({detail})"),
+        401 => format!("login expired — run `craft login`\n  ({detail})"),
         403 if detail.contains("has not been used") || detail.contains("is disabled") => format!(
             "an API isn't enabled on your Google Cloud project.\n  \
              Enable both the Google Analytics Data API and Admin API, then retry.\n  ({detail})"

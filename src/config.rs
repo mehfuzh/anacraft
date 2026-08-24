@@ -209,7 +209,7 @@ impl Config {
         }
         self.active_property()
             .map(|p| p.id.clone())
-            .context("no property selected — run `anacraft props` to pick one")
+            .context("no property selected — run `craft props` to pick one")
     }
 
     /// Palette for a property: its own, else the global default.

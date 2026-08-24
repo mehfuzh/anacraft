@@ -136,7 +136,7 @@ impl Auth {
 
     /// A valid bearer token, refreshing transparently when needed.
     pub async fn access_token(&self) -> Result<String> {
-        let mut tokens = Tokens::load()?.context("not logged in — run `anacraft login`")?;
+        let mut tokens = Tokens::load()?.context("not logged in — run `craft login`")?;
 
         if tokens.is_stale() {
             tokens = self.refresh(&tokens.refresh_token).await?;
@@ -163,7 +163,7 @@ impl Auth {
             let body = res.text().await.unwrap_or_default();
             // A revoked or expired refresh token is unrecoverable; make the
             // fix obvious instead of surfacing raw JSON.
-            bail!("session expired — run `anacraft login` again\n  ({body})");
+            bail!("session expired — run `craft login` again\n  ({body})");
         }
 
         let body: TokenResponse = res.json().await?;
@@ -316,7 +316,7 @@ fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String>
                 &page(
                     "Rejected",
                     "The redirect did not match the request that started it. \
-                     Close this tab and run anacraft login again.",
+                     Close this tab and run craft login again.",
                     Tone::Bad,
                 ),
             );

@@ -1,4 +1,4 @@
-<h1 align="center">⛏ anacraft</h1>
+<h1 align="center">⛏ craft</h1>
 
 <p align="center"><b>Google Analytics, mined block by block.</b></p>
 
@@ -18,7 +18,7 @@
   <img src="docs/dash.png" alt="The anacraft dashboard: seven panels showing GA4 metrics in a terminal" width="960">
 </p>
 
-<p align="center"><sub><code>anacraft dash --demo</code> · osaka-jade · 132×52</sub></p>
+<p align="center"><sub><code>craft dash --demo</code> · osaka-jade · 132×52</sub></p>
 
 ## Install
 
@@ -50,15 +50,15 @@ property saved it runs on synthetic data, so it works before you sign in.
 
 ```sh
 # The dashboard, on synthetic data — no Google account needed
-anacraft
+craft
 
 # Connect a real GA4 property
-anacraft login        # OAuth sign-in
-anacraft props        # list the properties this account can read
-anacraft use 1234567  # save it as the default
+craft login        # OAuth sign-in
+craft props        # list the properties this account can read
+craft use 1234567  # save it as the default
 
 # Same bare command, now against your property
-anacraft
+craft
 ```
 
 ### One-shot reports
@@ -66,12 +66,12 @@ anacraft
 Not everything needs a dashboard. These print and exit.
 
 ```sh
-anacraft overview --days 30   # headline metrics, deltas, achievements
-anacraft pages                # most-visited pages
-anacraft portals              # where traffic arrives from
-anacraft realms               # traffic by country
-anacraft live                 # who is on the site right now
-anacraft demo                 # render an overview from synthetic data
+craft overview --days 30   # headline metrics, deltas, achievements
+craft pages                # most-visited pages
+craft portals              # where traffic arrives from
+craft realms               # traffic by country
+craft live                 # who is on the site right now
+craft demo                 # render an overview from synthetic data
 ```
 
 Two flags are global: `--property <id>` queries a property other than the saved
@@ -105,15 +105,18 @@ reflows to fill the terminal.
 ## Palettes
 
 ```sh
-anacraft theme                # list the palettes with swatches
-anacraft theme tokyo-night    # switch and persist
-anacraft --theme github dash  # override for one run
+craft theme                # list the palettes with swatches
+craft theme tokyo-night    # switch and persist
+craft --theme github dash  # override for one run
 ```
 
 `osaka-jade` (default) · `catppuccin` · `github` · `tokyo-night` · `catppuccin-latte`
 
 The ore vocabulary — diamond, gold, redstone, lapis — is mapped onto whichever
 palette is selected, so the texture pack survives a theme swap.
+
+The command is `craft`. `anacraft` is installed alongside it as an alias, so
+older scripts and anything you have in muscle memory keep working.
 
 ## Configuration
 
@@ -128,7 +131,7 @@ travelling with it. A pre-0.4 `~/.anacraft/config.json` is migrated on first run
 
 ### Multiple properties
 
-`anacraft use <id>` adds a property rather than replacing the last one, so the
+`craft use <id>` adds a property rather than replacing the last one, so the
 config accumulates. In the dashboard, `tab` cycles between them.
 
 ```toml
