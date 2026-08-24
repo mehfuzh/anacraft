@@ -287,14 +287,21 @@ fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String>
         // Browsers often ask for /favicon.ico on the same port; ignore anything
         // that isn't the redirect we're waiting for.
         if params.is_empty() {
-            respond(&mut stream, &page("Waiting…", "Nothing to see here yet."));
+            respond(
+                &mut stream,
+                &page("Waiting", "Nothing to see here yet.", Tone::Good),
+            );
             continue;
         }
 
         if let Some(err) = params.iter().find(|(k, _)| k == "error").map(|(_, v)| v) {
             respond(
                 &mut stream,
-                &page("Login cancelled", "You can close this tab."),
+                &page(
+                    "Login cancelled",
+                    "Nothing was changed. You can close this tab.",
+                    Tone::Bad,
+                ),
             );
             bail!("login cancelled: {err}");
         }
@@ -304,7 +311,15 @@ fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String>
             .find(|(k, _)| k == "state")
             .map(|(_, v)| v.as_str());
         if state != Some(expected_state) {
-            respond(&mut stream, &page("Rejected", "State mismatch. Try again."));
+            respond(
+                &mut stream,
+                &page(
+                    "Rejected",
+                    "The redirect did not match the request that started it. \
+                     Close this tab and run anacraft login again.",
+                    Tone::Bad,
+                ),
+            );
             bail!("OAuth state mismatch — login aborted");
         }
 
@@ -317,8 +332,10 @@ fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String>
         respond(
             &mut stream,
             &page(
-                "Logged in!",
-                "anacraft is connected. You can close this tab.",
+                "Logged in",
+                "anacraft is connected to your Google Analytics account. \
+                 You can close this tab and return to the terminal.",
+                Tone::Good,
             ),
         );
         return Ok(code);
@@ -337,15 +354,120 @@ fn respond(stream: &mut TcpStream, html: &str) {
     let _ = stream.flush();
 }
 
-fn page(title: &str, body: &str) -> String {
+/// Whether the page is reporting success or a dead end. Only the accent
+/// changes; the rest of the page is the same either way.
+enum Tone {
+    Good,
+    Bad,
+}
+
+/// The 16x16 logo grid, the same one `scripts/gen-logo.py` draws the favicon
+/// and the site mark from. Rows 0 and 15 are padding, so the SVG crops to the
+/// glyph's own 14x14 extent.
+const MARK: [&str; 16] = [
+    "................",
+    "......####......",
+    ".....######.....",
+    "....########....",
+    "....########....",
+    "...####..####...",
+    "...####..####...",
+    "..####....####..",
+    "..####....####..",
+    ".####......####.",
+    ".##############.",
+    ".##############.",
+    ".####......####.",
+    ".####......####.",
+    ".####......####.",
+    "................",
+];
+
+fn hex(color: ratatui::style::Color) -> String {
+    match color {
+        ratatui::style::Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+        // Every shipped palette is truecolor; this is only a safety net.
+        _ => "#000000".to_string(),
+    }
+}
+
+/// The mark as inline SVG rects, run-length encoded a row at a time so the
+/// markup stays small enough to sit in a single response.
+fn mark_svg(fill: &str) -> String {
+    let mut out = String::from(
+        "<svg viewBox=\"1 1 14 14\" width=\"52\" height=\"52\" \
+         shape-rendering=\"crispEdges\" aria-hidden=\"true\">",
+    );
+    for (y, row) in MARK.iter().enumerate() {
+        let cells: Vec<char> = row.chars().collect();
+        let mut x = 0;
+        while x < cells.len() {
+            if cells[x] == '#' {
+                let start = x;
+                while x < cells.len() && cells[x] == '#' {
+                    x += 1;
+                }
+                out.push_str(&format!(
+                    "<rect x=\"{start}\" y=\"{y}\" width=\"{}\" height=\"1\" fill=\"{fill}\"/>",
+                    x - start
+                ));
+            } else {
+                x += 1;
+            }
+        }
+    }
+    out.push_str("</svg>");
+    out
+}
+
+/// The browser page, drawn in whatever palette the user is running.
+///
+/// Deriving it from the live palette rather than hardcoding brand colours is
+/// the whole point: this page cannot drift away from the dashboard the way the
+/// previous hardcoded one did, and a light palette gets a readable light page
+/// for free.
+fn page(title: &str, body: &str, tone: Tone) -> String {
+    let p = crate::theme::palette();
+    let (ink, card, fg, dim, shadow) =
+        (hex(p.ink), hex(p.bg), hex(p.fg), hex(p.sage), hex(p.shadow));
+    let accent = match tone {
+        Tone::Good => hex(p.accent),
+        Tone::Bad => hex(p.coral),
+    };
+    let mark = mark_svg(&accent);
+
+    // A strip of blocks under the card, in the ore vocabulary the dashboard
+    // uses for a filled bar.
+    let blocks: String = (0..14)
+        .map(|i| {
+            let c = if i < 11 { &accent } else { &shadow };
+            format!("<i style=\"background:{c}\"></i>")
+        })
+        .collect();
+
     format!(
-        "<!doctype html><meta charset=utf-8><title>anacraft</title>\
-         <style>body{{background:#1d1a18;color:#e8e2d8;font-family:ui-monospace,\
-         'SF Mono',Menlo,monospace;display:grid;place-items:center;height:100vh;margin:0}}\
-         .card{{background:#2b2724;padding:2.5rem 3rem;\
-         border:4px solid #6aaa40;text-align:center}}h1{{color:#5cdbd5;margin:0 0 .5rem;\
-         letter-spacing:.05em}}p{{color:#a8a29a;margin:0}}</style>\
-         <div class=card><h1>{title}</h1><p>{body}</p></div>"
+        "<!doctype html><html lang=en><meta charset=utf-8>\
+         <meta name=viewport content=\"width=device-width,initial-scale=1\">\
+         <title>anacraft — {title}</title>\
+         <style>\
+         *{{box-sizing:border-box}}\
+         body{{background:{ink};color:{fg};margin:0;height:100vh;display:grid;\
+         place-items:center;font-family:ui-monospace,'SF Mono',SFMono-Regular,Menlo,\
+         Consolas,monospace;-webkit-font-smoothing:antialiased}}\
+         .card{{background:{card};border:1px solid {shadow};border-top:3px solid {accent};\
+         padding:44px 52px;text-align:center;max-width:min(92vw,460px);\
+         animation:rise .28s ease-out both}}\
+         svg{{display:block;margin:0 auto 22px}}\
+         h1{{color:{accent};font-size:19px;font-weight:700;letter-spacing:.04em;\
+         margin:0 0 10px}}\
+         p{{color:{dim};font-size:13.5px;line-height:1.6;margin:0}}\
+         .bar{{display:flex;gap:2px;justify-content:center;margin-top:26px}}\
+         .bar i{{width:9px;height:9px;display:block}}\
+         @keyframes rise{{from{{opacity:0;transform:translateY(6px)}}}}\
+         @media(prefers-reduced-motion:reduce){{.card{{animation:none}}}}\
+         </style>\
+         <div class=card>{mark}<h1>{title}</h1><p>{body}</p>\
+         <div class=bar>{blocks}</div></div>"
     )
 }
 
@@ -411,6 +533,41 @@ mod tests {
     use super::*;
     use std::net::TcpStream;
     use std::thread;
+
+    #[test]
+    fn the_page_is_drawn_from_the_active_palette() {
+        // The old page hardcoded its colours, which is how it drifted away from
+        // the dashboard. Pin the derivation so that cannot happen again.
+        crate::theme::select("osaka-jade");
+        let jade = page("Logged in", "body", Tone::Good);
+        assert!(jade.contains("#2dd5b7"), "accent missing");
+        assert!(jade.contains("#09100d"), "ink missing");
+
+        crate::theme::select("catppuccin-latte");
+        let latte = page("Logged in", "body", Tone::Good);
+        assert!(
+            !latte.contains("#09100d"),
+            "a light palette must not paint the dark ground"
+        );
+
+        // The failure states differ only in the accent.
+        crate::theme::select("osaka-jade");
+        assert!(page("Rejected", "body", Tone::Bad).contains("#ff5345"));
+
+        crate::theme::select("osaka-jade");
+    }
+
+    #[test]
+    fn the_mark_is_cropped_to_its_glyph() {
+        // Rows 0 and 15 are padding; emitting them would offset the logo inside
+        // its own box.
+        let svg = mark_svg("#000000");
+        assert!(svg.contains(r#"viewBox="1 1 14 14""#));
+        assert!(!svg.contains(r#"y="0""#), "padding row 0 was drawn");
+        assert!(!svg.contains(r#"y="15""#), "padding row 15 was drawn");
+        // Run-length encoding: the two solid crossbar rows are one rect each.
+        assert_eq!(svg.matches(r#"width="14""#).count(), 2);
+    }
 
     #[test]
     fn encode_leaves_unreserved_characters_alone() {
