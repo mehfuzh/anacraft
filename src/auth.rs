@@ -570,6 +570,20 @@ mod tests {
     }
 
     #[test]
+    fn we_ask_for_exactly_one_read_only_scope() {
+        // A Google OAuth review once stalled because the consent screen listed
+        // `analytics` (read+write) and `analytics.manage.users.readonly`, which
+        // this app has never requested. Widening SCOPE is the one change that
+        // would make that mismatch real, so pin it.
+        assert_eq!(SCOPE, "https://www.googleapis.com/auth/analytics.readonly");
+        assert!(!SCOPE.contains(' '), "a second scope was added");
+        assert!(
+            SCOPE.ends_with(".readonly"),
+            "anacraft has no write path; a write scope cannot be justified"
+        );
+    }
+
+    #[test]
     fn encode_leaves_unreserved_characters_alone() {
         assert_eq!(encode("abcXYZ019-_.~"), "abcXYZ019-_.~");
     }
