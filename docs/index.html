@@ -267,7 +267,7 @@
   /* feature rows */
   .rows { margin-top: 52px; border-top: 1px solid var(--line); }
   .row {
-    display: grid; grid-template-columns: 64px 1.05fr 1.35fr 28px;
+    display: grid; grid-template-columns: 76px 1.05fr 1.35fr 28px;
     gap: 24px; align-items: center;
     padding: 26px 6px; border-bottom: 1px solid var(--line);
     transition: background .18s, padding .18s;
@@ -282,7 +282,7 @@
   .row .arw { justify-self: end; color: var(--line-2); transition: color .18s, transform .18s; }
   .row:hover .arw { color: var(--jade); transform: translateX(4px); }
   @media (max-width: 760px) {
-    .row { grid-template-columns: 40px 1fr; }
+    .row { grid-template-columns: 60px 1fr; }
     .row .arw { display: none; }
     .row p { grid-column: 2; }
   }
@@ -295,8 +295,8 @@
     text-transform: uppercase; color: var(--gold);
     border: 1px solid rgba(255,225,107,.32); padding: 3px 7px; white-space: nowrap;
   }
-  /* Built and live: the OAuth client is verified and in production. */
-  .tag.prod { color: var(--jade); border-color: rgba(45,213,183,.32); }
+  /* Built and shipping: the OAuth client is verified and live. */
+  .tag.live { color: var(--jade); border-color: rgba(45,213,183,.32); }
 
   /* code block */
   .code {
@@ -1570,7 +1570,7 @@
         <span class="arw">→</span>
       </a>
       <a class="row soon" href="https://github.com/mehfuzh/anacraft/issues/2">
-        <span class="n"><span class="tag prod">Production</span></span>
+        <span class="n"><span class="tag live">Live</span></span>
         <h3>One-click Google sign-in</h3>
         <p><code style="font-family:var(--mono)">craft login</code> in a single round trip — consent, redirect, token stored. The OAuth client is verified and live.</p>
         <span class="arw">→</span>
