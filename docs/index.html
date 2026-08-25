@@ -295,8 +295,6 @@
     text-transform: uppercase; color: var(--gold);
     border: 1px solid rgba(255,225,107,.32); padding: 3px 7px; white-space: nowrap;
   }
-  /* Further along than Soon: a PR is up for it. */
-  .tag.review { color: var(--jade); border-color: rgba(45,213,183,.32); }
 
   /* code block */
   .code {
@@ -1554,23 +1552,18 @@
       <div class="row"><span class="n">04</span><h3>Five palettes, one texture pack</h3><p>Osaka Jade, Catppuccin, GitHub, Tokyo Night and Catppuccin Latte. The ore vocabulary survives the swap; <code style="font-family:var(--mono)">t</code> cycles, and the choice persists.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">05</span><h3>One-shot reports</h3><p>Not everything needs a dashboard. <code style="font-family:var(--mono)">overview</code>, <code style="font-family:var(--mono)">pages</code>, <code style="font-family:var(--mono)">portals</code>, <code style="font-family:var(--mono)">realms</code> and <code style="font-family:var(--mono)">live</code> print and exit — pipe them anywhere.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">06</span><h3>Runs before you sign in</h3><p><code style="font-family:var(--mono)">craft</code> on its own opens the dashboard, and with no property saved it drives the whole thing from synthetic data — so you see it working before touching OAuth.</p><span class="arw">→</span></div>
+      <div class="row"><span class="n">07</span><h3>One-click Google sign-in</h3><p><code style="font-family:var(--mono)">craft login</code> opens the consent screen, catches the redirect on a loopback port and stores the refresh token — one round trip, no codes to copy back.</p><span class="arw">→</span></div>
     </div>
 
     <div class="sec-label" style="margin-top:64px">On the roadmap</div>
     <p class="sec-sub" style="margin-bottom:32px">
-      Not built yet — tracked in the open. Each links to its issue.
+      Not built yet — tracked in the open, and linked to its issue.
     </p>
     <div class="rows">
       <a class="row soon" href="https://github.com/mehfuzh/anacraft/issues/1">
         <span class="n"><span class="tag">Soon</span></span>
         <h3>AI insights</h3>
         <p>Anomaly detection on sudden drops, content suggestions from page trends, and goal projections — surfaced in an Enchantment Table panel.</p>
-        <span class="arw">→</span>
-      </a>
-      <a class="row soon" href="https://github.com/mehfuzh/anacraft/issues/2">
-        <span class="n"><span class="tag review">Review</span></span>
-        <h3>One-click Google sign-in</h3>
-        <p>Collapse <code style="font-family:var(--mono)">craft login</code> into a single round trip — consent, redirect, token stored, done.</p>
         <span class="arw">→</span>
       </a>
     </div>
