@@ -2,7 +2,12 @@
 set -euo pipefail
 
 REPO="mehfuzh/anacraft"
-BINARY="anacraft"
+# The command is `craft`. Archives keep the anacraft- prefix, matching the repo
+# and every release before 0.5.0. `anacraft` is installed alongside as an alias
+# so existing scripts and muscle memory keep working.
+PACKAGE="anacraft"
+BINARY="craft"
+ALIAS="anacraft"
 GITHUB="https://github.com"
 API="https://api.github.com"
 
@@ -87,7 +92,7 @@ main() {
 
     # Windows ships a zip; everything else a tarball. Both unpack to a
     # directory named after the release, with the binary inside it.
-    stem="${BINARY}-${tag}-${target}"
+    stem="${PACKAGE}-${tag}-${target}"
     if [[ "$target" == *windows* ]]; then
         archive="${stem}.zip"
     else
@@ -97,7 +102,7 @@ main() {
 
     tmpdir="$(mktemp -d)"
 
-    printf "⛏  downloading %s %s (%s)...\n" "$BINARY" "$tag" "$target"
+    printf "⛏  downloading %s %s (%s)...\n" "$PACKAGE" "$tag" "$target"
     curl -fsSL "$url" -o "$tmpdir/$archive" \
         || die "no build for $target in $tag — see ${GITHUB}/${REPO}/releases"
 
@@ -118,7 +123,16 @@ main() {
     install -m 755 "$src" "$dest/${BINARY}${ext}" \
         || die "could not write to $dest — set INSTALL_DIR to a directory you own"
 
-    printf "\n  ✓ installed %s %s to %s/%s\n" "$BINARY" "$tag" "$dest" "$BINARY"
+    # Keep the old name working. A symlink on unix; Windows has no reliable
+    # symlink without elevation, so copy the exe there instead.
+    if [ -n "$ext" ]; then
+        cp -f "$dest/${BINARY}${ext}" "$dest/${ALIAS}${ext}" 2>/dev/null || true
+    else
+        ln -sf "${BINARY}" "$dest/${ALIAS}" 2>/dev/null || true
+    fi
+
+    printf "\n  ✓ installed %s %s to %s/%s\n" "$PACKAGE" "$tag" "$dest" "$BINARY"
+    printf "    %s also works, as an alias\n" "$ALIAS"
 
     # ~/.local/bin is frequently absent from PATH, so say exactly what to add
     # and where, rather than leaving an installed binary nobody can run.
