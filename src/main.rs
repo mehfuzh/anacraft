@@ -18,9 +18,9 @@ use theme::{ore, OVERVIEW};
 
 const DEFAULT_DAYS: u32 = 7;
 const DEFAULT_LIMIT: i32 = 10;
-const TOP_PAGES: &str = "top_pages";
-const TOP_PORTALS: &str = "top_portals";
-const TOP_REALMS: &str = "top_realms";
+const TOP_PAGES: &str = "TOP PAGES";
+const TOP_PORTALS: &str = "TOP PORTALS";
+const TOP_REALMS: &str = "TOP REALMS";
 
 #[derive(Parser)]
 #[command(
