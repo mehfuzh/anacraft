@@ -1586,11 +1586,11 @@ fn help_overlay(frame: &mut Frame, area: Rect) {
         ("r", "refresh now"),
         ("^1 / 1", "events panel"),
         ("^2 / 2", "right now panel"),
-        ("^3 / 3", "realms map"),
-        ("^4 / 4", "top chunks panel"),
+        ("^3 / 3", "countries map"),
+        ("^4 / 4", "top pages panel"),
         ("^5 / 5", "vitals panel"),
-        ("^6 / 6", "top realms"),
-        ("^7 / 7", "daily villagers"),
+        ("^6 / 6", "top countries"),
+        ("^7 / 7", "daily users"),
         ("t", "next theme"),
         ("tab", "next property"),
         ("? / h", "this list"),
@@ -1893,7 +1893,7 @@ fn trend_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         Style::default().fg(theme::fade(theme::sage(), 0.2)),
     )));
 
-    Paragraph::new(lines).block(framed("DAILY VILLAGERS", "7", ore::grass()))
+    Paragraph::new(lines).block(framed("DAILY USERS", "7", ore::grass()))
 }
 
 /// How many days a panel this wide can draw, at one column per day minimum.
@@ -2200,7 +2200,7 @@ fn map_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
         Style::default().fg(theme::fade(theme::sage(), 0.2)),
     )));
 
-    Paragraph::new(lines).block(framed("REALMS", "3", ore::lapis()))
+    Paragraph::new(lines).block(framed("COUNTRIES", "3", ore::lapis()))
 }
 
 /// What sits under the vitals in the left-hand column.
@@ -2482,7 +2482,7 @@ fn pages_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         lines.push(Line::from(spans));
     }
 
-    Paragraph::new(lines).block(framed("TOP CHUNKS", "4", ore::copper()))
+    Paragraph::new(lines).block(framed("TOP PAGES", "4", ore::copper()))
 }
 
 fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
@@ -2530,7 +2530,7 @@ fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         lines.push(Line::from(spans));
     }
 
-    Paragraph::new(lines).block(framed("TOP REALMS", "6", ore::lapis()))
+    Paragraph::new(lines).block(framed("TOP COUNTRIES", "6", ore::lapis()))
 }
 
 fn footer(dash: &Dash) -> Paragraph<'static> {

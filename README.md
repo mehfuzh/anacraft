@@ -86,11 +86,11 @@ reflows to fill the terminal.
 |-----|-------|---------------|
 | `1` | **EVENTS** | Event count per day, this period drawn over the last one, with the total and its change |
 | `2` | **RIGHT NOW** | Live player count plus a spawn / wander-off event feed |
-| `3` | **REALMS** | Traffic plotted on a world map |
-| `4` | **TOP CHUNKS** | Most-visited pages with view bars and rank movement |
+| `3` | **COUNTRIES** | Traffic plotted on a world map |
+| `4` | **TOP PAGES** | Most-visited pages with view bars and rank movement |
 | `5` | **VITALS** | Users, sessions, views, conversions, bounce rate, avg. session |
-| `6` | **TOP REALMS** | Ranked countries with tier markers |
-| `7` | **DAILY VILLAGERS** | User trend across the period |
+| `6` | **TOP COUNTRIES** | Ranked countries with tier markers |
+| `7` | **DAILY USERS** | User trend across the period |
 
 ### Controls
 

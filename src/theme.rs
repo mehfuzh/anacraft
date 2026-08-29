@@ -414,15 +414,15 @@ pub const OVERVIEW: &[&Metric] = &[
 /// Dimension renames, used for table headers.
 pub fn dimension_label(api: &str) -> &'static str {
     match api {
-        "pagePath" => "CHUNK",
-        "pageTitle" => "CHUNK NAME",
-        "landingPage" => "SPAWN POINT",
-        "sessionSourceMedium" => "PORTAL",
-        "sessionSource" => "PORTAL",
-        "country" => "REALM",
-        "city" => "VILLAGE",
-        "deviceCategory" => "GEAR",
-        "browser" => "CLIENT",
+        "pagePath" => "PAGE",
+        "pageTitle" => "PAGE TITLE",
+        "landingPage" => "LANDING PAGE",
+        "sessionSourceMedium" => "SOURCE",
+        "sessionSource" => "SOURCE",
+        "country" => "COUNTRY",
+        "city" => "CITY",
+        "deviceCategory" => "DEVICE",
+        "browser" => "BROWSER",
         "date" => "DAY",
         _ => "DIMENSION",
     }

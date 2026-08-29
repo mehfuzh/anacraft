@@ -173,7 +173,7 @@ async fn run() -> Result<()> {
                 "pagePath",
                 "screenPageViews",
                 "views",
-                "TOP CHUNKS",
+                "TOP PAGES",
             )
             .await
         }
@@ -185,8 +185,8 @@ async fn run() -> Result<()> {
                 limit,
                 "sessionSourceMedium",
                 "sessions",
-                "expeditions",
-                "PORTALS",
+                "sessions",
+                "TOP SOURCES",
             )
             .await
         }
@@ -198,8 +198,8 @@ async fn run() -> Result<()> {
                 limit,
                 "country",
                 "totalUsers",
-                "villagers",
-                "REALMS",
+                "users",
+                "TOP COUNTRIES",
             )
             .await
         }
