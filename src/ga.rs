@@ -87,7 +87,7 @@ pub struct ReportRequest {
     pub dimensions: Vec<Named>,
     pub metrics: Vec<Named>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
+    pub limit: Option<i32>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub order_bys: Vec<OrderBy>,
 }
@@ -113,7 +113,7 @@ impl ReportRequest {
         self
     }
 
-    pub fn top(mut self, metric: &str, limit: i64) -> Self {
+    pub fn top(mut self, metric: &str, limit: i32) -> Self {
         self.order_bys = vec![OrderBy::desc(metric)];
         self.limit = Some(limit);
         self

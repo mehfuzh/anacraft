@@ -16,11 +16,17 @@ use ga::{DateRange, Ga, ReportRequest};
 use render::{bold, dim, paint, panel_bottom, panel_top};
 use theme::{ore, OVERVIEW};
 
+const DEFAULT_DAYS: u32 = 7;
+const DEFAULT_LIMIT: i32 = 10;
+const TOP_PAGES: &str = "top_pages";
+const TOP_PORTALS: &str = "top_portals";
+const TOP_REALMS: &str = "top_realms";
+
 #[derive(Parser)]
 #[command(
     name = "craft",
     version,
-    about = "Google Analytics, mined block by block",
+    about = "Your website deserves better analytics",
     long_about = None,
     after_help = "Run `craft` with no command to open the live dashboard.\n\
                   With no property saved it runs on synthetic data, so it works \
@@ -55,29 +61,29 @@ enum Command {
     /// Headline metrics for the period, with deltas and achievements.
     Overview {
         /// Days to look back, ending yesterday.
-        #[arg(long, short, default_value_t = 7)]
+        #[arg(long, short, default_value_t = DEFAULT_DAYS)]
         days: u32,
     },
     /// Most-visited pages.
     Pages {
-        #[arg(long, short, default_value_t = 7)]
+        #[arg(long, short, default_value_t = DEFAULT_DAYS)]
         days: u32,
-        #[arg(long, short, default_value_t = 10)]
-        limit: i64,
+        #[arg(long, short, default_value_t = DEFAULT_LIMIT)]
+        limit: i32,
     },
     /// Where traffic arrives from.
     Portals {
-        #[arg(long, short, default_value_t = 7)]
+        #[arg(long, short, default_value_t = DEFAULT_DAYS)]
         days: u32,
-        #[arg(long, short, default_value_t = 10)]
-        limit: i64,
+        #[arg(long, short, default_value_t = DEFAULT_LIMIT)]
+        limit: i32,
     },
     /// Traffic by country.
     Realms {
-        #[arg(long, short, default_value_t = 7)]
+        #[arg(long, short, default_value_t = DEFAULT_DAYS)]
         days: u32,
-        #[arg(long, short, default_value_t = 10)]
-        limit: i64,
+        #[arg(long, short, default_value_t = DEFAULT_LIMIT)]
+        limit: i32,
     },
     /// Who is on the site right now.
     Live,
@@ -173,7 +179,7 @@ async fn run() -> Result<()> {
                 "pagePath",
                 "screenPageViews",
                 "views",
-                "TOP PAGES",
+                TOP_PAGES,
             )
             .await
         }
@@ -186,7 +192,7 @@ async fn run() -> Result<()> {
                 "sessionSourceMedium",
                 "sessions",
                 "sessions",
-                "TOP SOURCES",
+                TOP_PORTALS,
             )
             .await
         }
@@ -199,7 +205,7 @@ async fn run() -> Result<()> {
                 "country",
                 "totalUsers",
                 "users",
-                "TOP COUNTRIES",
+                TOP_REALMS,
             )
             .await
         }
@@ -498,7 +504,7 @@ fn cmd_demo() -> Result<()> {
 async fn cmd_ranked(
     property: &str,
     days: u32,
-    limit: i64,
+    limit: i32,
     dimension: &str,
     metric: &str,
     unit: &str,
