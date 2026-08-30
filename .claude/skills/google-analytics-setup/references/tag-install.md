@@ -103,6 +103,27 @@ A consent management platform (Cookiebot, Osano, Iubenda, CookieYes) emits these
 calls for you; hand-rolling is only worth it for a single-banner site. Ordering
 is the whole game — defaults must run before the tag loads.
 
+## No banner at all
+
+Consent is owed because GA4 stores a cookie. Storing nothing removes the
+obligation at its source:
+
+```js
+gtag('config', 'G-XXXXXXXXXX', { client_storage: 'none' })
+```
+
+No `_ga` cookie, no localStorage, no banner. The cost is continuity — every
+visit is a new user, so returning-visitor and multi-day attribution are gone,
+while page views, countries, referrers, events and Realtime are untouched. For
+a landing page or docs site this is usually the better trade, and it is what
+anacraft.dev runs.
+
+Do not pair it with a denied Consent Mode default. `analytics_storage: 'denied'`
+turns every hit into a consent ping that GA4 surfaces only through behavioural
+modelling, which needs volume thresholds (roughly 1,000 events/day for a week)
+that a small site never reaches — the reports end up emptier than if you had
+simply stored nothing.
+
 ## Checking the install without the console
 
 ```sh

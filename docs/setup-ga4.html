@@ -118,7 +118,7 @@
     footer .r { margin-left: 0; flex-wrap: wrap; }
   }
 </style>
-<script src="/analytics.js?v=52185375"></script>
+<script src="/analytics.js?v=8fa4ec5f"></script>
 </head>
 <body>
 
@@ -200,6 +200,12 @@ WordPress, Site Kit or any GA4 plugin does; editing <code>header.php</code> work
 child theme or the next update erases it.</p>
 <p>If your site serves the EEA or UK, set Consent Mode v2 defaults <b>before</b> the tag loads and update
 them when the visitor chooses. A consent platform emits those calls for you; ordering is the whole game.</p>
+<p>Or sidestep the banner entirely with <code>gtag('config', 'G-XXXXXXXXXX', { client_storage: 'none' })</code>.
+GA4 then writes no cookie, so there is no device storage to ask consent for. You lose returning-visitor
+and multi-day attribution — every visit counts as new — and keep page views, countries, referrers and
+Realtime. <b>This site does exactly that</b>, which is why you are reading it without dismissing a banner.
+Do not combine the two: an <code>analytics_storage: 'denied'</code> default downgrades every hit to a
+consent ping that GA4 reports only through modelling, so a small site sees less data, not more.</p>
 
 <h2><span class="n">04</span>Verify data is arriving</h2>
 <p>In this order, because each rules out a different failure.</p>

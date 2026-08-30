@@ -108,7 +108,7 @@
     footer .r { margin-left: 0; flex-wrap: wrap; }
   }
 </style>
-<script src="/analytics.js?v=52185375"></script>
+<script src="/analytics.js?v=8fa4ec5f"></script>
 </head>
 <body>
 
@@ -228,15 +228,14 @@ supply your own instead, via environment variables or <code>~/.anacraft/client.j
 <p><b>The program collects nothing. The website does, if you let it.</b> Everything above describes the
 anacraft binary, which has no telemetry and never contacts a server of ours. This section is about
 anacraft.dev, which is a separate thing.</p>
-<p>anacraft.dev is a static site on GitHub Pages. It uses Google Analytics to count visits, and it is
-configured so that <b>nothing is stored on your device until you accept the prompt</b> — Consent Mode is
-set to deny analytics storage by default, so declining leaves you with no cookies at all and the site
-works identically either way. If your browser sends a Global Privacy Control signal we treat that as a
-decline and never show the prompt. Your choice is remembered in <code>localStorage</code> under
-<code>anacraft-consent</code>; clearing your site data resets it. Google receives the usual analytics
-data for pages you view here — see <a href="https://policies.google.com/privacy">Google's privacy
-policy</a>. GitHub may log request metadata such as IP addresses, and two typefaces are fetched from
-Google Fonts.</p>
+<p>anacraft.dev is a static site on GitHub Pages. It uses Google Analytics to count visits, configured
+with <code>client_storage: 'none'</code> so that <b>it writes no cookies and stores nothing on your
+device at all</b> — which is why you were not asked to dismiss a consent banner to read this. The
+trade-off is ours, not yours: every visit reaches us as a new visitor, and we cannot tell whether you
+have been here before. Google receives the page you viewed and derives an approximate location from
+your IP address, which GA4 does not log or retain — see <a href="https://policies.google.com/privacy">Google's
+privacy policy</a>. GitHub may log request metadata such as IP addresses, and two typefaces are fetched
+from Google Fonts.</p>
 <p>If this policy changes materially, the date above changes with it and the revision stays visible in the
 site's Git history. anacraft is published by Smartloop Inc. Questions about this policy: <a href="mailto:support@anacraft.dev">support@anacraft.dev</a>.</p>
 
