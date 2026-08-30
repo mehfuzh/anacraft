@@ -1873,27 +1873,38 @@ fn trend_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         ))]
     };
 
-    let shown = visible_days(inner, dash.daily.len());
-    let peak = dash.daily[dash.daily.len() - shown..]
+    if let Some(caption) = trend_caption(&dash.daily, inner) {
+        lines.push(Line::from(Span::styled(
+            caption,
+            Style::default().fg(theme::fade(theme::sage(), 0.2)),
+        )));
+    }
+
+    Paragraph::new(lines).block(framed("DAILY USERS", "7", ore::grass()))
+}
+
+/// The line under the bars: how many days are drawn, and the tallest of them.
+/// There is nothing to say before the first day's numbers arrive.
+fn trend_caption(daily: &[f64], inner: usize) -> Option<String> {
+    if daily.is_empty() {
+        return None;
+    }
+
+    let shown = visible_days(inner, daily.len());
+    let peak = daily[daily.len() - shown..]
         .iter()
         .cloned()
         .fold(0.0_f64, f64::max);
-    let caption = if shown < dash.daily.len() {
+    Some(if shown < daily.len() {
         format!(
             "  last {} of {} days · peak {}",
             shown,
-            dash.daily.len(),
+            daily.len(),
             commas(peak)
         )
     } else {
         format!("  {shown} days · peak {}", commas(peak))
-    };
-    lines.push(Line::from(Span::styled(
-        caption,
-        Style::default().fg(theme::fade(theme::sage(), 0.2)),
-    )));
-
-    Paragraph::new(lines).block(framed("DAILY USERS", "7", ore::grass()))
+    })
 }
 
 /// How many days a panel this wide can draw, at one column per day minimum.
@@ -2971,6 +2982,14 @@ mod tests {
             realms > 0 && realms < land,
             "{realms} lit realms against {land} land cells"
         );
+    }
+
+    #[test]
+    fn the_trend_caption_waits_for_the_first_day() {
+        // `visible_days` never returns zero, so an empty history used to slice
+        // from behind the front of the vec and take the whole dashboard down.
+        assert_eq!(trend_caption(&[], 40), None);
+        assert!(trend_caption(&[12.0], 40).unwrap().contains("1 days"));
     }
 
     #[test]
