@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set up Google Analytics 4 — anacraft</title>
+<meta name="description" content="Set up a GA4 property end to end: create the property, add a web data stream, install the tag, verify data is arriving, and grant the access an API client needs.">
+<link rel="canonical" href="https://anacraft.dev/setup-ga4.html">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://anacraft.dev/setup-ga4.html">
+<meta property="og:title" content="Set up Google Analytics 4 — anacraft">
+<meta property="og:description" content="Set up a GA4 property end to end: create the property, add a web data stream, install the tag, verify data is arriving, and grant the access an API client needs.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=2dd77504">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  @font-face {
+    font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400;
+    font-display: block; src: url('fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+  :root {
+    --ground: #060a09; --ink: #09100d; --panel: #0d1512;
+    --line: rgba(193,196,151,.11); --line-2: rgba(193,196,151,.20);
+    --fg: #c1c497; --white: #eef1dc; --dim: #6c7f73;
+    --jade: #2dd5b7; --jade-deep: #509475; --gold: #ffe16b; --coral: #ff5345;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--ground); color: var(--fg); line-height: 1.7;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: var(--jade); color: #04120e; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+  nav { position: sticky; top: 0; z-index: 50; background: rgba(6,10,9,.82);
+        backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+  .nav-in { display: flex; align-items: center; gap: 32px; height: 60px; }
+  .brand { font-family: 'Archivo', sans-serif; font-weight: 900; font-size: 20px;
+           letter-spacing: -.03em; color: var(--white); display: flex; align-items: baseline; gap: 0; }
+  .brand .pick { width: 14px; height: 14px; display: block; margin-right: 2px; }
+  .nav-links { display: flex; align-items: center; gap: 26px; margin-left: auto;
+               font-size: 13.5px; color: var(--dim); }
+  .nav-links a { transition: color .15s; }
+  .nav-links a:hover { color: var(--white); }
+
+  /* ── document ──────────────────────────────────────── */
+  .doc { max-width: 760px; margin: 0 auto; padding: 72px 28px 96px; }
+  .eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
+             text-transform: uppercase; color: var(--jade); margin-bottom: 18px; }
+  h1 { font-family: 'Archivo', sans-serif; font-weight: 900; font-size: clamp(34px, 6vw, 50px);
+       line-height: 1.05; letter-spacing: -.035em; color: var(--white); margin-bottom: 14px; }
+  .stamp { font-family: var(--mono); font-size: 12.5px; color: var(--dim); margin-bottom: 40px; }
+  h2 { font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 21px;
+       letter-spacing: -.02em; color: var(--white); margin: 52px 0 14px; }
+  h2 .n { color: var(--jade-deep); font-family: var(--mono); font-size: 15px;
+          font-weight: 400; margin-right: 10px; }
+  h3 { font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 15.5px;
+       color: var(--white); margin: 28px 0 8px; }
+  p { margin-bottom: 15px; font-size: 15.5px; }
+  ul { margin: 0 0 15px 0; padding-left: 22px; }
+  li { margin-bottom: 8px; font-size: 15.5px; }
+  li::marker { color: var(--jade-deep); }
+  b, strong { color: var(--white); font-weight: 600; }
+  code { font-family: var(--mono); font-size: .88em; color: var(--jade);
+         background: var(--panel); border: 1px solid var(--line);
+         padding: 1.5px 5px; white-space: nowrap; }
+  .doc a:not(.brand) { color: var(--jade); border-bottom: 1px solid rgba(45,213,183,.3); }
+  .doc a:not(.brand):hover { border-bottom-color: var(--jade); }
+
+  .tldr { border: 1px solid var(--line-2); border-left: 3px solid var(--jade);
+          background: var(--panel); padding: 22px 24px; margin-bottom: 8px; }
+  .tldr p:last-child { margin-bottom: 0; }
+  .tldr .h { font-family: var(--mono); font-size: 11.5px; letter-spacing: .14em;
+             text-transform: uppercase; color: var(--jade); margin-bottom: 10px; }
+
+  .tbl { width: 100%; border-collapse: collapse; margin-bottom: 18px;
+         font-size: 13.5px; display: block; overflow-x: auto; }
+  .tbl th, .tbl td { text-align: left; padding: 9px 12px;
+                     border-bottom: 1px solid var(--line); vertical-align: top; }
+  .tbl th { font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+            text-transform: uppercase; color: var(--dim); font-weight: 400;
+            border-bottom-color: var(--line-2); }
+  .tbl td:first-child { font-family: var(--mono); color: var(--jade); white-space: nowrap; }
+
+  /* the legal pages never needed a code block; this guide does */
+  pre.code { font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+             background: var(--panel); border: 1px solid var(--line);
+             border-left: 3px solid var(--jade-deep);
+             padding: 16px 18px; margin: 0 0 18px; overflow-x: auto; color: var(--fg); }
+  pre.code .d { color: var(--dim); }
+  pre.code .k { color: var(--jade); }
+  .step { font-size: 15.5px; margin: 0 0 14px; padding-left: 16px;
+          border-left: 2px solid var(--line-2); }
+
+  footer { border-top: 1px solid var(--line); padding: 34px 0; display: flex;
+           flex-wrap: wrap; gap: 16px; align-items: center; font-size: 12.5px; color: var(--dim); }
+  footer .r { margin-left: auto; display: flex; gap: 22px; }
+  footer a:hover { color: var(--jade); }
+  footer .by { display: inline-flex; align-items: center; gap: 8px; }
+  .pixpick { height: 14px; width: auto; display: block; }
+  .heart { height: 13px; width: auto; display: block; transform-origin: center;
+           animation: beat 2.4s ease-in-out infinite; }
+  @keyframes beat { 0%, 40%, 100% { transform: scale(1); }
+                    10% { transform: scale(1.3); }
+                    20% { transform: scale(1); }
+                    30% { transform: scale(1.18); } }
+  @media (prefers-reduced-motion: reduce) { .heart { animation: none; } }
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 18px; }
+    .doc { padding: 48px 18px 72px; }
+    footer .r { margin-left: 0; flex-wrap: wrap; }
+  }
+</style>
+<script src="/analytics.js?v=52185375"></script>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="brand" href="/"><img class="pick" src="mark.svg?v=7b310f6e" alt="A" width="14" height="14">nacraft</a>
+    <div class="nav-links">
+      <a href="/#dashboard">Dashboard</a>
+      <a href="/#features">Features</a>
+      <a href="/#start">Quick start</a>
+      <a href="/setup-ga4.html">Configure GA4</a>
+    </div>
+  </div>
+</nav>
+
+<main class="doc">
+
+<div class="eyebrow">Guide</div>
+<h1>Set up Google Analytics 4</h1>
+<div class="stamp">Google-side configuration · about 20 minutes</div>
+
+<div class="tldr">
+  <div class="h">What you end up with</div>
+  <p>A measurement id firing on your site, data visible in Realtime, and a
+  <b>numeric property id</b> plus read access for anything that reads the property over the API —
+  anacraft included. Every step below happens in Google's console, not in anacraft.</p>
+  <p>Working in <a href="https://claude.com/claude-code">Claude Code</a>? The repo ships this guide as a
+  skill: clone it and ask to <i>configure Google Analytics</i>, and Claude walks the steps with you.</p>
+</div>
+
+<h2><span class="n">01</span>Create the account and property</h2>
+<p>Everything starts at <a href="https://analytics.google.com">analytics.google.com</a> under
+<b>Admin</b>, the gear at the bottom left. GA4 nests <b>Account → Property → Data stream</b>; knowing
+which level a setting lives on saves most of the hunting.</p>
+<p>An account is an organisation-level container — one is usually enough. Under it,
+<b>Admin → Property → + Create → Property</b>:</p>
+<ul>
+  <li><b>Property name</b> — name the site, not the company, if more will follow.</li>
+  <li><b>Reporting time zone</b> — this sets the day boundary for every report you will ever run.
+  Changing it later does not restate history, so get it right now.</li>
+  <li><b>Currency</b> — same warning.</li>
+</ul>
+<p>The business details and objectives screens only shape which reports appear by default. Nothing there
+is load-bearing.</p>
+
+<h2><span class="n">02</span>Add a web data stream</h2>
+<p><b>Admin → Data collection and modification → Data streams → Add stream → Web</b>. Give it the
+canonical origin, <code>https://</code> included, and leave <b>Enhanced measurement</b> on — it collects
+page views, scrolls, outbound clicks, site search, video engagement, file downloads and form
+interactions without a line of code.</p>
+<p>The stream page then shows your <b>Measurement ID</b>, <code>G-XXXXXXXXXX</code>. That is what the tag
+needs. It is <b>not</b> the property id, which is the single most common mix-up when wiring up a tool —
+see step 06.</p>
+
+<h2><span class="n">03</span>Install the tag</h2>
+<p>The cheapest correct install is the gtag.js snippet, in <code>&lt;head&gt;</code>, on every page:</p>
+<pre class="code"><span class="d">&lt;!-- Google tag (gtag.js) --&gt;</span>
+&lt;script async src="https://www.googletagmanager.com/gtag/js?id=<span class="k">G-XXXXXXXXXX</span>"&gt;&lt;/script&gt;
+&lt;script&gt;
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '<span class="k">G-XXXXXXXXXX</span>');
+&lt;/script&gt;</pre>
+<p>Two rules prevent most broken installs: paste the id in <b>both</b> places, and keep it to
+<b>one</b> GA4 tag per page — a second <code>config</code> for the same id double-counts every view. If
+Google Tag Manager is already on the site, configure GA4 inside GTM instead of adding this snippet, and
+remember to <b>publish</b> the container.</p>
+<p>Single-page apps need one addition. The snippet fires a pageview on load, and client-side navigation
+changes the URL without a reload, so every later route goes uncounted until you send it yourself:</p>
+<pre class="code"><span class="d">// on every route change</span>
+gtag('event', 'page_view', {
+  page_path: location.pathname + location.search,
+  page_location: location.href,
+  page_title: document.title,
+});</pre>
+<p>On Next.js, <code>@next/third-parties</code> handles both the placement and the route changes. On
+WordPress, Site Kit or any GA4 plugin does; editing <code>header.php</code> works too, but only from a
+child theme or the next update erases it.</p>
+<p>If your site serves the EEA or UK, set Consent Mode v2 defaults <b>before</b> the tag loads and update
+them when the visitor chooses. A consent platform emits those calls for you; ordering is the whole game.</p>
+
+<h2><span class="n">04</span>Verify data is arriving</h2>
+<p>In this order, because each rules out a different failure.</p>
+<div class="step"><b>Realtime</b> — Reports → Realtime, with the site open in another tab. Users appear
+within about 30 seconds. This proves the tag fires and the id is right.</div>
+<div class="step"><b>DebugView</b> — Admin → DebugView, if Realtime stays empty. It shows events one by
+one, but only for a debug-enabled session: use the Google Analytics Debugger extension, or send
+<code>debug_mode: true</code> in the <code>config</code> call.</div>
+<div class="step"><b>Standard reports</b> — empty for 24 to 48 hours. That is normal. Never debug an
+install against Reports; debug against Realtime.</div>
+
+<h2><span class="n">05</span>Change these before you forget</h2>
+<p><b>Data retention.</b> Admin → Data collection and modification → Data retention. Event data defaults
+to <b>2 months</b>; set <b>14 months</b> unless policy says otherwise. It governs explorations and
+funnels rather than the standard reports, and it is not retroactive — data already aged out is gone.</p>
+<p><b>Internal traffic.</b> Admin → Data streams → your stream → Configure tag settings → Define internal
+traffic, then Admin → Data filters. A new filter is created in <b>Testing</b>, where it does nothing;
+switch it to <b>Active</b> once you have confirmed it tags your own visits correctly.</p>
+<p><b>Unwanted referrals.</b> Same tag settings menu — add a payment or auth host such as Stripe or
+PayPal, which would otherwise break session attribution and inflate direct traffic.</p>
+<p><b>Cross-domain measurement</b> belongs there too, if one journey spans two domains. <b>Google
+Signals</b>, under Data collection, adds demographics and cross-device reporting at the cost of more
+thresholded rows — an opt-in decision, not a default.</p>
+
+<h2><span class="n">06</span>Key events, and the id that tools want</h2>
+<p>Key events are what GA4 called conversions before 2024. Mark one at Admin → Events with the <b>Mark as
+key event</b> toggle, or create it by name at Admin → Key events if it has not fired yet. For a click or
+form submit that enhanced measurement misses, send <code>gtag('event', 'signup_complete')</code> and mark
+it once it shows up, which can take a day.</p>
+<p>Your <b>property id</b> is at Admin → Property → Property details, top right: a bare number like
+<code>397412345</code>. Three ids get confused constantly, and only one of them belongs in an API call.</p>
+<table class="tbl">
+  <tr><th>Value</th><th>Looks like</th><th>Belongs in</th></tr>
+  <tr><td>Property id</td><td>397412345</td><td>The Data and Admin APIs, and any reporting tool — <code>craft use 397412345</code></td></tr>
+  <tr><td>Measurement id</td><td>G-XXXXXXXXXX</td><td>The on-page tag, and nowhere else</td></tr>
+  <tr><td>Stream id</td><td>1234567890</td><td>Stream-level admin calls only</td></tr>
+</table>
+
+<h2><span class="n">07</span>Grant access</h2>
+<p><b>Admin → Property access management → +</b>, or Account access management to cover every property at
+once. Least privilege first:</p>
+<table class="tbl">
+  <tr><th>Role</th><th>Can</th></tr>
+  <tr><td>Viewer</td><td>See reports and explorations. The right role for a dashboard or a read-only API client.</td></tr>
+  <tr><td>Analyst</td><td>Viewer, plus create and edit shared explorations and audiences.</td></tr>
+  <tr><td>Editor</td><td>Analyst, plus edit property settings, streams and events.</td></tr>
+  <tr><td>Administrator</td><td>Editor, plus manage users. Keep this to one or two people.</td></tr>
+</table>
+<p>The <b>No Cost Metrics</b> and <b>No Revenue Metrics</b> restrictions apply on top of the role. People
+are added by email and see the property on their next sign-in.</p>
+
+<h2><span class="n">08</span>API access, when a tool needs it</h2>
+<p>Three things have to line up, and each missing one produces its own error.</p>
+<ul>
+  <li>A Google Cloud project with <b>both</b> the Google Analytics <b>Data API</b> and <b>Admin API</b>
+  enabled. A tool that fetches reports but cannot list properties has the first on and the second off.</li>
+  <li>Credentials: an <b>OAuth client of type Desktop app</b> for a CLI that signs a person in, or a
+  <b>service account</b> for unattended and server-side use. The read-only scope
+  <code>analytics.readonly</code> is enough for anything that only reports.</li>
+  <li>For a service account, its <code>…iam.gserviceaccount.com</code> address added under Property access
+  management as <b>Viewer</b>. Creating the account grants it nothing by itself, and this is the step
+  people skip.</li>
+</ul>
+<p>The Cloud project carries only the API enablement and its own quota — it does not own the Analytics
+data and need not sit in the same organisation. Running your own project is also how you stop sharing a
+rate limit with everyone else using the same tool.</p>
+<p>Many tools ship their own OAuth client and need none of this. anacraft does:
+<code>craft login</code> works with no Google Cloud project at all.</p>
+
+<h2><span class="n">09</span>When it is not working</h2>
+<table class="tbl">
+  <tr><th>Symptom</th><th>Usual cause</th></tr>
+  <tr><td>Realtime empty</td><td>Tag not in the served HTML, wrong id, or an ad blocker, tracking prevention or CSP dropping the request. Check DevTools → Network for <code>collect</code>.</td></tr>
+  <tr><td>Empty only for you</td><td>An active internal-traffic filter is removing exactly the visits you are testing with.</td></tr>
+  <tr><td>Realtime fine, reports empty</td><td>The 24–48 hour processing delay, or a date range that excludes today.</td></tr>
+  <tr><td>Every metric doubled</td><td>Two GA4 tags on the page — typically gtag.js and GTM both firing.</td></tr>
+  <tr><td>Direct traffic inflated</td><td>A payment or auth host counted as a referrer. Add it to unwanted referrals.</td></tr>
+  <tr><td>Explorations missing old data</td><td>Data retention still at the 2-month default.</td></tr>
+  <tr><td>API 403 “has not been used”</td><td>The Data or Admin API is not enabled on that Cloud project.</td></tr>
+  <tr><td>API 403 permission denied</td><td>The account or service account lacks Viewer on that property.</td></tr>
+  <tr><td>API 404 on a <code>G-</code> id</td><td>Measurement id used where the numeric property id belongs.</td></tr>
+  <tr><td>API 429</td><td>Quota. Poll less often, or move to your own Cloud project.</td></tr>
+</table>
+
+<h2><span class="n">10</span>Point anacraft at it</h2>
+<p>With the property collecting data and your Google account holding at least Viewer on it, three
+commands connect the dashboard:</p>
+<pre class="code"><span class="d"># sign in — read-only, official builds carry their own OAuth client</span>
+<span class="k">$</span> craft login
+
+<span class="d"># every GA4 property this account can read</span>
+<span class="k">$</span> craft props
+
+<span class="d"># save one as the default, by numeric property id</span>
+<span class="k">$</span> craft use 397412345</pre>
+<p>Then <code>craft</code> opens the dashboard on real numbers, and <code>craft live</code> is the
+fastest confirmation that your tag is still firing. The
+<a href="/#start">quick start</a> covers the rest of the commands.</p>
+
+</main>
+
+<div class="wrap">
+<footer>
+  <div class="wrap" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;width:100%">
+    <span class="by"><svg class="pixpick" role="img" aria-label="Mined" viewBox="0 0 11 11" fill="var(--jade)" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="0" width="5" height="1"/><rect x="1" y="1" width="9" height="1"/><rect x="0" y="2" width="2" height="1"/><rect x="4" y="2" width="3" height="1"/><rect x="9" y="2" width="2" height="1"/><rect x="4" y="3" width="2" height="1"/><rect x="4" y="4" width="2" height="1"/><rect x="3" y="5" width="2" height="1"/><rect x="3" y="6" width="2" height="1"/><rect x="2" y="7" width="2" height="1"/><rect x="2" y="8" width="2" height="1"/><rect x="1" y="9" width="2" height="1"/><rect x="1" y="10" width="2" height="1"/></svg> in San Francisco with <svg class="heart" role="img" aria-label="love" viewBox="0 0 9 8" fill="var(--coral)" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="0" y="1" width="4" height="1"/><rect x="5" y="1" width="4" height="1"/><rect x="0" y="2" width="9" height="1"/><rect x="0" y="3" width="9" height="1"/><rect x="1" y="4" width="7" height="1"/><rect x="2" y="5" width="5" height="1"/><rect x="3" y="6" width="3" height="1"/><rect x="4" y="7" width="1" height="1"/></svg></span>
+    <span class="r">
+      <a href="https://github.com/mehfuzh/anacraft">GitHub</a>
+      <a href="https://github.com/mehfuzh/anacraft/releases">Releases</a>
+
+      <a href="/setup-ga4.html">Configure GA4</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+      <a href="https://github.com/mehfuzh/anacraft/blob/main/LICENSE">Apache 2.0</a>
+    </span>
+  </div>
+</footer>
+</div>
+
+</body>
+</html>

@@ -108,6 +108,7 @@
     footer .r { margin-left: 0; flex-wrap: wrap; }
   }
 </style>
+<script src="/analytics.js?v=52185375"></script>
 </head>
 <body>
 
@@ -118,7 +119,7 @@
       <a href="/#dashboard">Dashboard</a>
       <a href="/#features">Features</a>
       <a href="/#start">Quick start</a>
-      <a href="/#themes">Themes</a>
+      <a href="/setup-ga4.html">Configure GA4</a>
     </div>
   </div>
 </nav>
@@ -127,7 +128,7 @@
 
 <div class="eyebrow">Legal</div>
 <h1>Privacy Policy</h1>
-<div class="stamp">Last updated 24 August 2026</div>
+<div class="stamp">Last updated 30 August 2026</div>
 
 <div class="tldr">
   <div class="h">The short version</div>
@@ -195,6 +196,8 @@ none of the above has to be taken on trust.</p>
   <li>No selling, sharing, or transferring your data, ever.</li>
   <li>No account or profile with us. We hold no record that you exist.</li>
 </ul>
+<p>That list describes the program you install. The website you are reading it on is covered separately
+in <a href="#site">section 08</a>.</p>
 
 <h2><span class="n">05</span>Google API Services Limited Use</h2>
 <p>anacraft's use of information received from Google APIs adheres to the
@@ -221,9 +224,19 @@ supply your own instead, via environment variables or <code>~/.anacraft/client.j
 </ul>
 <p>Since we never receive your data, there is nothing for us to delete on your behalf.</p>
 
-<h2><span class="n">08</span>The website, changes, and contact</h2>
-<p>anacraft.dev is a static site on GitHub Pages with no cookies and no analytics. GitHub may log request
-metadata such as IP addresses, and two typefaces are fetched from Google Fonts.</p>
+<h2 id="site"><span class="n">08</span>The website, changes, and contact</h2>
+<p><b>The program collects nothing. The website does, if you let it.</b> Everything above describes the
+anacraft binary, which has no telemetry and never contacts a server of ours. This section is about
+anacraft.dev, which is a separate thing.</p>
+<p>anacraft.dev is a static site on GitHub Pages. It uses Google Analytics to count visits, and it is
+configured so that <b>nothing is stored on your device until you accept the prompt</b> — Consent Mode is
+set to deny analytics storage by default, so declining leaves you with no cookies at all and the site
+works identically either way. If your browser sends a Global Privacy Control signal we treat that as a
+decline and never show the prompt. Your choice is remembered in <code>localStorage</code> under
+<code>anacraft-consent</code>; clearing your site data resets it. Google receives the usual analytics
+data for pages you view here — see <a href="https://policies.google.com/privacy">Google's privacy
+policy</a>. GitHub may log request metadata such as IP addresses, and two typefaces are fetched from
+Google Fonts.</p>
 <p>If this policy changes materially, the date above changes with it and the revision stays visible in the
 site's Git history. anacraft is published by Smartloop Inc. Questions about this policy: <a href="mailto:support@anacraft.dev">support@anacraft.dev</a>.</p>
 
@@ -237,6 +250,7 @@ site's Git history. anacraft is published by Smartloop Inc. Questions about this
       <a href="https://github.com/mehfuzh/anacraft">GitHub</a>
       <a href="https://github.com/mehfuzh/anacraft/releases">Releases</a>
 
+      <a href="/setup-ga4.html">Configure GA4</a>
       <a href="/privacy.html">Privacy</a>
       <a href="/terms.html">Terms</a>
       <a href="https://github.com/mehfuzh/anacraft/blob/main/LICENSE">Apache 2.0</a>

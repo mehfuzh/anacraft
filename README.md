@@ -166,6 +166,16 @@ write `~/.anacraft/client.json`. Both take precedence over the built-in client,
 and registering your own Google Cloud project also insulates you from other
 people's quota consumption.
 
+## Setting up GA4
+
+The Google side — property, data stream, tag, access management, API enablement
+— is documented at [anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html).
+
+Cloned the repo and use [Claude Code](https://claude.com/claude-code)? The same
+guide ships as a skill in `.claude/skills/google-analytics-setup/`. Ask Claude to
+configure Google Analytics and it walks the console steps with you, including
+tag installs per framework and what to check when nothing arrives.
+
 ## Requirements
 
 - A Google Analytics 4 property
