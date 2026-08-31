@@ -51,14 +51,32 @@ const EASE: f64 = 4.5;
 const FLASH: Duration = Duration::from_millis(1400);
 /// Live-feed entries older than this are dropped.
 const FEED_TTL: Duration = Duration::from_secs(90);
+/// The smallest terminal the dashboard will draw in.
+///
+/// Width comes from the vitals rows, which start clipping their deltas below
+/// 80. Height is what the frame itself costs — a 3-row header, the supporter
+/// box, the footer, the gutters between them, and the 10 rows the body is never
+/// given less than. Under either, the panels don't degrade so much as
+/// disintegrate, so the dashboard says what it needs and waits instead.
+const MIN_COLS: u16 = 80;
+const MIN_ROWS: u16 = 24;
+/// The supporter box: one line and its borders.
+const SUPPORTER_ROWS: u16 = 3;
+/// Rows the event feed always occupies, lit or not.
+///
+/// A fixed field, because the panel is a screen: an LCD does not shrink when it
+/// has less to say. It also stops the box below it walking up and down the
+/// column every time an event ages out, which is the kind of motion a dashboard
+/// left open on a second screen should never make.
+const FEED_ROWS: usize = 6;
 /// What the vitals panel needs: a label, a bar and a gap for each headline
 /// metric, the daily sparkline, and its borders.
 const VITALS_ROWS: u16 = (OVERVIEW.len() as u16) * 3 + 2;
 /// The daily chart's box: three rows of bars, a caption, and borders.
 const TREND_ROWS: u16 = 3 + 1 + 2;
 /// What the live panel needs before it is worth drawing: the count, its
-/// caption, the meter, the graph and one line of feed, plus borders.
-const LIVE_ROWS: u16 = 9;
+/// caption, the meter, the graph and the feed's full field, plus borders.
+const LIVE_ROWS: u16 = 8 + FEED_ROWS as u16;
 /// Two chunks and borders. It takes the column's spare rows on top of this.
 const CHUNKS_ROWS: u16 = 6;
 /// Ranked realms: eight country rows with bars, plus borders.
@@ -278,6 +296,8 @@ struct Dash {
     last_report: Instant,
     report_every: Duration,
     live_every: Duration,
+    /// Whether to wear the subscriber star in the header.
+    supporter: bool,
 }
 
 impl Dash {
@@ -322,6 +342,7 @@ impl Dash {
             last_report: Instant::now(),
             report_every,
             live_every,
+            supporter: false,
         };
         dash.apply_report(snapshot);
         // The constructor's own report shouldn't set every row flashing.
@@ -832,6 +853,7 @@ pub async fn run(cfg: &Config, property: &str, settings: Settings) -> Result<()>
     };
     drive(
         source, title, snapshot, live, realms, settings, rotation, index,
+        cfg.supporter,
     )
     .await
 }
@@ -858,6 +880,7 @@ pub async fn run_demo(days: u32, refresh: u64, live_refresh: u64) -> Result<()> 
         },
         Vec::new(),
         0,
+        false,
     )
     .await
 }
@@ -872,6 +895,7 @@ async fn drive(
     settings: Settings,
     rotation: Vec<Property>,
     index: usize,
+    supporter: bool,
 ) -> Result<()> {
     let opening = match rotation.get(index) {
         Some(property) => settings.for_property(property),
@@ -887,6 +911,7 @@ async fn drive(
         Duration::from_secs(opening.refresh.max(5)),
         Duration::from_secs(opening.live_refresh.max(LIVE_FLOOR)),
     );
+    dash.supporter = supporter;
 
     let mut terminal = ratatui::init();
     // Ctrl+digit only reaches an application in terminals that speak the Kitty
@@ -1398,6 +1423,131 @@ pub fn capture() -> Result<String> {
 
 // ------------------------------------------------------------------- draw ---
 
+/// What the dashboard shows instead of itself when the terminal is too small.
+///
+/// Names both numbers and marks only the one that is short, so the fix is
+/// obvious without having to compare four figures. Nothing animates: this is a
+/// screen you are meant to read once and leave, and a pulsing dot on it would
+/// suggest the dashboard is still working on something.
+fn too_small(area: Rect) -> Paragraph<'static> {
+    let short = |have: u16, need: u16| {
+        if have < need {
+            Style::default()
+                .fg(ore::redstone())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme::fade(theme::sage(), 0.3))
+        }
+    };
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                format!("  {} ANACRAFT ", glyph::PICKAXE),
+                Style::default()
+                    .fg(ore::grass())
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "· the shaft is too tight to work in",
+                Style::default().fg(ore::stone()),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  have  ", Style::default().fg(ore::stone())),
+            Span::styled(format!("{:>4}", area.width), short(area.width, MIN_COLS)),
+            Span::styled(" × ", Style::default().fg(ore::netherite())),
+            Span::styled(format!("{:<4}", area.height), short(area.height, MIN_ROWS)),
+        ]),
+        Line::from(vec![
+            Span::styled("  needs ", Style::default().fg(ore::stone())),
+            Span::styled(
+                format!("{MIN_COLS:>4}"),
+                Style::default().fg(theme::accent()),
+            ),
+            Span::styled(" × ", Style::default().fg(ore::netherite())),
+            Span::styled(
+                format!("{MIN_ROWS:<4}"),
+                Style::default().fg(theme::accent()),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  resize the terminal · q to quit",
+            Style::default().fg(theme::fade(theme::sage(), 0.3)),
+        )),
+    ];
+
+    Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(ore::netherite()))
+            .style(Style::default().bg(theme::bg_lift())),
+    )
+}
+
+/// Whether this install is an Anacrafter, and how to become one if not.
+///
+/// A box of its own rather than a slot in the footer hotbar. The footer is
+/// where the keybinds live and it runs out of room on a narrow terminal, so an
+/// ask parked at the end of it is the first thing to disappear on exactly the
+/// setups least likely to have seen it before. This is the one line in the
+/// dashboard that pays for the rest, so it gets space that nothing else can
+/// take.
+///
+/// Both states use the same box, because the answer to "am I an Anacrafter" is
+/// worth stating either way — one line is a thank-you, the other is an ask.
+fn supporter_box(dash: &Dash) -> Paragraph<'static> {
+    let star = Span::styled(
+        format!("  {} ", glyph::STAR),
+        Style::default().fg(ore::gold()).add_modifier(Modifier::BOLD),
+    );
+
+    let line = if dash.supporter {
+        Line::from(vec![
+            star,
+            Span::styled(
+                "ANACRAFTER",
+                Style::default().fg(ore::gold()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "  ·  thanks for keeping the lights on",
+                Style::default().fg(ore::stone()),
+            ),
+        ])
+    } else {
+        Line::from(vec![
+            star,
+            Span::styled(
+                "not an Anacrafter yet",
+                Style::default().fg(theme::accent()),
+            ),
+            Span::styled("  ·  run ", Style::default().fg(ore::stone())),
+            Span::styled(
+                "craft subscribe",
+                Style::default().fg(ore::gold()).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("  ·  $5/month", Style::default().fg(ore::stone())),
+        ])
+    };
+
+    Paragraph::new(line).block(
+        Block::default()
+            .borders(Borders::ALL)
+            // Gold when there is something to ask for, quiet once there isn't:
+            // a permanent box should stop drawing the eye after it has been
+            // answered.
+            .border_style(Style::default().fg(if dash.supporter {
+                ore::netherite()
+            } else {
+                theme::fade(ore::gold(), 0.45)
+            }))
+            .style(Style::default().bg(theme::bg_lift())),
+    )
+}
+
 fn draw(frame: &mut Frame, dash: &Dash) {
     let area = frame.area();
 
@@ -1408,6 +1558,11 @@ fn draw(frame: &mut Frame, dash: &Dash) {
         Block::default().style(Style::default().bg(theme::ink()).fg(theme::fg())),
         area,
     );
+
+    if area.width < MIN_COLS || area.height < MIN_ROWS {
+        frame.render_widget(too_small(area), area);
+        return;
+    }
 
     // Every layout below leaves a one-cell gutter. That gap is the ink ground
     // showing through, which is what makes the panels read as floating on it
@@ -1421,6 +1576,7 @@ fn draw(frame: &mut Frame, dash: &Dash) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(10),
+            Constraint::Length(SUPPORTER_ROWS),
             Constraint::Length(3),
         ])
         .margin(if narrow { 0 } else { 1 })
@@ -1429,7 +1585,8 @@ fn draw(frame: &mut Frame, dash: &Dash) {
 
     frame.render_widget(header(dash, chunks[0].width), chunks[0]);
     body(frame, dash, chunks[1], narrow);
-    frame.render_widget(footer(dash), chunks[2]);
+    frame.render_widget(supporter_box(dash), chunks[2]);
+    frame.render_widget(footer(dash), chunks[3]);
 
     if dash.help {
         help_overlay(frame, area);
@@ -1471,47 +1628,86 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
     };
 
     if let Some(rect) = left {
-        // Events first, then the realms map, then vitals at the bottom: each
-        // takes a box of its own if the column still has the rows for it.
+        // Rows are handed out in priority order, and a panel that cannot get
+        // its full box is left out rather than squeezed into a few rows — the
+        // same rule the right column follows.
+        //
+        // Events leads and is never the panel that gives way. It is the
+        // headline chart the dashboard is named for, and a column that keeps a
+        // table of vitals by compressing that chart into four rows has its
+        // priorities backwards. Vitals goes last, so it is what a short
+        // terminal loses — also the cheapest thing to lose, since every number
+        // in it is one `craft overview` away.
         let mut budget = rect.height;
-        let mut extras: Vec<(Stack, u16)> = Vec::new();
+        let mut stack: Vec<(Stack, u16)> = Vec::new();
 
-        // Events at the top — one row per event, so it wants its full box or
-        // the bottom rows get clipped away.
-        if dash.panels.events {
-            let needs = EVENTS_ROWS;
-            if budget > needs {
-                extras.push((Stack::Events, needs));
-                budget -= needs + 1;
+        // A box costs its own rows plus one for the gutter above it — and the
+        // first box in the column has nothing above it, so it costs only its
+        // rows. Charging the gutter unconditionally is how events came to be
+        // rejected at exactly EVENTS_ROWS while the shorter map box slipped in
+        // underneath it, which inverts the very priority this order sets.
+        let mut cost = |needs: u16, placed: bool| -> bool {
+            let needs = needs + u16::from(placed);
+            let fits = budget >= needs;
+            if fits {
+                budget -= needs;
             }
+            fits
+        };
+
+        // Rows are claimed in priority order — events, then vitals, then the
+        // map. The map is the one that goes: it is the decorative panel of the
+        // three, where vitals is the actual numbers, so a column with room for
+        // two spends it on the chart and the figures and drops the picture.
+        if dash.panels.events && cost(EVENTS_ROWS, false) {
+            stack.push((Stack::Events, EVENTS_ROWS));
+        }
+        if cost(VITALS_ROWS, !stack.is_empty()) {
+            stack.push((Stack::Vitals, VITALS_ROWS));
+        }
+        if dash.panels.map && cost(MAP_ROWS, !stack.is_empty()) {
+            stack.push((Stack::Map, MAP_ROWS));
         }
 
-        // Realms map below the block.
-        if dash.panels.map && budget > MAP_ROWS {
-            extras.push((Stack::Map, MAP_ROWS));
-        }
+        // Who gets rows is one question; where they sit is another. Sort back
+        // into column order so changing the priority above never reshuffles the
+        // dashboard — the map stays between the chart and the figures whenever
+        // all three are up.
+        stack.sort_by_key(|(panel, _)| match panel {
+            Stack::Events => 0,
+            Stack::Map => 1,
+            Stack::Vitals => 2,
+        });
 
-        // Vitals at the bottom, taking whatever is left.
-        let mut constraints: Vec<Constraint> = extras
+        // Whatever ended up at the bottom takes the rows nobody claimed, so the
+        // column never trails off into dead ground while the one beside it is
+        // full. Everything above it is pinned to the height it asked for —
+        // sharing the slack out would stretch every box a little instead.
+        let last = stack.len().saturating_sub(1);
+        let constraints: Vec<Constraint> = stack
             .iter()
-            .map(|(_, needs)| Constraint::Length(*needs))
+            .enumerate()
+            .map(|(i, (_, needs))| {
+                if i == last {
+                    Constraint::Min(*needs)
+                } else {
+                    Constraint::Length(*needs)
+                }
+            })
             .collect();
-        constraints.push(Constraint::Min(VITALS_ROWS));
+
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints(constraints)
             .spacing(1)
             .split(rect);
 
-        for ((stack, _), area) in extras.into_iter().zip(rows.iter()) {
-            match stack {
+        for ((panel, _), area) in stack.into_iter().zip(rows.iter()) {
+            match panel {
                 Stack::Map => frame.render_widget(map_panel(dash, area.width, area.height), *area),
                 Stack::Events => frame.render_widget(events_panel(dash), *area),
+                Stack::Vitals => frame.render_widget(metrics_panel(dash), *area),
             }
-        }
-        // Vitals is always last — it gets the remaining rows.
-        if let Some(last) = rows.last() {
-            frame.render_widget(metrics_panel(dash), *last);
         }
     }
 
@@ -1715,6 +1911,17 @@ fn header(dash: &Dash, width: u16) -> Paragraph<'static> {
             Style::default()
                 .fg(ore::grass())
                 .add_modifier(Modifier::BOLD),
+        ),
+        // A subscriber's star, in gold and only when earned. It rides beside the
+        // brand rather than out at the end of the line, where the realm chips
+        // spend whatever room is left and would eventually push it off screen.
+        Span::styled(
+            if dash.supporter {
+                format!("{} ", glyph::STAR)
+            } else {
+                String::new()
+            },
+            Style::default().fg(ore::gold()).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{} ", dash.title.to_uppercase()),
@@ -2218,6 +2425,7 @@ fn map_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
 enum Stack {
     Map,
     Events,
+    Vitals,
 }
 
 /// Which panel occupies a slot in the right-hand column.
@@ -2368,47 +2576,88 @@ fn live_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
     ];
 
     // Event feed — recent arrivals and departures.
+    //
+    // Always FEED_ROWS tall. Anything not lit is drawn as unlit cells, so the
+    // field is the same size whether six things just happened or nothing has.
+    let mut feed_rows = 0usize;
     if dash.feed.is_empty() {
         lines.push(Line::from(Span::styled(
             "  quiet out there",
             Style::default().fg(theme::fade(theme::sage(), 0.3)),
         )));
+        feed_rows += 1;
     } else {
+        // The feed reads as a small LCD: one hue, hierarchy spent entirely on
+        // brightness, and every row sitting on a field of unlit cells.
+        //
+        // Monochrome is the point. The old rows coloured rising green and
+        // falling purple, which put direction in the one channel an LCD does
+        // not have — so direction moves to the glyph, where ▲/▼ carries it even
+        // on a terminal with no colour at all. The panel's own hue comes from
+        // the palette, so each theme lights its screen its own way.
+        let lit = theme::accent();
         for entry in dash.feed.iter().take(6) {
             let age = entry.at.elapsed().as_secs_f64() / FEED_TTL.as_secs_f64();
             let rising = entry.delta > 0.0;
-            let base = if rising {
-                theme::bright()
-            } else {
-                ore::ender()
-            };
             let time_ago = entry.at.elapsed().as_secs();
             let time_str = if time_ago < 60 {
                 format!("{}s", time_ago)
             } else {
                 format!("{}m", time_ago / 60)
             };
+
+            let glyph_cell = format!("  {} ", if rising { glyph::UP } else { glyph::DOWN });
+            let delta_cell = format!("{:>4} ", format!("{:+}", entry.delta as i64));
+            let label_cell = if rising { "spawned in" } else { "wandered off" }.to_string();
+            let time_cell = format!("  {}", time_str);
+
+            // Unlit cells fill the rest of the row, so the field is visible
+            // where nothing is lit — that texture is what separates a dot
+            // matrix from a plain list. Ages out with the row it belongs to.
+            let used = glyph_cell.chars().count()
+                + delta_cell.chars().count()
+                + label_cell.chars().count()
+                + time_cell.chars().count();
+            let unlit: String = std::iter::repeat(glyph::UNLIT)
+                .take((width as usize).saturating_sub(used + 3))
+                .collect();
+
             lines.push(Line::from(vec![
+                Span::styled(glyph_cell, Style::default().fg(theme::fade(lit, age))),
                 Span::styled(
-                    format!("  {} ", if rising { glyph::UP } else { glyph::DOWN }),
-                    Style::default().fg(theme::fade(base, age)),
-                ),
-                Span::styled(
-                    format!("{:>4} ", format!("{:+}", entry.delta as i64)),
+                    delta_cell,
                     Style::default()
-                        .fg(theme::fade(base, age))
+                        .fg(theme::fade(lit, age))
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    if rising { "spawned in" } else { "wandered off" }.to_string(),
-                    Style::default().fg(theme::fade(theme::sage(), age)),
+                    label_cell,
+                    // A dimmer run of the same hue, never a second colour.
+                    Style::default().fg(theme::fade(lit, (age + 0.45).min(1.0))),
                 ),
                 Span::styled(
-                    format!("  {}", time_str),
-                    Style::default().fg(theme::fade(theme::shadow(), age)),
+                    time_cell,
+                    Style::default().fg(theme::fade(lit, (age + 0.65).min(1.0))),
+                ),
+                Span::styled(
+                    unlit,
+                    Style::default().fg(theme::fade(lit, (age + 0.86).min(1.0))),
                 ),
             ]));
+            feed_rows += 1;
         }
+    }
+
+    // The dark rest of the screen. Dimmer than the faintest live row, so it
+    // reads as field rather than as an event that has nearly faded out.
+    let dark: String = std::iter::repeat(glyph::UNLIT)
+        .take((width as usize).saturating_sub(5))
+        .collect();
+    for _ in feed_rows..FEED_ROWS {
+        lines.push(Line::from(Span::styled(
+            format!("  {dark}"),
+            Style::default().fg(theme::fade(theme::accent(), 0.93)),
+        )));
     }
 
     Paragraph::new(lines).block(framed("RIGHT NOW", "2", ore::xp()))
@@ -2911,6 +3160,74 @@ mod tests {
             settled.windows(2).any(|w| w[0] != w[1]),
             "a settled bar stopped animating: {settled:?}"
         );
+    }
+
+
+
+    #[test]
+    fn a_small_terminal_gets_the_notice_not_a_broken_dashboard() {
+        // Both numbers are named, and the short one is what the reader needs.
+        let text = render_to_string(too_small(Rect::new(0, 0, 72, 18)));
+        assert!(text.contains("72"), "missing actual width: {text:?}");
+        assert!(text.contains("18"), "missing actual height: {text:?}");
+        assert!(
+            text.contains(&MIN_COLS.to_string()) && text.contains(&MIN_ROWS.to_string()),
+            "missing what it needs: {text:?}"
+        );
+    }
+
+
+    #[test]
+    fn events_outranks_vitals_when_the_column_is_short() {
+        // The allocation the left column runs, over every height: events takes
+        // its box first, vitals only gets one from what is left. A column with
+        // room for exactly one of the two must spend it on events.
+        for height in 0..=60u16 {
+            let mut budget = height;
+            let events = budget >= EVENTS_ROWS;
+            if events {
+                budget -= EVENTS_ROWS;
+            }
+            let vitals = budget >= VITALS_ROWS + u16::from(events);
+
+            if height >= EVENTS_ROWS {
+                assert!(events, "height {height}: events dropped while it fitted");
+            }
+            if vitals && events {
+                assert!(
+                    height >= EVENTS_ROWS + 1 + VITALS_ROWS,
+                    "height {height}: both boxes claimed without the rows for both"
+                );
+            }
+            // The point of the order: one box's worth of rows goes to events.
+            if height >= EVENTS_ROWS && height < EVENTS_ROWS + 1 + VITALS_ROWS {
+                assert!(!vitals, "height {height}: vitals took rows events needed");
+            }
+        }
+    }
+
+    #[test]
+    fn the_supporter_box_states_which_side_you_are_on() {
+        // The ask and the thank-you are the same box, and neither state is
+        // allowed to be silent — this is the line that pays for the rest.
+        let mut dash = capture_dash();
+
+        dash.supporter = false;
+        let text = render_to_string(supporter_box(&dash));
+        assert!(text.contains("craft subscribe"), "no ask: {text:?}");
+        assert!(text.contains("not an Anacrafter yet"), "no status: {text:?}");
+
+        dash.supporter = true;
+        let text = render_to_string(supporter_box(&dash));
+        assert!(text.contains("ANACRAFTER"), "no status: {text:?}");
+        assert!(!text.contains("craft subscribe"), "still asking: {text:?}");
+    }
+
+    /// A paragraph's Debug repr, which embeds every span's content — enough to
+    /// assert on what a widget says without standing up a terminal backend.
+    /// Matches substrings only; it is not a layout assertion.
+    fn render_to_string(p: Paragraph<'static>) -> String {
+        format!("{p:?}")
     }
 
     #[test]

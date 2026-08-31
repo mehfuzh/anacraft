@@ -291,7 +291,11 @@ pub mod glyph {
     /// Sparkline ramp, low to high.
     pub const SPARK: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
     pub const PICKAXE: &str = "⛏";
+    /// Worn by a subscriber's dashboard, next to the brand.
+    pub const STAR: &str = "★";
     pub const BANNER: &str = "⚑";
+    /// An unlit cell of the event feed's dot-matrix field.
+    pub const UNLIT: char = '·';
     pub const UP: char = '▲';
     pub const DOWN: char = '▼';
     /// Live indicator, cycled to make the dot breathe.

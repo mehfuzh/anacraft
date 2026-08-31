@@ -109,6 +109,8 @@ enum Command {
         #[arg(long)]
         demo: bool,
     },
+    /// Open the Anacraft subscription page in a browser.
+    Subscribe,
     /// Print the site's dashboard captures as HTML. Used by `make capture`.
     #[command(hide = true)]
     Capture,
@@ -163,6 +165,7 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Theme { name } => cmd_theme(name.as_deref()),
+        Command::Subscribe => cmd_subscribe(),
         Command::Login => cmd_login().await,
         Command::Logout => cmd_logout().await,
         Command::Props => cmd_props().await,
@@ -245,6 +248,30 @@ async fn run() -> Result<()> {
 }
 
 // ---------------------------------------------------------------- accounts ---
+
+/// Stripe's hosted page for the $5/month plan.
+///
+/// A Payment Link, not a checkout session built here: a session needs a secret
+/// key, and a key shipped inside a binary anybody can download is a key that
+/// has leaked. The link is public by design and safe to hardcode.
+const SUBSCRIBE_URL: &str = "https://buy.stripe.com/dRm3cve7yesL786bfb9MY01";
+
+/// Open the subscription page.
+///
+/// Prints the URL either way: on a headless box, over SSH, or in a terminal
+/// where nothing is registered to handle https, `open` silently does nothing,
+/// and a command that appears to succeed while no page opened is worse than one
+/// that just tells you where to go.
+fn cmd_subscribe() -> Result<()> {
+    println!("\n  {} {}\n", paint("★", ore::gold()), bold(SUBSCRIBE_URL));
+    let _ = open::that(SUBSCRIBE_URL);
+    println!(
+        "  once it's active, set {} in {}\n",
+        bold("supporter = true"),
+        config::Config::path()?.display()
+    );
+    Ok(())
+}
 
 async fn cmd_login() -> Result<()> {
     let http = reqwest::Client::new();

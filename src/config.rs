@@ -86,6 +86,18 @@ pub struct Config {
     /// Serialises as TOML `[[property]]` blocks.
     #[serde(default, rename = "property", skip_serializing_if = "Vec::is_empty")]
     pub properties: Vec<Property>,
+    /// Set once an Anacraft subscription is active — the dashboard wears a star
+    /// when it is. Written by hand today: `craft subscribe` opens Stripe, and
+    /// Stripe has no way to tell this binary who paid, so nothing verifies it.
+    /// Treat it as a preference, not an entitlement.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub supporter: bool,
+}
+
+/// Keeps `supporter = false` out of the written config, the way every other
+/// unset field here stays out of it.
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Config {
@@ -138,6 +150,9 @@ impl Config {
             active: old.property_id.clone(),
             theme: old.theme,
             properties: Vec::new(),
+            // The pre-0.4 config predates subscriptions, so a migrated one
+            // never carries the flag.
+            supporter: false,
         };
         if let Some(id) = old.property_id {
             cfg.properties.push(Property {
@@ -271,6 +286,7 @@ mod tests {
                     ..Property::default()
                 },
             ],
+            ..Config::default()
         };
         let back: Config = toml::from_str(&toml::to_string_pretty(&cfg).unwrap()).unwrap();
         assert_eq!(back.active.as_deref(), Some("111"));
@@ -293,6 +309,7 @@ mod tests {
                     ..Property::default()
                 },
             ],
+            ..Config::default()
         };
         assert_eq!(cfg.theme_for("111"), Some("catppuccin"));
         assert_eq!(cfg.theme_for("222"), Some("osaka-jade"));
@@ -308,6 +325,7 @@ mod tests {
                 id: "999".into(),
                 ..Property::default()
             }],
+            ..Config::default()
         };
         assert_eq!(cfg.resolve_property(None).unwrap(), "999");
     }
