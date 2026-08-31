@@ -1,0 +1,10 @@
+# The Linux release targets build inside a `cross` Docker container, which does
+# not inherit the host environment. Without this passthrough the OAuth client
+# never reaches the compiler, `option_env!` yields None, and the shipped binary
+# fails `craft login` with "no OAuth client configured" — while the macOS and
+# Windows builds, which run `cargo build` directly on the runner, come out fine.
+[build.env]
+passthrough = [
+    "ANACRAFT_OAUTH_CLIENT_ID",
+    "ANACRAFT_OAUTH_CLIENT_SECRET",
+]
