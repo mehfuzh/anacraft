@@ -1314,6 +1314,11 @@ fn capture_dash() -> Dash {
     // The footer stamps the wall clock, which would otherwise be the one thing
     // that differs every time the captures are regenerated.
     dash.updated = "17:24:53".to_string();
+    // The site shows the dashboard an Anacrafter sees: the gold star beside the
+    // brand and the thank-you in place of the ask. It is the look the plan is
+    // selling, so the page that sells it should be the one wearing it. Not
+    // `demo`, which would splice the preview wording into the capture.
+    dash.supporter = true;
     dash
 }
 
