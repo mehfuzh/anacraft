@@ -3212,7 +3212,7 @@ mod tests {
                 );
             }
             // The point of the order: one box's worth of rows goes to events.
-            if height >= EVENTS_ROWS && height < EVENTS_ROWS + 1 + VITALS_ROWS {
+            if (EVENTS_ROWS..EVENTS_ROWS + 1 + VITALS_ROWS).contains(&height) {
                 assert!(!vitals, "height {height}: vitals took rows events needed");
             }
         }
