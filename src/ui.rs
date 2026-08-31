@@ -28,6 +28,8 @@ use crossterm::terminal::supports_keyboard_enhancement;
 use rand::Rng;
 use ratatui::prelude::*;
 use ratatui::widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Paragraph};
+
+use crate::avatar::{self, Avatar};
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc::{self, UnboundedSender};
 
@@ -301,6 +303,8 @@ struct Dash {
     /// Running on synthetic data. Only the demo lets `s` flip `supporter`, so
     /// the Anacrafter treatment can be looked at before it is paid for.
     demo: bool,
+    /// The signed-in Anacrafter's pixel face, worn in the top-right corner.
+    avatar: Avatar,
 }
 
 impl Dash {
@@ -347,6 +351,7 @@ impl Dash {
             live_every,
             supporter: false,
             demo: false,
+            avatar: Avatar::demo(),
         };
         dash.apply_report(snapshot);
         // The constructor's own report shouldn't set every row flashing.
@@ -924,6 +929,11 @@ async fn drive(
     );
     dash.supporter = supporter;
     dash.demo = matches!(source, Source::Demo(_));
+    // The demo keeps the fixed face even on a machine that is signed in: it is
+    // what the site's captures show, and it is not this account's to hand out.
+    if !dash.demo {
+        dash.avatar = Avatar::for_account();
+    }
 
     let mut terminal = ratatui::init();
     // Ctrl+digit only reaches an application in terminals that speak the Kitty
@@ -1910,6 +1920,13 @@ fn framed(title: &str, key: &str, color: Color) -> Block<'static> {
 
 /// Width the spinner needs when a fetch is in flight: two spaces and a glyph.
 const SPINNER_COLUMN: usize = 3;
+/// Width the avatar needs at the far end of the toolbar: the badge, the space
+/// that keeps it off the border, and a gap wide enough that it reads as its own
+/// thing rather than as one more realm chip.
+const AVATAR_COLUMN: usize = avatar::CELLS as usize + AVATAR_INSET + 2;
+/// The badge sits one column in from the right border, mirroring the space the
+/// brand is given on the left.
+const AVATAR_INSET: usize = 1;
 
 /// A short label for a realm chip.
 ///
@@ -2012,7 +2029,8 @@ fn header(dash: &Dash, width: u16) -> Paragraph<'static> {
     let budget = (width as usize)
         .saturating_sub(2) // the block's own borders
         .saturating_sub(spent)
-        .saturating_sub(if spinning { SPINNER_COLUMN } else { 0 });
+        .saturating_sub(if spinning { SPINNER_COLUMN } else { 0 })
+        .saturating_sub(AVATAR_COLUMN);
 
     for (i, (sep, chip)) in realm_chips(&dash.live_realms, budget)
         .into_iter()
@@ -2033,6 +2051,24 @@ fn header(dash: &Dash, width: u16) -> Paragraph<'static> {
             Style::default().fg(theme::accent_deep()),
         ));
     }
+
+    // The avatar rides the far end of the bar. Everything before it is
+    // left-aligned and the chips take a variable amount of room, so the gap is
+    // whatever is left over — which also keeps the badge still while the chips
+    // behind it change width.
+    let used: usize = spans.iter().map(|span| span.width()).sum();
+    let gap = (width as usize)
+        .saturating_sub(2)
+        .saturating_sub(used)
+        .saturating_sub(avatar::CELLS as usize + AVATAR_INSET);
+    spans.push(Span::raw(" ".repeat(gap)));
+    spans.push(Span::styled(
+        dash.avatar.glyphs(),
+        Style::default()
+            .fg(dash.avatar.color())
+            .add_modifier(Modifier::BOLD),
+    ));
+    spans.push(Span::raw(" ".repeat(AVATAR_INSET)));
 
     Paragraph::new(Line::from(spans)).block(
         Block::default()
@@ -3317,6 +3353,45 @@ mod tests {
     /// Matches substrings only; it is not a layout assertion.
     fn render_to_string(p: Paragraph<'static>) -> String {
         format!("{p:?}")
+    }
+
+    #[test]
+    fn the_avatar_stays_pinned_to_the_toolbar_edge() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+        use ratatui::widgets::Widget;
+
+        // The gap before the badge is a saturating subtraction, so a width the
+        // chips had already eaten could push the face through the border or off
+        // the end entirely. Every width the dashboard will actually draw at.
+        let dash = settled_demo();
+        let badge: Vec<char> = dash.avatar.glyphs().chars().collect();
+
+        for width in MIN_COLS..=240 {
+            let area = Rect::new(0, 0, width, 3);
+            let mut buffer = Buffer::empty(area);
+            header(&dash, width).render(area, &mut buffer);
+
+            let right = width - 1;
+            assert_eq!(
+                buffer[(right, 1)].symbol(),
+                "│",
+                "the border went missing at width {width}"
+            );
+            assert_eq!(
+                buffer[(right - AVATAR_INSET as u16, 1)].symbol(),
+                " ",
+                "the badge is touching the border at width {width}"
+            );
+            for (i, ch) in badge.iter().enumerate() {
+                let x = right - AVATAR_INSET as u16 - avatar::CELLS + i as u16;
+                assert_eq!(
+                    buffer[(x, 1)].symbol(),
+                    ch.to_string(),
+                    "badge cell {i} is misplaced at width {width}"
+                );
+            }
+        }
     }
 
     #[test]

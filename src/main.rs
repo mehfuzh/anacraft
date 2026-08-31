@@ -2,6 +2,7 @@
 
 mod achievements;
 mod auth;
+mod avatar;
 mod config;
 mod ga;
 mod render;
