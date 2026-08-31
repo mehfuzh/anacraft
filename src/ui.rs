@@ -852,7 +852,14 @@ pub async fn run(cfg: &Config, property: &str, settings: Settings) -> Result<()>
         property: property.to_string(),
     };
     drive(
-        source, title, snapshot, live, realms, settings, rotation, index,
+        source,
+        title,
+        snapshot,
+        live,
+        realms,
+        settings,
+        rotation,
+        index,
         cfg.supporter,
     )
     .await
@@ -1502,7 +1509,9 @@ fn too_small(area: Rect) -> Paragraph<'static> {
 fn supporter_box(dash: &Dash) -> Paragraph<'static> {
     let star = Span::styled(
         format!("  {} ", glyph::STAR),
-        Style::default().fg(ore::gold()).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(ore::gold())
+            .add_modifier(Modifier::BOLD),
     );
 
     let line = if dash.supporter {
@@ -1510,7 +1519,9 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
             star,
             Span::styled(
                 "ANACRAFTER",
-                Style::default().fg(ore::gold()).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(ore::gold())
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 "  ·  thanks for keeping the lights on",
@@ -1527,7 +1538,9 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
             Span::styled("  ·  run ", Style::default().fg(ore::stone())),
             Span::styled(
                 "craft subscribe",
-                Style::default().fg(ore::gold()).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(ore::gold())
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled("  ·  $5/month", Style::default().fg(ore::stone())),
         ])
@@ -1921,7 +1934,9 @@ fn header(dash: &Dash, width: u16) -> Paragraph<'static> {
             } else {
                 String::new()
             },
-            Style::default().fg(ore::gold()).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(ore::gold())
+                .add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("{} ", dash.title.to_uppercase()),
@@ -3162,8 +3177,6 @@ mod tests {
         );
     }
 
-
-
     #[test]
     fn a_small_terminal_gets_the_notice_not_a_broken_dashboard() {
         // Both numbers are named, and the short one is what the reader needs.
@@ -3175,7 +3188,6 @@ mod tests {
             "missing what it needs: {text:?}"
         );
     }
-
 
     #[test]
     fn events_outranks_vitals_when_the_column_is_short() {
@@ -3215,7 +3227,10 @@ mod tests {
         dash.supporter = false;
         let text = render_to_string(supporter_box(&dash));
         assert!(text.contains("craft subscribe"), "no ask: {text:?}");
-        assert!(text.contains("not an Anacrafter yet"), "no status: {text:?}");
+        assert!(
+            text.contains("not an Anacrafter yet"),
+            "no status: {text:?}"
+        );
 
         dash.supporter = true;
         let text = render_to_string(supporter_box(&dash));
