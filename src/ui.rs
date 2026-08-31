@@ -298,6 +298,9 @@ struct Dash {
     live_every: Duration,
     /// Whether to wear the subscriber star in the header.
     supporter: bool,
+    /// Running on synthetic data. Only the demo lets `s` flip `supporter`, so
+    /// the Anacrafter treatment can be looked at before it is paid for.
+    demo: bool,
 }
 
 impl Dash {
@@ -343,6 +346,7 @@ impl Dash {
             report_every,
             live_every,
             supporter: false,
+            demo: false,
         };
         dash.apply_report(snapshot);
         // The constructor's own report shouldn't set every row flashing.
@@ -919,6 +923,7 @@ async fn drive(
         Duration::from_secs(opening.live_refresh.max(LIVE_FLOOR)),
     );
     dash.supporter = supporter;
+    dash.demo = matches!(source, Source::Demo(_));
 
     let mut terminal = ratatui::init();
     // Ctrl+digit only reaches an application in terminals that speak the Kitty
@@ -1073,6 +1078,12 @@ async fn event_loop(
                         KeyCode::Char('7') | KeyCode::Char('d') => {
                             dash.panels.trend = !dash.panels.trend
                         }
+                        // The demo is where someone decides whether $5 is
+                        // worth it, so it can wear the Anacrafter treatment on
+                        // request. Gated to the demo: on real data the flag is
+                        // the config's to set, and a key that grants it would
+                        // make the box meaningless.
+                        KeyCode::Char('s') if dash.demo => dash.supporter = !dash.supporter,
                         // Nothing to announce: every color on screen changes,
                         // which is the feedback.
                         KeyCode::Char('t') => {
@@ -1524,12 +1535,19 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                "  ·  thanks for keeping the lights on",
+                // Said out loud in the demo: nobody should read a synthetic
+                // dashboard as proof they already subscribed.
+                if dash.demo {
+                    "  ·  preview  ·  press s to switch back"
+                } else {
+                    "  ·  thanks for keeping the lights on"
+                }
+                .to_string(),
                 Style::default().fg(ore::stone()),
             ),
         ])
     } else {
-        Line::from(vec![
+        let mut spans = vec![
             star,
             Span::styled(
                 "not an Anacrafter yet",
@@ -1543,7 +1561,26 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled("  ·  $5/month", Style::default().fg(ore::stone())),
-        ])
+        ];
+        // The ask keeps its wording; the demo just adds the way to see what is
+        // being asked for.
+        if dash.demo {
+            spans.push(Span::styled(
+                "  ·  press ",
+                Style::default().fg(ore::stone()),
+            ));
+            spans.push(Span::styled(
+                "s",
+                Style::default()
+                    .fg(ore::gold())
+                    .add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(
+                " to preview",
+                Style::default().fg(ore::stone()),
+            ));
+        }
+        Line::from(spans)
     };
 
     Paragraph::new(line).block(
@@ -1602,7 +1639,7 @@ fn draw(frame: &mut Frame, dash: &Dash) {
     frame.render_widget(footer(dash), chunks[3]);
 
     if dash.help {
-        help_overlay(frame, area);
+        help_overlay(frame, area, dash.demo);
     }
 }
 
@@ -1789,8 +1826,8 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
 }
 
 /// The key list, centered over whatever is on screen.
-fn help_overlay(frame: &mut Frame, area: Rect) {
-    let keys = [
+fn help_overlay(frame: &mut Frame, area: Rect, demo: bool) {
+    let mut keys = vec![
         ("q / Esc", "quit"),
         ("r", "refresh now"),
         ("^1 / 1", "events panel"),
@@ -1804,6 +1841,10 @@ fn help_overlay(frame: &mut Frame, area: Rect) {
         ("tab", "next property"),
         ("? / h", "this list"),
     ];
+    // Only listed where it does something.
+    if demo {
+        keys.push(("s", "preview Anacrafter"));
+    }
 
     let width = 40.min(area.width.saturating_sub(4));
     let height = (keys.len() as u16 + 3).min(area.height.saturating_sub(2));
@@ -3236,6 +3277,34 @@ mod tests {
         let text = render_to_string(supporter_box(&dash));
         assert!(text.contains("ANACRAFTER"), "no status: {text:?}");
         assert!(!text.contains("craft subscribe"), "still asking: {text:?}");
+    }
+
+    #[test]
+    fn the_demo_offers_the_anacrafter_look_without_claiming_it() {
+        // The demo is the shop window for the subscription, so both states have
+        // to name the key that switches between them — and the flattering one
+        // has to say it is only a preview.
+        let mut dash = capture_dash();
+        dash.demo = true;
+
+        dash.supporter = false;
+        let text = render_to_string(supporter_box(&dash));
+        assert!(text.contains("craft subscribe"), "no ask: {text:?}");
+        assert!(text.contains("to preview"), "no way in: {text:?}");
+
+        dash.supporter = true;
+        let text = render_to_string(supporter_box(&dash));
+        assert!(text.contains("ANACRAFTER"), "no status: {text:?}");
+        assert!(text.contains("preview"), "reads as earned: {text:?}");
+
+        // Off the demo, the thank-you is a thank-you and nothing mentions a key.
+        dash.demo = false;
+        let text = render_to_string(supporter_box(&dash));
+        assert!(
+            text.contains("keeping the lights on"),
+            "no thanks: {text:?}"
+        );
+        assert!(!text.contains("preview"), "leaked the demo copy: {text:?}");
     }
 
     /// A paragraph's Debug repr, which embeds every span's content — enough to

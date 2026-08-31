@@ -98,6 +98,7 @@ reflows to fill the terminal.
 |-----|--------|
 | `1`–`7` | Toggle a panel — `e` `l` `m` `p` `v` `g` `d` do the same |
 | `t` | Cycle the palette, and save it |
+| `s` | Demo only — preview the Anacrafter look |
 | `r` | Rebuild — force a refetch now |
 | `?` / `h` | Help overlay |
 | `q` / `Esc` | Quit |
