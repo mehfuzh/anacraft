@@ -49,7 +49,7 @@
     --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
   body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: var(--ground);
@@ -65,10 +65,9 @@
 
   /* ── nav ───────────────────────────────────────────── */
   nav {
-    position: sticky; top: 0; z-index: 50;
-    background: rgba(6,10,9,.82);
-    backdrop-filter: blur(14px);
-    border-bottom: 1px solid var(--line);
+    /* Not pinned: the nav is the top of the page, not a bar laid over it, so it
+       scrolls away with everything else and takes the ground it sits on. */
+    position: relative; z-index: 1;
   }
   .nav-in { display: flex; align-items: center; gap: 32px; height: 60px; }
   .brand {
@@ -107,7 +106,6 @@
   .mode-toggle button[aria-pressed="true"] {
     background: var(--jade); color: var(--ink);
   }
-  html.light nav { background: rgba(253,246,227,.82); }
   @media (max-width: 720px) { .nav-links a:not(.nav-gh):not(.mode-toggle) { display: none; } }
 
   /* ── hero ──────────────────────────────────────────── */

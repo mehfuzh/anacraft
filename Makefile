@@ -6,7 +6,7 @@
 
 PORT ?= 8000
 
-.PHONY: help serve open dash check fmt lint test capture
+.PHONY: help serve open dash check fmt lint test capture partials
 
 help:  ## Show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -33,6 +33,9 @@ lint: ## Clippy, warnings denied
 
 test: ## Run the test suite
 	cargo test
+
+partials: ## Splice the shared nav and footer (scripts/) into every page
+	@python3 scripts/splice-partials.py
 
 capture: ## Regenerate the site's dashboard captures from the real TUI
 	@cargo run --quiet --release -- capture | python3 scripts/splice-capture.py

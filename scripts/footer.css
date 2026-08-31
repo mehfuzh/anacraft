@@ -1,0 +1,47 @@
+  footer {
+    border-top: 1px solid var(--line); padding: 34px 0;
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    color: var(--dim);
+    /* The whole row runs in the terminal voice: mono, lowercase, a little
+       tighter than the page text. The casing is done with text-transform
+       rather than typed in, so the markup still says "Privacy Policy" for a
+       screen reader and for anyone reading the source. Mono sets wider than
+       the sans it replaces, hence the step down in size. */
+    font-family: var(--mono); font-size: 11.5px;
+    text-transform: lowercase; letter-spacing: .01em;
+  }
+  footer .r { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  footer a:hover { color: var(--jade); }
+  footer .by { display: inline-flex; align-items: center; gap: 8px; }
+  /* A chip rather than a word: the rule does the framing the brackets used to,
+     so nothing has to be typed into the markup and a screen reader still reads
+     a clean "crafted in San Francisco". */
+  footer .tag {
+    font-size: 11px; letter-spacing: .04em;
+    color: var(--jade); border: 1px solid var(--line-2);
+    /* A tinted rule so the chip reads as one green object rather than green
+       text in a grey box. Declared after the shorthand: a browser without
+       color-mix drops just this line and keeps the neutral border. */
+    border-color: color-mix(in srgb, var(--jade) 32%, transparent);
+    padding: 2px 8px; line-height: 1.6;
+  }
+  /* The mark and the address travel together at the end of the row, closer to
+     each other than to the links they follow, so they read as one contact. */
+  footer .contact { display: inline-flex; align-items: center; gap: 8px; }
+  footer .social { display: block; color: var(--dim); transition: color .15s; }
+  footer .social svg { height: 14px; width: 14px; display: block; fill: currentColor; }
+  footer .social:hover { color: var(--jade); }
+  /* The glow rides the same curve as the beat, brightest at the top of each
+     pulse, so the heart reads as lit from within rather than merely resized.
+     It is drawn with var(--jade), which the light theme redefines, so the
+     halo follows the palette instead of pinning one value. */
+  .heart { height: 14px; width: auto; display: block; transform-origin: center;
+           animation: beat 2.4s ease-in-out infinite;
+           filter: drop-shadow(0 0 3px var(--jade)); }
+  @keyframes beat {
+    0%, 40%, 100% { transform: scale(1);    filter: drop-shadow(0 0 2px var(--jade)); }
+    10%           { transform: scale(1.3);  filter: drop-shadow(0 0 7px var(--jade)); }
+    20%           { transform: scale(1);    filter: drop-shadow(0 0 2px var(--jade)); }
+    30%           { transform: scale(1.18); filter: drop-shadow(0 0 5px var(--jade)); }
+  }
+  @media (prefers-reduced-motion: reduce) { .heart { animation: none; } }
