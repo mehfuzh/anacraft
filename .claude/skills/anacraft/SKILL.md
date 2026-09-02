@@ -124,8 +124,9 @@ Desktop or any MCP client can answer "how is the site doing" without a human
 reading a TUI.
 
 ```sh
-craft mcp --install    # merge the server into Claude Desktop's config
-craft mcp --demo       # synthetic data — no account, no subscription
+craft mcp --install          # merge the server into Claude Desktop's config
+craft mcp --install --demo   # ...with `--demo` in the args it writes
+craft mcp --demo             # synthetic data — no account, no subscription
 ```
 
 Then restart Claude Desktop. `--install` leaves any other servers in that file
@@ -137,7 +138,11 @@ Three things to know before promising it will work:
   `config.toml`. `--demo` is ungated.
 - **It needs `craft login` to have been run first**, in a terminal. The server
   is read-only by design and will not open a browser inside a client
-  subprocess — with no stored token it refuses to start and says so.
+  subprocess.
+- **Neither missing one breaks the connection.** The server starts anyway and
+  every tool call answers with what is missing, so a client that shows
+  `Server disconnected` has a wiring problem — a wrong path, an old binary —
+  not a subscription problem.
 - **Use an absolute path** in any config written by hand. A desktop app is not
   launched from a shell and often cannot find a bare `craft`.
 

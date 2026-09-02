@@ -58,6 +58,9 @@ tools filter one by a substring.";
 
 /// Serve until the client closes stdin.
 pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
+    use crate::render::paint;
+    use crate::theme::ore;
+
     let cfg = Config::load()?;
 
     let source = if demo {
@@ -66,9 +69,21 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
         // before anyone signs in or pays.
         Source::Demo
     } else {
-        require_subscription(&cfg)?;
-        require_login()?;
-        Source::Api(Box::new(Ga::new()?))
+        // Nothing here exits the process. A client spawns this server as a
+        // subprocess, and an early exit reaches the user as "server
+        // disconnected" — a sentence about pipes that says nothing about the
+        // subscription or the missing login that actually caused it. So an
+        // unmet requirement locks the tools instead: the handshake succeeds,
+        // the client stays connected, and every call answers with the one
+        // sentence that gets the user unstuck.
+        match unlock(&cfg) {
+            Ok(ga) => Source::Api(Box::new(ga)),
+            Err(reason) => {
+                // stderr is the client's log, and the protocol owns stdout.
+                eprintln!("\n  {} {reason}\n", paint("⛏", ore::redstone()));
+                Source::Locked(reason)
+            }
+        }
     };
 
     Server {
@@ -81,6 +96,17 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
     .await
 }
 
+/// Everything the live tools need, or the one sentence explaining what is
+/// missing. The `Err` is a message for a human and for the assistant relaying
+/// it, never a reason to stop serving — see `serve`.
+fn unlock(cfg: &Config) -> std::result::Result<Ga, String> {
+    subscription(cfg)?;
+    login()?;
+    // A client is not a place to open a browser, so this only builds the HTTP
+    // client and reads the stored credentials; consent stays in `craft login`.
+    Ga::new().map_err(|err| format!("could not start the GA4 client: {err}"))
+}
+
 /// The subscriber gate.
 ///
 /// `supporter` is hand-written into the config today — `craft subscribe` opens
@@ -88,27 +114,29 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
 /// honour-system gate, and saying otherwise would be a lie. It lives in one
 /// function on purpose: when #7 lands the usage service, the body of this
 /// becomes a real entitlement check and nothing else moves.
-fn require_subscription(cfg: &Config) -> Result<()> {
+fn subscription(cfg: &Config) -> std::result::Result<(), String> {
     if cfg.supporter {
         return Ok(());
     }
-    bail!(
+    Err(format!(
         "craft mcp is part of the Anacraft subscription.\n     \
          Run `craft subscribe` to start one, then set `supporter = true` in {}.\n     \
          `craft mcp --demo` serves synthetic data and needs no subscription.",
         Config::path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| "your config".into())
-    )
+    ))
 }
 
-/// Fail before the handshake rather than on the first tool call, and never
-/// start a consent flow: an MCP client is not a place to open a browser.
-fn require_login() -> Result<()> {
-    if crate::auth::Tokens::load()?.is_none() {
-        bail!("not logged in — run `craft login` in a terminal, then restart the MCP client");
+/// Said once at startup rather than discovered on the first tool call.
+fn login() -> std::result::Result<(), String> {
+    match crate::auth::Tokens::load() {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(
+            "not logged in — run `craft login` in a terminal, then restart the MCP client".into(),
+        ),
+        Err(err) => Err(format!("could not read the stored credentials: {err}")),
     }
-    Ok(())
 }
 
 enum Source {
@@ -116,6 +144,9 @@ enum Source {
     /// variant would make every `Source::Demo` carry that weight.
     Api(Box<Ga>),
     Demo,
+    /// Serving, but with nothing to serve: the subscription or the login is
+    /// missing, and this is the sentence to hand back instead of numbers.
+    Locked(String),
 }
 
 struct Server {
@@ -165,7 +196,7 @@ impl Server {
         let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
 
         let outcome = match method.as_str() {
-            "initialize" => Ok(initialize(&params)),
+            "initialize" => Ok(initialize(&params, &self.source)),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": tool_schemas() })),
             "tools/call" => self.call(&params).await,
@@ -250,6 +281,7 @@ impl Server {
 
         let ga = match &self.source {
             Source::Demo => return demo::tool(name, args, days, limit),
+            Source::Locked(reason) => bail!("{}", one_line(reason)),
             Source::Api(ga) => ga.as_ref(),
         };
 
@@ -353,7 +385,7 @@ impl Server {
 
 // ------------------------------------------------------------------ shapes ---
 
-fn initialize(params: &Value) -> Value {
+fn initialize(params: &Value, source: &Source) -> Value {
     let asked = params
         .get("protocolVersion")
         .and_then(Value::as_str)
@@ -364,6 +396,27 @@ fn initialize(params: &Value) -> Value {
         PROTOCOL_VERSION
     };
 
+    // The tools are still listed when the server is locked — an assistant that
+    // knows what it cannot reach, and why, can say so; one that sees no tools
+    // at all can only guess the wiring is broken.
+    let instructions = match source {
+        Source::Api(_) => INSTRUCTIONS.to_string(),
+        // Said at the handshake as well as on every payload: an assistant that
+        // learns the numbers were invented only after quoting them has already
+        // misled someone.
+        Source::Demo => format!(
+            "{INSTRUCTIONS}\n\nThis server is running on synthetic demo data. \
+             Every number is invented, every answer carries `synthetic: true`, \
+             and none of it describes a real site — say so whenever you quote one."
+        ),
+        Source::Locked(reason) => format!(
+            "{INSTRUCTIONS}\n\nThe tools cannot reach GA4 right now, and every \
+             call will return this until it is fixed. Tell the user, verbatim: \
+             {}",
+            one_line(reason)
+        ),
+    };
+
     json!({
         "protocolVersion": version,
         "capabilities": { "tools": {} },
@@ -372,8 +425,15 @@ fn initialize(params: &Value) -> Value {
             "title": "Anacraft",
             "version": env!("CARGO_PKG_VERSION"),
         },
-        "instructions": INSTRUCTIONS,
+        "instructions": instructions,
     })
+}
+
+/// A locked reason is written to be read in a terminal, where the indent
+/// carries a wrapped line. JSON has no such column, so flatten it before it
+/// travels as a string.
+fn one_line(reason: &str) -> String {
+    reason.replace("\n     ", " ")
 }
 
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
@@ -1060,19 +1120,32 @@ mod demo {
 
 // ---------------------------------------------------------------- install ---
 
-/// Write the server into Claude Desktop's config, leaving anything else in
-/// there alone.
-pub fn install() -> Result<()> {
-    use crate::render::{bold, dim, paint};
-    use crate::theme::ore;
-
+/// The block a client spawns us with. `demo` rides along as an argument rather
+/// than as a second server: one `anacraft` entry, two modes, so re-running
+/// `--install` without `--demo` upgrades it in place instead of leaving a
+/// synthetic twin behind for an assistant to pick the wrong one of.
+fn server_entry(demo: bool) -> Value {
     // An absolute path, not the bare command: a desktop app is not launched
     // from a shell, so it inherits a minimal PATH and frequently cannot find a
     // binary that works perfectly well in a terminal.
     let command = std::env::current_exe()
         .map(|path| path.display().to_string())
         .unwrap_or_else(|_| "craft".to_string());
-    let entry = json!({ "command": command, "args": ["mcp"] });
+    let args = if demo {
+        json!(["mcp", "--demo"])
+    } else {
+        json!(["mcp"])
+    };
+    json!({ "command": command, "args": args })
+}
+
+/// Write the server into Claude Desktop's config, leaving anything else in
+/// there alone.
+pub fn install(demo: bool) -> Result<()> {
+    use crate::render::{bold, dim, paint};
+    use crate::theme::ore;
+
+    let entry = server_entry(demo);
 
     let path = claude_desktop_config()?;
     let block = serde_json::to_string_pretty(&json!({
@@ -1131,6 +1204,34 @@ pub fn install() -> Result<()> {
         dim(&path.display().to_string()),
     );
     println!("  restart {} to pick it up\n", bold("Claude Desktop"));
+
+    if demo {
+        // Loud, because the numbers are designed to look plausible: this is the
+        // one mode where a confident answer is entirely invented.
+        println!(
+            "  {} serving {} — every answer is made up, and marked\n     \
+             `synthetic: true`. Re-run without {} once the account is live.\n",
+            paint("·", ore::iron()),
+            bold("synthetic data"),
+            bold("--demo"),
+        );
+        return Ok(());
+    }
+
+    // Wiring the server up is not the same as being able to serve. Say what is
+    // still missing here, where there is a terminal to read it in, rather than
+    // leaving the user to meet it as a locked tool inside the client.
+    match Config::load() {
+        Ok(cfg) => {
+            if let Err(reason) = unlock(&cfg) {
+                println!("  {} {reason}\n", paint("·", ore::iron()));
+            }
+        }
+        Err(err) => println!(
+            "  {} could not read the config: {err}\n",
+            paint("·", ore::iron())
+        ),
+    }
     Ok(())
 }
 
@@ -1412,9 +1513,35 @@ mod tests {
     }
 
     #[test]
+    fn installing_the_demo_writes_the_flag_the_server_reads() {
+        let live = server_entry(false);
+        assert_eq!(live["args"], json!(["mcp"]), "got {live}");
+
+        let demo = server_entry(true);
+        assert_eq!(demo["args"], json!(["mcp", "--demo"]), "got {demo}");
+
+        // Same key, same command: `--install` twice is an update, not a pair of
+        // servers offering the same ten tools over different data.
+        assert_eq!(live["command"], demo["command"]);
+    }
+
+    /// The demo's numbers are invented, so the handshake says so before an
+    /// assistant can quote one.
+    #[tokio::test]
+    async fn the_demo_handshake_admits_the_data_is_synthetic() {
+        let mut server = server();
+        let reply = server
+            .dispatch(request(1, "initialize", json!({})))
+            .await
+            .expect("a handshake is answered");
+        let instructions = reply["result"]["instructions"].as_str().unwrap_or_default();
+        assert!(instructions.contains("synthetic"), "got {instructions}");
+    }
+
+    #[test]
     fn the_gate_wants_a_subscription() {
         let mut cfg = Config::default();
-        let err = require_subscription(&cfg).unwrap_err().to_string();
+        let err = subscription(&cfg).unwrap_err();
         assert!(err.contains("craft subscribe"), "got {err}");
         assert!(
             err.contains("--demo"),
@@ -1422,7 +1549,61 @@ mod tests {
         );
 
         cfg.supporter = true;
-        assert!(require_subscription(&cfg).is_ok());
+        assert!(subscription(&cfg).is_ok());
+    }
+
+    fn locked_server() -> Server {
+        Server {
+            cfg: Config::default(),
+            source: Source::Locked(subscription(&Config::default()).unwrap_err()),
+            property: None,
+            cache: HashMap::new(),
+        }
+    }
+
+    /// The gate must never take the process down with it: a client reads an
+    /// early exit as "server disconnected", which points at the pipes instead
+    /// of the subscription.
+    #[tokio::test]
+    async fn a_locked_server_still_shakes_hands_and_lists_its_tools() {
+        let mut server = locked_server();
+
+        let reply = server
+            .dispatch(request(1, "initialize", json!({})))
+            .await
+            .expect("a handshake is answered");
+        assert!(reply["error"].is_null(), "handshake failed: {reply}");
+        let instructions = reply["result"]["instructions"].as_str().unwrap_or_default();
+        assert!(
+            instructions.contains("craft subscribe"),
+            "the handshake keeps the reason to itself: {instructions}"
+        );
+
+        let listed = server
+            .dispatch(request(2, "tools/list", json!({})))
+            .await
+            .expect("a request is answered");
+        assert_eq!(
+            listed["result"]["tools"].as_array().map(Vec::len),
+            Some(TOOLS.len()),
+            "a locked server hid its tools: {listed}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_locked_tool_call_reads_as_a_tool_error_not_a_broken_server() {
+        let mut server = locked_server();
+        let result = call(&mut server, "site_status", json!({})).await;
+
+        assert_eq!(result["isError"], json!(true), "got {result}");
+        let error = result["structuredContent"]["error"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(error.contains("craft subscribe"), "got {error}");
+        assert!(
+            !error.contains('\n'),
+            "terminal wrapping leaked into JSON: {error}"
+        );
     }
 
     #[test]

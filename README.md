@@ -80,7 +80,8 @@ default, and `--theme <name>` renders with a palette other than the saved one.
 ### Claude Desktop
 
 ```sh
-craft mcp --install   # write the server into Claude Desktop's config
+craft mcp --install          # write the server into Claude Desktop's config
+craft mcp --install --demo   # ...pointed at synthetic data instead
 ```
 
 Restart Claude Desktop and ask it how the site is doing. The block it merges in
@@ -94,8 +95,10 @@ leaves any other servers alone:
 }
 ```
 
-Needs `craft login` first and an active subscription — `craft mcp --demo` runs
-on synthetic data without either. More in [Ask an assistant](#ask-an-assistant).
+Needs `craft login` first and an active subscription — without either the
+server still starts and its tools say which one is missing, so the client never
+reports it as disconnected. `craft mcp --demo` runs on synthetic data without
+either. More in [Ask an assistant](#ask-an-assistant).
 
 ## The dashboard
 
@@ -146,9 +149,10 @@ Protocol](https://modelcontextprotocol.io), so Claude Desktop, Claude Code, or
 any MCP client can answer "how is the site doing" without a human reading a TUI.
 
 ```sh
-craft mcp --install    # write the server into Claude Desktop's config
-craft mcp              # the server itself; clients spawn this, you rarely do
-craft mcp --demo       # synthetic data, no Google account, no subscription
+craft mcp --install          # write the server into Claude Desktop's config
+craft mcp --install --demo   # ...with `--demo` in the args it writes
+craft mcp                    # the server itself; clients spawn this, you rarely do
+craft mcp --demo             # synthetic data, no Google account, no subscription
 ```
 
 Claude Desktop is [one command](#claude-desktop). For Claude Code it is
@@ -177,14 +181,18 @@ window they cover, not rendered panels.
 
 **Read-only.** Nothing here starts an OAuth flow, writes to `~/.anacraft/`, or
 changes the default property: `login` and `use` stay human-only commands. If no
-credentials are stored the server refuses to start and says to run `craft login`
-rather than opening a browser inside your client's subprocess. Identical reports
+credentials are stored the tools say to run `craft login` rather than opening a
+browser inside your client's subprocess. Identical reports
 are cached for a minute so a chatty agent does not burn the GA4 quota that the
 dashboard needs.
 
 **Subscription.** `craft mcp` needs an active subscription — `craft subscribe`,
-then `supporter = true` in the config. `craft mcp --demo` is ungated, so the
-server can be wired up and looked at first.
+then `supporter = true` in the config. Missing it does not take the process
+down: an MCP client reads an early exit as "server disconnected", which says
+nothing about what to fix, so the server starts, the handshake succeeds, and
+every tool call answers with the sentence that gets you unstuck. The same goes
+for a missing login. `craft mcp --demo` is ungated, so the server can be wired
+up and looked at first.
 
 ## Configuration
 

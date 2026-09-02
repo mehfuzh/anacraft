@@ -11,7 +11,11 @@ whichever the client asks for. The tool surface is the same in all three.
 ## Wiring it up
 
 **Claude Desktop** — `craft mcp --install` writes the block and merges with
-whatever else is in the file. Restart the app afterwards. To do it by hand:
+whatever else is in the file; add `--demo` to write a block that serves
+synthetic data. Either way it is the one `anacraft` entry, so re-running
+`--install` without `--demo` upgrades it in place rather than leaving a
+synthetic twin alongside the real one. Restart the app afterwards. To do it by
+hand:
 
 | Platform | File |
 |---|---|
@@ -33,14 +37,16 @@ value to paste.
 
 **Claude Code** — `claude mcp add anacraft -- craft mcp`.
 
-**Anything else** — same command, same args. Add `--demo` to either to serve
-synthetic data with no account and no subscription, which is the fastest way to
-prove the client-side wiring before blaming credentials.
+**Anything else** — same command, same args. Add `--demo` to any of them to
+serve synthetic data with no account and no subscription, which is the fastest
+way to prove the client-side wiring before blaming credentials. The demo says so
+at the handshake and stamps `synthetic: true` on every answer, so an assistant
+reading it knows not to quote the numbers as real.
 
-## Before it will start
+## Before it will serve
 
-Two preconditions, both checked before the handshake so the failure is
-immediate and legible rather than arriving on the first tool call:
+Two preconditions, both checked at startup so the reason is known before the
+first tool call:
 
 1. **A subscription.** `supporter = true` in `~/.config/anacraft/config.toml`,
    after `craft subscribe`. `--demo` skips this.
@@ -48,6 +54,14 @@ immediate and legible rather than arriving on the first tool call:
    will not start an OAuth flow — a browser consent screen inside a client's
    subprocess is not something an agent can complete, and read-only means
    read-only.
+
+Neither is fatal. Missing one **locks** the server rather than exiting it: the
+reason goes to stderr — the client's log — the handshake still succeeds, the
+tools are still listed, and every call comes back as a tool error carrying that
+reason. This is deliberate. A process that exits during startup reaches the user
+as `Server disconnected`, which points at the pipes instead of the subscription;
+a locked server tells the assistant what to say. The handshake `instructions`
+carry the reason too, so it can be relayed before anything is called.
 
 ## The tools
 

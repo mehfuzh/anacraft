@@ -120,6 +120,7 @@ enum Command {
         #[arg(long)]
         demo: bool,
         /// Write the server into Claude Desktop's config instead of serving.
+        /// Pair with --demo to install the synthetic-data server.
         #[arg(long)]
         install: bool,
     },
@@ -182,7 +183,7 @@ async fn run() -> Result<()> {
         Command::Subscribe => cmd_subscribe(),
         Command::Mcp { demo, install } => {
             if install {
-                mcp::install()
+                mcp::install(demo)
             } else {
                 mcp::serve(demo, cli.property.as_deref()).await
             }
