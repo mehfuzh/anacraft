@@ -1575,7 +1575,10 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
                     .fg(ore::gold())
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("  ·  $5/month", Style::default().fg(ore::stone())),
+            Span::styled(
+                format!("  ·  {}", crate::price_line()),
+                Style::default().fg(ore::stone()),
+            ),
         ];
         // The ask keeps its wording; the demo just adds the way to see what is
         // being asked for.

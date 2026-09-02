@@ -188,8 +188,9 @@ browser inside your client's subprocess. Identical reports
 are cached for a minute so a chatty agent does not burn the GA4 quota that the
 dashboard needs.
 
-**Subscription.** `craft mcp` needs an active subscription — `craft subscribe`,
-then `supporter = true` in the config. Missing it does not take the process
+**Subscription.** `craft mcp` needs an active subscription — `craft subscribe`
+for $2.99/month or `craft subscribe --annual` for $29/year, then
+`supporter = true` in the config. Missing it does not take the process
 down: an MCP client reads an early exit as "server disconnected", which says
 nothing about what to fix, so the server starts, the handshake succeeds, and
 every tool call answers with the sentence that gets you unstuck. The same goes

@@ -129,7 +129,11 @@ enum Command {
         uninstall: bool,
     },
     /// Open the Anacraft subscription page in a browser.
-    Subscribe,
+    Subscribe {
+        /// Take the yearly plan — $29/year rather than $2.99/month.
+        #[arg(long)]
+        annual: bool,
+    },
     /// Print the site's dashboard captures as HTML. Used by `make capture`.
     #[command(hide = true)]
     Capture,
@@ -184,7 +188,7 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Theme { name } => cmd_theme(name.as_deref()),
-        Command::Subscribe => cmd_subscribe(),
+        Command::Subscribe { annual } => cmd_subscribe(annual),
         Command::Mcp {
             demo,
             install,
@@ -281,12 +285,31 @@ async fn run() -> Result<()> {
 
 // ---------------------------------------------------------------- accounts ---
 
-/// Stripe's hosted page for the $5/month plan.
+/// Stripe's hosted page for the $2.99/month plan.
 ///
 /// A Payment Link, not a checkout session built here: a session needs a secret
 /// key, and a key shipped inside a binary anybody can download is a key that
 /// has leaked. The link is public by design and safe to hardcode.
 const SUBSCRIBE_URL: &str = "https://buy.stripe.com/dRm3cve7yesL786bfb9MY01";
+
+/// The same, for the $29/year plan — empty until that Payment Link exists.
+///
+/// A hardcoded link that 404s is worse than a plan that admits it is not ready,
+/// because the first one looks like it worked. So everything that would quote
+/// the yearly price checks this first, and the option appears across the CLI and
+/// the dashboard the moment the real URL lands here.
+const SUBSCRIBE_ANNUAL_URL: &str = "";
+
+/// The price the dashboard's ask and `craft subscribe` both quote, written once
+/// so the two cannot drift apart. Names the yearly plan only once there is
+/// somewhere to buy it.
+pub(crate) fn price_line() -> &'static str {
+    if SUBSCRIBE_ANNUAL_URL.is_empty() {
+        "$2.99/month"
+    } else {
+        "$2.99/mo or $29/yr"
+    }
+}
 
 /// Open the subscription page.
 ///
@@ -294,9 +317,37 @@ const SUBSCRIBE_URL: &str = "https://buy.stripe.com/dRm3cve7yesL786bfb9MY01";
 /// where nothing is registered to handle https, `open` silently does nothing,
 /// and a command that appears to succeed while no page opened is worse than one
 /// that just tells you where to go.
-fn cmd_subscribe() -> Result<()> {
-    println!("\n  {} {}\n", paint("★", ore::gold()), bold(SUBSCRIBE_URL));
-    let _ = open::that(SUBSCRIBE_URL);
+fn cmd_subscribe(annual: bool) -> Result<()> {
+    if annual && SUBSCRIBE_ANNUAL_URL.is_empty() {
+        println!(
+            "\n  no yearly plan yet — {} is $2.99/month\n",
+            bold("craft subscribe")
+        );
+        return Ok(());
+    }
+
+    let (url, price) = if annual {
+        (SUBSCRIBE_ANNUAL_URL, "$29/year")
+    } else {
+        (SUBSCRIBE_URL, "$2.99/month")
+    };
+
+    println!(
+        "\n  {} {}  ·  {}\n",
+        paint("★", ore::gold()),
+        bold(url),
+        price
+    );
+    let _ = open::that(url);
+
+    // The cheaper plan is worth a sentence rather than a flag to go and find.
+    if !annual && !SUBSCRIBE_ANNUAL_URL.is_empty() {
+        println!(
+            "  or {} — $29/year, two months off\n",
+            bold("craft subscribe --annual")
+        );
+    }
+
     println!(
         "  once it's active, set {} in {}\n",
         bold("supporter = true"),
