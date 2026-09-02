@@ -123,6 +123,10 @@ enum Command {
         /// Pair with --demo to install the synthetic-data server.
         #[arg(long)]
         install: bool,
+        /// Take the server back out of Claude Desktop's config, leaving any
+        /// other servers in there alone.
+        #[arg(long, conflicts_with = "install")]
+        uninstall: bool,
     },
     /// Open the Anacraft subscription page in a browser.
     Subscribe,
@@ -181,8 +185,14 @@ async fn run() -> Result<()> {
         }
         Command::Theme { name } => cmd_theme(name.as_deref()),
         Command::Subscribe => cmd_subscribe(),
-        Command::Mcp { demo, install } => {
-            if install {
+        Command::Mcp {
+            demo,
+            install,
+            uninstall,
+        } => {
+            if uninstall {
+                mcp::uninstall()
+            } else if install {
                 mcp::install(demo)
             } else {
                 mcp::serve(demo, cli.property.as_deref()).await

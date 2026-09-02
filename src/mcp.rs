@@ -13,7 +13,7 @@
 //! a client's subprocess.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -1196,24 +1196,8 @@ pub fn install(demo: bool) -> Result<()> {
         return Ok(());
     }
 
-    let mut config: Value = if path.exists() {
-        let raw = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        if raw.trim().is_empty() {
-            json!({})
-        } else {
-            // Refusing beats rewriting: this file is the user's, and other MCP
-            // servers live in it.
-            serde_json::from_str(&raw).with_context(|| {
-                format!(
-                    "{} isn't valid JSON — add the anacraft block by hand:\n{block}",
-                    path.display()
-                )
-            })?
-        }
-    } else {
-        json!({})
-    };
+    let mut config =
+        read_client_config(&path, &format!("add the anacraft block by hand:\n{block}"))?;
 
     let root = config
         .as_object_mut()
@@ -1266,6 +1250,74 @@ pub fn install(demo: bool) -> Result<()> {
             paint("·", ore::iron())
         ),
     }
+    Ok(())
+}
+
+/// The client's config as JSON, or an empty object if there isn't one yet.
+/// Refusing beats rewriting: this file is the user's, and other MCP servers
+/// live in it, so unparseable JSON stops us with `hint` rather than costing
+/// someone the rest of their servers.
+fn read_client_config(path: &Path, hint: &str) -> Result<Value> {
+    if !path.exists() {
+        return Ok(json!({}));
+    }
+    let raw =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    if raw.trim().is_empty() {
+        return Ok(json!({}));
+    }
+    serde_json::from_str(&raw)
+        .with_context(|| format!("{} isn't valid JSON — {hint}", path.display()))
+}
+
+/// Lift our one key out of a client config, reporting whether it was there.
+/// Anything shaped unexpectedly — no `mcpServers`, not an object — is simply a
+/// config without us in it, not an error to stop over.
+fn drop_server(config: &mut Value) -> bool {
+    config
+        .as_object_mut()
+        .and_then(|root| root.get_mut("mcpServers"))
+        .and_then(Value::as_object_mut)
+        .and_then(|servers| servers.remove("anacraft"))
+        .is_some()
+}
+
+/// Take the server back out of Claude Desktop's config. The inverse of
+/// `install`, and just as narrow: one key leaves, everything else — other
+/// servers, unrelated settings — stays exactly as it was found.
+pub fn uninstall() -> Result<()> {
+    use crate::render::{bold, dim, paint};
+    use crate::theme::ore;
+
+    let path = claude_desktop_config()?;
+    let mut config =
+        read_client_config(&path, "remove the anacraft block from `mcpServers` by hand")?;
+
+    let removed = drop_server(&mut config);
+
+    if !removed {
+        // Nothing to undo is not a failure — someone tidying up after a
+        // reinstall, or a config that was never written, both land here.
+        println!(
+            "\n  {} no anacraft server in {}\n",
+            paint("·", ore::iron()),
+            dim(&path.display().to_string()),
+        );
+        return Ok(());
+    }
+
+    std::fs::write(
+        &path,
+        format!("{}\n", serde_json::to_string_pretty(&config)?),
+    )
+    .with_context(|| format!("writing {}", path.display()))?;
+
+    println!(
+        "\n  {} anacraft removed from {}\n",
+        paint("✓", ore::emerald()),
+        dim(&path.display().to_string()),
+    );
+    println!("  restart {} to drop the tools\n", bold("Claude Desktop"));
     Ok(())
 }
 
@@ -1594,6 +1646,23 @@ mod tests {
         // Same key, same command: `--install` twice is an update, not a pair of
         // servers offering the same ten tools over different data.
         assert_eq!(live["command"], demo["command"]);
+    }
+
+    #[test]
+    fn uninstalling_takes_one_key_and_nothing_else() {
+        let mut config = json!({
+            "mcpServers": { "anacraft": { "command": "craft" }, "other": { "command": "x" } },
+            "theme": "dark",
+        });
+        assert!(drop_server(&mut config));
+        assert!(config["mcpServers"]["anacraft"].is_null());
+        assert_eq!(config["mcpServers"]["other"]["command"], json!("x"));
+        assert_eq!(config["theme"], json!("dark"), "got {config}");
+
+        // Twice is not an error, and neither is a config that never had us.
+        assert!(!drop_server(&mut config));
+        assert!(!drop_server(&mut json!({})));
+        assert!(!drop_server(&mut json!({ "mcpServers": "nonsense" })));
     }
 
     /// The demo's numbers are invented, so the handshake says so before an

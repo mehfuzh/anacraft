@@ -19,8 +19,8 @@ placeholder regardless.
 whatever else is in the file; add `--demo` to write a block that serves
 synthetic data. Either way it is the one `anacraft` entry, so re-running
 `--install` without `--demo` upgrades it in place rather than leaving a
-synthetic twin alongside the real one. Restart the app afterwards. To do it by
-hand:
+synthetic twin alongside the real one. `craft mcp --uninstall` removes that one
+entry and nothing else. Restart the app afterwards. To do it by hand:
 
 | Platform | File |
 |---|---|

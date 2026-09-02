@@ -126,11 +126,14 @@ reading a TUI.
 ```sh
 craft mcp --install          # merge the server into Claude Desktop's config
 craft mcp --install --demo   # ...with `--demo` in the args it writes
+craft mcp --uninstall        # take the server back out of that config
 craft mcp --demo             # synthetic data — no account, no subscription
 ```
 
-Then restart Claude Desktop. `--install` leaves any other servers in that file
-alone, and refuses rather than rewrites a config it cannot parse.
+Then restart Claude Desktop. `--install` and `--uninstall` both leave any other
+servers in that file alone, and refuse rather than rewrite a config they cannot
+parse. `--uninstall` on a config without an `anacraft` entry says so and changes
+nothing.
 
 Three things to know before promising it will work:
 
