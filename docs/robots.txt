@@ -1,0 +1,8 @@
+# anacraft.dev
+User-agent: *
+Allow: /
+
+# `_of.html` is an unlinked capture scratch page — not a page of the site.
+Disallow: /_of.html
+
+Sitemap: https://anacraft.dev/sitemap.xml
