@@ -78,6 +78,29 @@ impl OrderBy {
     }
 }
 
+/// A `CONTAINS` match on one dimension. GA4's filter grammar is a deep union
+/// type; only the one shape `search_*` needs is modelled here, because a
+/// half-built filter tree is harder to read than the JSON it produces.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StringFilter {
+    pub match_type: String,
+    pub value: String,
+    pub case_sensitive: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldFilter {
+    pub field_name: String,
+    pub string_filter: StringFilter,
+}
+
+#[derive(Serialize)]
+pub struct DimensionFilter {
+    pub filter: FieldFilter,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReportRequest {
@@ -90,6 +113,8 @@ pub struct ReportRequest {
     pub limit: Option<i32>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub order_bys: Vec<OrderBy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimension_filter: Option<DimensionFilter>,
 }
 
 impl ReportRequest {
@@ -100,6 +125,7 @@ impl ReportRequest {
             metrics: Named::list(metrics),
             limit: None,
             order_bys: Vec::new(),
+            dimension_filter: None,
         }
     }
 
@@ -116,6 +142,22 @@ impl ReportRequest {
     pub fn top(mut self, metric: &str, limit: i32) -> Self {
         self.order_bys = vec![OrderBy::desc(metric)];
         self.limit = Some(limit);
+        self
+    }
+
+    /// Keep only rows whose `dimension` contains `needle`, case-insensitively —
+    /// what somebody typing a fragment of a URL or an event name expects.
+    pub fn containing(mut self, dimension: &str, needle: &str) -> Self {
+        self.dimension_filter = Some(DimensionFilter {
+            filter: FieldFilter {
+                field_name: dimension.to_string(),
+                string_filter: StringFilter {
+                    match_type: "CONTAINS".to_string(),
+                    value: needle.to_string(),
+                    case_sensitive: false,
+                },
+            },
+        });
         self
     }
 }

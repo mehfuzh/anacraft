@@ -77,6 +77,26 @@ craft demo                 # render an overview from synthetic data
 Two flags are global: `--property <id>` queries a property other than the saved
 default, and `--theme <name>` renders with a palette other than the saved one.
 
+### Claude Desktop
+
+```sh
+craft mcp --install   # write the server into Claude Desktop's config
+```
+
+Restart Claude Desktop and ask it how the site is doing. The block it merges in
+leaves any other servers alone:
+
+```json
+{
+  "mcpServers": {
+    "anacraft": { "command": "/usr/local/bin/craft", "args": ["mcp"] }
+  }
+}
+```
+
+Needs `craft login` first and an active subscription — `craft mcp --demo` runs
+on synthetic data without either. More in [Ask an assistant](#ask-an-assistant).
+
 ## The dashboard
 
 Seven panels, each toggleable. Turn off what you do not care about and the rest
@@ -118,6 +138,53 @@ palette is selected, so the texture pack survives a theme swap.
 
 The command is `craft`. `anacraft` is installed alongside it as an alias, so
 older scripts and anything you have in muscle memory keep working.
+
+## Ask an assistant
+
+`craft mcp` serves the dashboard's numbers over the [Model Context
+Protocol](https://modelcontextprotocol.io), so Claude Desktop, Claude Code, or
+any MCP client can answer "how is the site doing" without a human reading a TUI.
+
+```sh
+craft mcp --install    # write the server into Claude Desktop's config
+craft mcp              # the server itself; clients spawn this, you rarely do
+craft mcp --demo       # synthetic data, no Google account, no subscription
+```
+
+Claude Desktop is [one command](#claude-desktop). For Claude Code it is
+`claude mcp add anacraft -- craft mcp`; any other client takes the same command
+and argument. Writing a config by hand, use an **absolute path** — a desktop app
+is not launched from a shell and does not inherit the `PATH` where `craft`
+works. `which craft` gives the value to paste.
+
+| Tool | Answers |
+|------|---------|
+| `site_status` | Headline metrics against the period before, the daily user series, and the achievements that fired |
+| `live_visitors` | Who is on the site right now, by country |
+| `list_pages` | Most-visited pages |
+| `list_events` | Events by count, with the per-day total against the previous period |
+| `list_referrers` | The URLs sending traffic |
+| `list_traffic_sources` | GA4 source / medium pairs |
+| `list_countries` | Traffic by country |
+| `list_properties` | Every property this account can read |
+| `search_pages` | Pages whose path contains a substring |
+| `search_events` | Events whose name contains a substring |
+
+Every tool takes an optional `property` and falls back to the saved default, so
+an assistant that knows nothing about your config still gets answers. Responses
+are structured JSON — labelled numbers carrying the property id and the date
+window they cover, not rendered panels.
+
+**Read-only.** Nothing here starts an OAuth flow, writes to `~/.anacraft/`, or
+changes the default property: `login` and `use` stay human-only commands. If no
+credentials are stored the server refuses to start and says to run `craft login`
+rather than opening a browser inside your client's subprocess. Identical reports
+are cached for a minute so a chatty agent does not burn the GA4 quota that the
+dashboard needs.
+
+**Subscription.** `craft mcp` needs an active subscription — `craft subscribe`,
+then `supporter = true` in the config. `craft mcp --demo` is ungated, so the
+server can be wired up and looked at first.
 
 ## Configuration
 
@@ -176,6 +243,11 @@ Cloned the repo and use [Claude Code](https://claude.com/claude-code)? The same
 guide ships as a skill in `.claude/skills/google-analytics-setup/`. Ask Claude to
 configure Google Analytics and it walks the console steps with you, including
 tag installs per framework and what to check when nothing arrives.
+
+`.claude/skills/anacraft/` covers this side of the line — installing, connecting
+a property, driving the dashboard, wiring up `craft mcp`, and what each error
+message actually means. Ask Claude to set anacraft up, or paste a failing
+command at it.
 
 ## Requirements
 

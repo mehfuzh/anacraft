@@ -5,6 +5,7 @@ mod auth;
 mod avatar;
 mod config;
 mod ga;
+mod mcp;
 mod render;
 mod theme;
 mod ui;
@@ -110,6 +111,18 @@ enum Command {
         #[arg(long)]
         demo: bool,
     },
+    /// Serve the dashboard's numbers to an AI assistant over MCP.
+    ///
+    /// Speaks the Model Context Protocol on stdin/stdout, so an MCP client
+    /// spawns it as a child process. Read-only, and part of the subscription.
+    Mcp {
+        /// Serve synthetic data — no Google account, no subscription.
+        #[arg(long)]
+        demo: bool,
+        /// Write the server into Claude Desktop's config instead of serving.
+        #[arg(long)]
+        install: bool,
+    },
     /// Open the Anacraft subscription page in a browser.
     Subscribe,
     /// Print the site's dashboard captures as HTML. Used by `make capture`.
@@ -167,6 +180,13 @@ async fn run() -> Result<()> {
         }
         Command::Theme { name } => cmd_theme(name.as_deref()),
         Command::Subscribe => cmd_subscribe(),
+        Command::Mcp { demo, install } => {
+            if install {
+                mcp::install()
+            } else {
+                mcp::serve(demo, cli.property.as_deref()).await
+            }
+        }
         Command::Login => cmd_login().await,
         Command::Logout => cmd_logout().await,
         Command::Props => cmd_props().await,

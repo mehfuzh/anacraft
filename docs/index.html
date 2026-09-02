@@ -427,8 +427,8 @@
     <a class="brand" href="/"><img class="pick" src="mark.svg?v=7b310f6e" alt="A" width="14" height="14">nacraft</a>
     <div class="nav-links">
       <a href="#dashboard">Dashboard</a>
-      <a href="#features">Features</a>
       <a href="#start">Quick start</a>
+      <a href="#mcp">MCP</a>
       <a href="/setup-ga4.html">Configure GA4</a>
     </div>
   </div>
@@ -1588,6 +1588,7 @@
       <div class="row"><span class="n">06</span><h3>Runs before you sign in</h3><p><code style="font-family:var(--mono)">craft</code> on its own opens the dashboard, and with no property saved it drives the whole thing from synthetic data — so you see it working before touching OAuth.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">07</span><h3>Every property in one session</h3><p>Save as many GA4 properties as you like and <code style="font-family:var(--mono)">Tab</code> walks them without leaving the dashboard — each one keeping its own palette and time window.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">08</span><h3>Bring your own palette</h3><p>Build one with <code style="font-family:var(--mono)">craft theme create</code>, load a JSON palette with <code style="font-family:var(--mono)">craft theme import</code>, or pull someone else's with <code style="font-family:var(--mono)">craft theme install user/repo</code>.</p><span class="arw">→</span></div>
+      <div class="row"><span class="n">09</span><h3>Readable by an assistant</h3><p><code style="font-family:var(--mono)">craft mcp</code> serves the dashboard's numbers over the Model Context Protocol — ten read-only tools, one command to wire into <a href="#mcp">Claude Desktop</a>.</p><span class="arw">→</span></div>
     </div>
 
     <div class="sec-label" style="margin-top:64px">On the roadmap</div>
@@ -1667,6 +1668,61 @@
         </table>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="mcp">
+  <div class="wrap">
+    <div class="sec-label">MCP server</div>
+    <h2>Or just ask an assistant.</h2>
+    <p class="sec-sub">
+      <code style="font-family:var(--mono);color:var(--fg)">craft mcp</code> serves the same numbers over the Model Context
+      Protocol, so Claude Desktop — or any MCP client — answers “how is the site
+      doing” without a human reading a TUI.
+    </p>
+    <div class="two">
+      <div>
+        <pre class="code"><span class="d"># wire it into Claude Desktop, then restart it</span>
+<span class="c">$</span> <span class="w">craft mcp --install</span>
+
+<span class="d"># try it first — synthetic data, no account</span>
+<span class="c">$</span> <span class="w">craft mcp --demo</span>
+
+<span class="d"># or paste it in yourself. an absolute path —</span>
+<span class="d"># a desktop app never sees your shell's PATH</span>
+<span class="d">{</span>
+<span class="d">  "mcpServers": {</span>
+<span class="d">    "anacraft": {</span>
+<span class="d">      "command":</span> <span class="w">"/usr/local/bin/craft"</span><span class="d">,</span>
+<span class="d">      "args": ["mcp"]</span>
+<span class="d">    }</span>
+<span class="d">  }</span>
+<span class="d">}</span></pre>
+      </div>
+      <div>
+        <table class="keys">
+          <tr><th>Tool</th><th>Answers</th></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">site_status</code></td><td><b>How the site is doing</b> — every headline metric against the period before it</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">live_visitors</code></td><td>Who is on it right now, by country</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">list_pages</code></td><td>Most-visited pages</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">list_events</code></td><td>Events by count, and whether they are rising</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">list_referrers</code></td><td>The links sending traffic</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">list_traffic_sources</code></td><td>The source / medium mix</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">list_countries</code></td><td>Traffic by country</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">list_properties</code></td><td>Every property this account can read</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">search_pages</code></td><td>Pages whose path contains a substring</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">search_events</code></td><td>Events whose name contains a substring</td></tr>
+        </table>
+      </div>
+    </div>
+    <p class="sec-sub" style="margin-top:34px;max-width:72ch">
+      Every tool is a read. Nothing here signs in, writes to disk, or moves your
+      default property — <code style="font-family:var(--mono)">login</code> and <code style="font-family:var(--mono)">use</code> stay
+      human-only commands. Answers come back as labelled JSON carrying the
+      property and the date window they cover, so an assistant can attribute the
+      numbers it quotes. Needs <code style="font-family:var(--mono)">craft login</code> first, and a
+      subscription; <code style="font-family:var(--mono)">--demo</code> needs neither.
+    </p>
   </div>
 </section>
 

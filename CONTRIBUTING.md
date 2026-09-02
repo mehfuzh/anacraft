@@ -48,6 +48,7 @@ Clippy is set to deny warnings, so a lint is a build failure, not a suggestion.
 | `src/main.rs` | CLI surface — subcommands, global flags, one-shot reports |
 | `src/ui.rs` | The dashboard: layout, panels, animation, demo data |
 | `src/ga.rs` | GA4 Data API client and the report request shapes |
+| `src/mcp.rs` | `craft mcp` — the MCP server, its tools, and its synthetic answers |
 | `src/auth.rs` | OAuth sign-in — the loopback redirect listener and token refresh |
 | `src/theme.rs` | Palettes, the ore vocabulary, glyphs, metric definitions |
 | `src/render.rs` | Shared drawing helpers — bars, deltas, sparklines |
