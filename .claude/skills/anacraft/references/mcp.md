@@ -5,8 +5,13 @@ newline-delimited JSON-RPC over its pipes. No port, no listener, nothing to
 firewall. Stdout belongs to the protocol, so everything human-facing goes to
 stderr — never pipe stdout anywhere while the server is running.
 
-Speaks MCP revisions `2025-06-18`, `2025-03-26` and `2024-11-05`, echoing back
-whichever the client asks for. The tool surface is the same in all three.
+Speaks MCP revisions `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`,
+echoing back whichever the client asks for. The tool surface is the same in all
+four. A client on `2025-11-25` also gets the anacraft mark in the handshake, as
+an inline `data:` PNG on `serverInfo.icons`, so a connector list can draw it
+without fetching anything; older revisions have no field for it and are not
+sent one. Whether the icon is drawn is the client's call — some show a letter
+placeholder regardless.
 
 ## Wiring it up
 

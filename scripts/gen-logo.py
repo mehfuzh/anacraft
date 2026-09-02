@@ -10,8 +10,9 @@ can be hand-edited as ASCII.
 
     python3 scripts/gen-logo.py
 
-Writes assets/oauth-logo-{120,512}.png (Google's OAuth consent screen) and
-docs/favicon.svg (the site tab icon), so both come from this one grid.
+Writes assets/oauth-logo-{120,512}.png (Google's OAuth consent screen),
+assets/icon-128.png (the icon `craft mcp` hands an MCP client) and
+docs/favicon.svg (the site tab icon), so all three come from this one grid.
 """
 
 import hashlib
@@ -189,6 +190,13 @@ def main():
         out = os.path.join(ROOT, "assets", f"oauth-logo-{size}.png")
         img.resize((size, size), Image.NEAREST).save(out)
         print(f"wrote {out}")
+
+    # The MCP handshake carries this one inline, as a base64 data URI, so it is
+    # kept small: a client draws it at list-row size, and every byte here is a
+    # byte on the wire of every `initialize`.
+    out = os.path.join(ROOT, "assets", "icon-128.png")
+    img.resize((128, 128), Image.NEAREST).save(out, optimize=True)
+    print(f"wrote {out}")
 
     write_svg()
     write_mark()

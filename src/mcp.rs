@@ -14,9 +14,11 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -27,10 +29,23 @@ use crate::theme::{Kind, OVERVIEW};
 
 /// The revision we answer `initialize` with when the client asks for one we
 /// don't know. Older revisions are echoed back when the client names them: the
-/// tool surface is identical across all three, so there is nothing to gain by
+/// tool surface is identical across all four, so there is nothing to gain by
 /// telling a working client to speak a dialect it doesn't have.
-const PROTOCOL_VERSION: &str = "2025-06-18";
-const SPOKEN_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+const PROTOCOL_VERSION: &str = "2025-11-25";
+const SPOKEN_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+
+/// The revision that introduced `icons` on the server's own identity. A client
+/// speaking an older one is not told about the mark: an unknown key is likely
+/// to be ignored, but there is no reason to make a handshake carry half a
+/// kilobyte that the other end has no field for.
+const ICONS_SINCE: &str = "2025-11-25";
+
+/// The mark, drawn by `scripts/gen-logo.py` from the same 16x16 grid as the
+/// favicon and the OAuth logo. It travels inside the handshake as a data URI
+/// rather than as a link to the site: a client that draws it should not have
+/// to make a network request — or tell anyone it did — to know what anacraft
+/// looks like.
+const ICON_PNG: &[u8] = include_bytes!("../assets/icon-128.png");
 
 const DEFAULT_DAYS: u32 = 7;
 const DEFAULT_LIMIT: i64 = 10;
@@ -417,15 +432,34 @@ fn initialize(params: &Value, source: &Source) -> Value {
         ),
     };
 
+    let mut server_info = json!({
+        "name": "anacraft",
+        "title": "Anacraft",
+        "version": env!("CARGO_PKG_VERSION"),
+        "description": "Google Analytics 4 for the terminal, read-only over MCP.",
+        "websiteUrl": "https://anacraft.dev",
+    });
+    // Dates sort as strings, so this stays right when the spoken revision moves on.
+    if version >= ICONS_SINCE {
+        server_info["icons"] = json!([icon()]);
+    }
+
     json!({
         "protocolVersion": version,
         "capabilities": { "tools": {} },
-        "serverInfo": {
-            "name": "anacraft",
-            "title": "Anacraft",
-            "version": env!("CARGO_PKG_VERSION"),
-        },
+        "serverInfo": server_info,
         "instructions": instructions,
+    })
+}
+
+/// The mark as an `Icon`, for a client that draws one next to the server's
+/// name. Encoded once and kept: the bytes never change within a run, and a
+/// handshake is not the place to redo work.
+fn icon() -> &'static Value {
+    static ICON: OnceLock<Value> = OnceLock::new();
+    ICON.get_or_init(|| {
+        let src = format!("data:image/png;base64,{}", STANDARD.encode(ICON_PNG));
+        json!({ "src": src, "mimeType": "image/png", "sizes": ["128x128"] })
     })
 }
 
@@ -1322,6 +1356,43 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(reply["result"]["protocolVersion"], json!(PROTOCOL_VERSION));
+    }
+
+    #[tokio::test]
+    async fn the_handshake_carries_the_mark_for_a_client_that_can_draw_it() {
+        let mut server = server();
+        let reply = server
+            .dispatch(request(
+                1,
+                "initialize",
+                json!({ "protocolVersion": ICONS_SINCE }),
+            ))
+            .await
+            .unwrap();
+        let icon = &reply["result"]["serverInfo"]["icons"][0];
+        assert_eq!(icon["mimeType"], json!("image/png"));
+        let src = icon["src"].as_str().expect("an icon has a src");
+        // A client is allowed to refuse anything that isn't https or `data:`,
+        // and one that fetches this must never leave the machine to do it.
+        assert!(src.starts_with("data:image/png;base64,"), "{src}");
+        let bytes = STANDARD
+            .decode(src.trim_start_matches("data:image/png;base64,"))
+            .expect("the src decodes");
+        assert_eq!(bytes, ICON_PNG);
+    }
+
+    #[tokio::test]
+    async fn an_older_client_is_not_sent_an_icon_it_has_no_field_for() {
+        let mut server = server();
+        let reply = server
+            .dispatch(request(
+                1,
+                "initialize",
+                json!({ "protocolVersion": "2024-11-05" }),
+            ))
+            .await
+            .unwrap();
+        assert!(reply["result"]["serverInfo"]["icons"].is_null());
     }
 
     #[tokio::test]
