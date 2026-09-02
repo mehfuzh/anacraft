@@ -6,3 +6,6 @@
 client.json
 *.secret.json
 .env
+
+# macOS finder droppings
+.DS_Store
