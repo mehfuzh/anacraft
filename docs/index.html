@@ -1609,7 +1609,7 @@
       <div class="row"><span class="n">06</span><h3>Runs before you sign in</h3><p><code style="font-family:var(--mono)">craft</code> on its own opens the dashboard, and with no property saved it drives the whole thing from synthetic data — so you see it working before touching OAuth.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">07</span><h3>Every property in one session</h3><p>Save as many GA4 properties as you like and <code style="font-family:var(--mono)">Tab</code> walks them without leaving the dashboard — each one keeping its own palette and time window.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">08</span><h3>Bring your own palette</h3><p>Build one with <code style="font-family:var(--mono)">craft theme create</code>, load a JSON palette with <code style="font-family:var(--mono)">craft theme import</code>, or pull someone else's with <code style="font-family:var(--mono)">craft theme install user/repo</code>.</p><span class="arw">→</span></div>
-      <div class="row"><span class="n">09</span><h3>Readable by an assistant</h3><p><code style="font-family:var(--mono)">craft mcp</code> serves the dashboard's numbers over the Model Context Protocol — ten read-only tools, one command to wire into <a href="#mcp">Claude Desktop</a>.</p><span class="arw">→</span></div>
+      <div class="row"><span class="n">09</span><h3>Readable by an assistant</h3><p><code style="font-family:var(--mono)">craft mcp</code> serves the dashboard's numbers over the Model Context Protocol — ten read-only tools, one command to wire into <a href="#mcp">Claude Desktop</a>. Part of the Anacrafter subscription — <code style="font-family:var(--mono)">craft mcp --demo</code> is ungated.</p><span class="arw">→</span></div>
     </div>
 
     <div class="sec-label" style="margin-top:64px">On the roadmap</div>
@@ -1700,6 +1700,10 @@
       <code style="font-family:var(--mono);color:var(--fg)">craft mcp</code> serves the same numbers over the Model Context
       Protocol, so Claude Desktop — or any MCP client — answers “how is the site
       doing” without a human reading a TUI.
+      The dashboard and the one-shot reports are free; this is the part the
+      Anacrafter subscription pays for, and
+      <code style="font-family:var(--mono);color:var(--fg)">craft mcp --demo</code>
+      is ungated so it can be wired up and looked at first.
     </p>
     <div class="two">
       <div>
