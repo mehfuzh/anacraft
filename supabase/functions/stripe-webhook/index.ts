@@ -54,6 +54,23 @@ const PAID = new Set(["active", "trialing"]);
 const seconds = (value: number | null | undefined) =>
   value ? new Date(value * 1000).toISOString() : null;
 
+/// What a subscription is being charged, in Stripe's own shape.
+///
+/// `unit_amount` is minor units — 299, not 2.99 — and is stored that way: the
+/// point of recording it is to compare a row against Stripe, and converting on
+/// the way in only invents a rounding question. A price with no amount on it
+/// (metered, or tiered) yields nulls rather than a guess.
+///
+/// Read off the first item. Every anacraft subscription is one line; a
+/// multi-item subscription would need a column per item, and there is no plan
+/// that produces one.
+const priceOf = (price: Stripe.Price | null | undefined) => ({
+  stripe_price: price?.id ?? null,
+  amount_cents: price?.unit_amount ?? null,
+  currency: price?.currency ?? null,
+  billing_interval: price?.recurring?.interval ?? null,
+});
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -112,10 +129,28 @@ Deno.serve(async (request) => {
       case "checkout.session.completed":
         await onCheckout(event.data.object as Stripe.Checkout.Session);
         break;
+      // A checkout nobody finished. Without this the row the CLI claimed sits
+      // at 'pending' forever, and `craft subscribe --check` keeps reporting a
+      // wait that ended days ago.
+      case "checkout.session.expired":
+        await onCheckoutExpired(event.data.object as Stripe.Checkout.Session);
+        break;
+      // `paused` and `resumed` are their own events as well as an `updated`;
+      // both land here, and the handler is idempotent, so a doubled event
+      // writes the same status twice rather than fighting itself.
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
+      case "customer.subscription.paused":
+      case "customer.subscription.resumed":
         await onSubscription(event.data.object as Stripe.Subscription);
+        break;
+      // Renewals. The status itself arrives on `subscription.updated`; what
+      // these carry that nothing else does is the amount actually charged,
+      // which is the only way to see a price change taking effect.
+      case "invoice.paid":
+      case "invoice.payment_failed":
+        await onInvoice(event.data.object as Stripe.Invoice);
         break;
       default:
         // Everything else is Stripe being chatty. 200 so it stops retrying.
@@ -180,6 +215,10 @@ async function onSubscription(subscription: Stripe.Subscription) {
     .update({
       status: subscription.status,
       current_period_end: seconds(subscription.current_period_end),
+      // Re-read on every event rather than only at creation: a subscriber
+      // moved to a new price emits `updated`, and this is the write that makes
+      // the move visible without a Stripe export.
+      ...priceOf(subscription.items.data[0]?.price),
       updated_at: now,
     })
     .eq("stripe_subscription", subscription.id);
@@ -195,4 +234,67 @@ async function onSubscription(subscription: Stripe.Subscription) {
       .is("since", null);
     if (stamp) throw stamp;
   }
+}
+
+/// The checkout window closed with nobody paying — Stripe expires a session
+/// roughly 24 hours after it opens.
+///
+/// The row the CLI claimed is still sitting at 'pending', which the CLI reads
+/// as "your payment is on its way". Marking it settles that: `is_pending` in
+/// the binary tests for an empty status or 'pending', so 'expired' reads as a
+/// real answer and `craft subscribe` offers the Payment Link again instead of
+/// waiting on a checkout that is gone.
+///
+/// Only ever moves a row that is still pending. A session can expire after the
+/// subscription it created is live — a second checkout on the same token, an
+/// out-of-order delivery — and that must not cancel anybody.
+async function onCheckoutExpired(session: Stripe.Checkout.Session) {
+  const token = session.client_reference_id;
+  if (!token) return;
+
+  const { error } = await db()
+    .from("subscriptions")
+    .update({ status: "expired", updated_at: new Date().toISOString() })
+    .eq("token", token)
+    .in("status", ["pending", ""]);
+
+  if (error) throw error;
+}
+
+/// A renewal was attempted. Records what was charged and nothing else.
+///
+/// Deliberately does not touch `status`: a failed payment moves a subscription
+/// through `past_due` and then to `unpaid` or `canceled` on Stripe's dunning
+/// schedule, and those transitions arrive as `customer.subscription.updated`.
+/// Writing a status here too would mean two handlers racing to describe the
+/// same subscription, and the loser would win.
+///
+/// What the invoice carries that no other event does is the amount that
+/// actually cleared, which is how a price change is confirmed to have taken
+/// effect on a subscriber rather than only in the Stripe dashboard.
+async function onInvoice(invoice: Stripe.Invoice) {
+  // `invoice.subscription` in the pinned API version; newer versions moved it
+  // under `parent.subscription_details`. Read both, because the shape here is
+  // decided by the endpoint's API version in Stripe rather than by this file.
+  const raw = invoice as unknown as {
+    subscription?: string | { id: string } | null;
+    parent?: { subscription_details?: { subscription?: string | { id: string } | null } };
+  };
+  const from = raw.subscription ?? raw.parent?.subscription_details?.subscription ?? null;
+  const subscription = typeof from === "string" ? from : from?.id ?? null;
+
+  if (!subscription) {
+    // A one-off invoice with no subscription behind it. Nothing to attach.
+    return;
+  }
+
+  const price = invoice.lines.data[0]?.price ?? null;
+  if (!price) return;
+
+  const { error } = await db()
+    .from("subscriptions")
+    .update({ ...priceOf(price), updated_at: new Date().toISOString() })
+    .eq("stripe_subscription", subscription);
+
+  if (error) throw error;
 }

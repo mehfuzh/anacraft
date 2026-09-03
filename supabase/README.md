@@ -33,7 +33,7 @@ token or account. No listing, no customer ids, no email.
 
 ```bash
 supabase link --project-ref <ref>
-supabase db push                                   # the migration
+supabase db push                                   # the migrations
 supabase secrets set STRIPE_SECRET_KEY=sk_live_... STRIPE_WEBHOOK_SECRET=whsec_...
 supabase functions deploy stripe-webhook --no-verify-jwt
 ```
@@ -59,9 +59,29 @@ In the Stripe dashboard, add the endpoint
 https://<ref>.supabase.co/functions/v1/stripe-webhook
 ```
 
-subscribed to `checkout.session.completed`, `customer.subscription.created`,
-`customer.subscription.updated` and `customer.subscription.deleted`. Copy its
-signing secret into `STRIPE_WEBHOOK_SECRET` above.
+subscribed to
+
+| Event | What it writes |
+|---|---|
+| `checkout.session.completed` | The payment landed — fills in the claimed row |
+| `checkout.session.expired` | The checkout was abandoned — settles a row stuck at `pending` |
+| `customer.subscription.created` | |
+| `customer.subscription.updated` | Status, period end, and the price being charged |
+| `customer.subscription.deleted` | |
+| `customer.subscription.paused` | |
+| `customer.subscription.resumed` | |
+| `invoice.paid` | The amount that actually cleared on a renewal |
+| `invoice.payment_failed` | Same, for an attempt that did not — status is left to `subscription.updated` |
+
+Copy the endpoint's signing secret into `STRIPE_WEBHOOK_SECRET` above.
+
+Everything else Stripe sends is answered `200` and ignored, so subscribing to
+more than this list is harmless — but the function only acts on these.
+
+`expired` is the one status word here that is not Stripe's. It means a checkout
+that was claimed and never paid, and the binary reads it the way it reads
+`pending`: as no evidence either way, so it never clears a `supporter` flag
+somebody set by hand. A cancellation says `canceled`, and that is an answer.
 
 ## What the binary is built with
 

@@ -118,11 +118,24 @@ impl Status {
         }
     }
 
-    /// Checkout was started but no webhook has landed yet — where every token
-    /// sits between opening the browser and the payment clearing. An account
-    /// flag that is already up is an answer, not a wait.
+    /// Whether no payment has ever landed on this row — so it says nothing
+    /// about whether the account is subscribed.
+    ///
+    /// Two shapes of that. `pending` is where every token sits between opening
+    /// the browser and the payment clearing. `expired` is the checkout Stripe
+    /// gave up on about a day later, written by the webhook so a row stops
+    /// claiming to be a payment in flight forever.
+    ///
+    /// Both are the *absence* of evidence, which is why neither clears the
+    /// `supporter` flag: somebody who subscribed before any of this existed has
+    /// a hand-set flag and no live row, and an abandoned checkout must not be
+    /// read as the cancellation they never made. A cancellation says
+    /// `canceled`, and that is an answer.
+    ///
+    /// An account flag that is already up is an answer too, not a wait.
     pub fn is_pending(&self) -> bool {
-        !self.is_active() && (self.status.is_empty() || self.status == "pending")
+        !self.is_active()
+            && (self.status.is_empty() || self.status == "pending" || self.status == "expired")
     }
 
     pub fn label(&self) -> &str {
@@ -585,6 +598,35 @@ mod tests {
             subscribed: None,
         };
         assert_eq!(verdict(&gone), Some(false));
+    }
+
+    #[test]
+    fn an_abandoned_checkout_is_not_read_as_a_cancellation() {
+        // Stripe expires an unpaid checkout session about a day after it opens,
+        // and the webhook writes 'expired' onto the row the CLI claimed. That
+        // is the absence of a payment, not the end of one: a supporter from
+        // before the lookup has a hand-set flag and no live row, and starting a
+        // checkout they never finished must not take their star away.
+        let expired = parse("[{\"status\":\"expired\"}]").unwrap();
+        assert!(!expired.is_active());
+        assert!(
+            expired.is_pending(),
+            "an expired checkout decided something"
+        );
+        assert_eq!(verdict(&expired), None, "a hand-set flag was cleared");
+        assert_eq!(expired.label(), "expired", "still reportable as itself");
+
+        // The account flag still outranks it — an expired second checkout says
+        // nothing about the subscription already running.
+        let alongside = parse("[{\"status\":\"expired\",\"subscribed\":true}]").unwrap();
+        assert!(alongside.is_active());
+        assert!(!alongside.is_pending());
+
+        // And Stripe's own `incomplete_expired` is a different word: that one
+        // is a subscription that died, and it is an answer.
+        let incomplete = parse("[{\"status\":\"incomplete_expired\"}]").unwrap();
+        assert!(!incomplete.is_pending(), "a dead subscription is an answer");
+        assert_eq!(verdict(&incomplete), Some(false));
     }
 
     #[test]
