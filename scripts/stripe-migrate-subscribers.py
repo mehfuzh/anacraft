@@ -38,7 +38,7 @@ from stripe_api import call, each, money  # noqa: E402
 
 # The link the binary ships, used only to find the product when no price ids
 # are given. Keep in step with SUBSCRIBE_URL in src/main.rs.
-CURRENT_LINK = "https://buy.stripe.com/dRm3cve7yesL786bfb9MY01"
+CURRENT_LINK = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02"
 
 # Statuses worth touching. A subscription that has already ended does not need
 # a new price, and writing to one is an error rather than a no-op.

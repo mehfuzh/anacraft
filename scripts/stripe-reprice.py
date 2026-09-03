@@ -32,7 +32,7 @@ from stripe_api import call, each, money  # noqa: E402
 
 # The link `craft subscribe` opens today, and the amount it should open instead.
 # Minor units, the way Stripe stores them: 299 is $2.99.
-CURRENT_LINK = "https://buy.stripe.com/dRm3cve7yesL786bfb9MY01"
+CURRENT_LINK = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02"
 NEW_AMOUNT = 299
 CURRENCY = "usd"
 INTERVAL = "month"

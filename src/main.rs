@@ -306,7 +306,7 @@ async fn run() -> Result<()> {
 /// A Payment Link, not a checkout session built here: a session needs a secret
 /// key, and a key shipped inside a binary anybody can download is a key that
 /// has leaked. The link is public by design and safe to hardcode.
-const SUBSCRIBE_URL: &str = "https://buy.stripe.com/dRm3cve7yesL786bfb9MY01";
+const SUBSCRIBE_URL: &str = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02";
 
 /// The same, for the $29/year plan — empty until that Payment Link exists.
 ///
