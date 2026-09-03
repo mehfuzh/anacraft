@@ -47,10 +47,37 @@ def find_link():
     for link in each("payment_links", {"expand[]": "data.line_items"}):
         if link["url"].rstrip("/") == CURRENT_LINK.rstrip("/"):
             return link
-    sys.exit(f"no payment link on this account has the URL {CURRENT_LINK}")
+    sys.exit(
+        f"\n  this account has no payment link with the URL\n    {CURRENT_LINK}\n\n"
+        "  which means it is not the account anacraft sells from. Nothing was\n"
+        "  changed. Find the key for the right account before re-running —\n"
+        "  creating the plan here would put a stray product on somebody\n"
+        "  else's live billing.\n"
+    )
+
+
+def whoami():
+    """Which Stripe account this key belongs to, printed before anything is
+    created.
+
+    Not decoration. The key for this may live in a secret store next to an
+    unrelated business's key, and the two are indistinguishable from the
+    variable name alone — `sk_live_...` says nothing about whose account it
+    opens. Creating a plan on the wrong account puts a stray product on
+    somebody's live billing, so the account is named out loud and the run stops
+    unless the link this repo ships is actually on it.
+    """
+    key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+    live = key.startswith(("sk_live", "rk_live"))
+    account = call("GET", "account")
+    name = (account.get("business_profile") or {}).get("name") or "(unnamed)"
+    print(f"\n  account   {account.get('id')}  {name}")
+    print(f"  mode      {'LIVE' if live else 'test'}")
+    return live
 
 
 def main():
+    whoami()
     link = find_link()
     item = link["line_items"]["data"][0]
     old = item["price"]
