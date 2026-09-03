@@ -189,8 +189,12 @@ are cached for a minute so a chatty agent does not burn the GA4 quota that the
 dashboard needs.
 
 **Subscription.** `craft mcp` needs an active subscription — `craft subscribe`
-for $2.99/month or `craft subscribe --annual` for $29/year, then
-`supporter = true` in the config. Missing it does not take the process
+for $2.99/month or `craft subscribe --annual` for $29/year. It opens Stripe,
+waits for the payment to clear, and writes `supporter = true` itself; the
+dashboard and the MCP server re-check on launch and keep that line current. The
+record is keyed to the Google account you signed in with, so a second machine
+only has to `craft login` — add `--check` to look it up without opening a
+browser. Missing it does not take the process
 down: an MCP client reads an early exit as "server disconnected", which says
 nothing about what to fix, so the server starts, the handshake succeeds, and
 every tool call answers with the sentence that gets you unstuck. The same goes

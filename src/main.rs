@@ -5,6 +5,7 @@ mod auth;
 mod avatar;
 mod config;
 mod ga;
+mod license;
 mod mcp;
 mod render;
 mod theme;
@@ -128,11 +129,19 @@ enum Command {
         #[arg(long, conflicts_with = "install")]
         uninstall: bool,
     },
-    /// Open the Anacraft subscription page in a browser.
+    /// Start an Anacraft subscription, or pick up the one you have.
+    ///
+    /// Opens Stripe, waits for the payment to clear, and writes
+    /// `supporter = true` itself. The subscription is keyed to the Google
+    /// account you signed in with, so a second machine only has to sign in.
     Subscribe {
         /// Take the yearly plan — $29/year rather than $2.99/month.
         #[arg(long)]
         annual: bool,
+        /// Only look up where the account already stands. Opens no browser,
+        /// so it is the one to run on a second machine or from a script.
+        #[arg(long)]
+        check: bool,
     },
     /// Print the site's dashboard captures as HTML. Used by `make capture`.
     #[command(hide = true)]
@@ -188,7 +197,7 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Theme { name } => cmd_theme(name.as_deref()),
-        Command::Subscribe { annual } => cmd_subscribe(annual),
+        Command::Subscribe { annual, check } => cmd_subscribe(annual, check).await,
         Command::Mcp {
             demo,
             install,
@@ -267,6 +276,13 @@ async fn run() -> Result<()> {
                 .await;
             }
             let property = cfg.resolve_property(cli.property.as_deref())?;
+            // Ask Supabase where the subscription stands on the way in. It is
+            // cached, short-timeout and best-effort — the star it decides is
+            // never worth making somebody wait for their numbers.
+            let cfg = match license::sync(cfg.supporter).await {
+                active if active != cfg.supporter => Config::load()?,
+                _ => cfg,
+            };
             // Flags win; otherwise fall back to what this property saved.
             let saved = cfg.find(&property);
             let settings = ui::Settings {
@@ -311,17 +327,109 @@ pub(crate) fn price_line() -> &'static str {
     }
 }
 
-/// Open the subscription page.
+/// How long to wait on a checkout before handing back a way to finish later,
+/// and how often to ask. Stripe's webhook reaches Supabase within seconds of a
+/// payment; the rest of the window is somebody hunting for their card.
+const CHECKOUT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+const CHECKOUT_POLL: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Start a subscription, or pick up one that already exists.
 ///
-/// Prints the URL either way: on a headless box, over SSH, or in a terminal
-/// where nothing is registered to handle https, `open` silently does nothing,
-/// and a command that appears to succeed while no page opened is worse than one
-/// that just tells you where to go.
-fn cmd_subscribe(annual: bool) -> Result<()> {
+/// Order matters here: ask where the account stands *before* opening anything,
+/// because sending an existing subscriber to a Payment Link buys them a second
+/// subscription. That same first step is the whole of `--check`, and it is what
+/// makes a new laptop work — the record is keyed to the Google account, so
+/// signing in is all a second machine has to do.
+async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
+    let account = auth::Auth::account()?;
+    let record = license::Record::load();
+
+    // Nothing to ask when this build has no service, or when there is neither
+    // an account nor a past checkout to ask about.
+    let known = if license::project().is_some() && (account.is_some() || record.token.is_some()) {
+        match license::fetch(account.as_ref(), record.token.as_deref()).await {
+            Ok(status) => {
+                // Remember every answer, not just the good ones: a cancellation
+                // that is not written down is a cancellation the next launch
+                // reads as a subscription.
+                record.confirm(account.as_ref(), &status)?;
+                Some(status)
+            }
+            Err(err) if check => return Err(err),
+            Err(err) => {
+                // The lookup being down is no reason to stand between somebody
+                // and paying; carry on to checkout.
+                println!("\n  {}", dim(&format!("could not reach the check: {err}")));
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Some(status) = &known {
+        if status.is_active() {
+            return activated(status);
+        }
+    }
+
+    if check {
+        return match known {
+            // Cancelled or lapsed: stop the flag claiming otherwise.
+            Some(status) if !status.is_pending() => {
+                let cleared = license::set_supporter(false)?;
+                println!(
+                    "\n  {} subscription {}{}\n",
+                    paint("○", ore::stone()),
+                    bold(status.label()),
+                    if cleared {
+                        format!(" — cleared {}", bold("supporter"))
+                    } else {
+                        String::new()
+                    },
+                );
+                println!("  {} to start a new one\n", bold("craft subscribe"));
+                Ok(())
+            }
+            _ => {
+                println!(
+                    "\n  {} nothing recorded for this account — {} to start\n",
+                    paint("○", ore::stone()),
+                    bold("craft subscribe"),
+                );
+                // The one case where "nothing recorded" is probably wrong: an
+                // existing subscriber whose credentials predate the identity
+                // scopes, so the lookup has no account to search on.
+                if account.is_none() && auth::Tokens::load().ok().flatten().is_some() {
+                    println!(
+                        "  {}\n",
+                        dim("already subscribed? run craft login again — this \
+                             machine signed in before subscriptions existed")
+                    );
+                }
+                Ok(())
+            }
+        };
+    }
+
+    // A build with no lookup has only the flag to go on, and sending an
+    // existing subscriber back to a Payment Link buys them a second
+    // subscription.
+    if license::project().is_none() && Config::load()?.supporter {
+        println!(
+            "\n  {} {}  ·  {}\n",
+            paint(theme::glyph::STAR, ore::gold()),
+            bold(&paint("already an Anacrafter", ore::gold())),
+            dim("thanks for keeping the lights on")
+        );
+        return Ok(());
+    }
+
     if annual && SUBSCRIBE_ANNUAL_URL.is_empty() {
         println!(
-            "\n  no yearly plan yet — {} is $2.99/month\n",
-            bold("craft subscribe")
+            "\n  no yearly plan yet — {} is {}\n",
+            bold("craft subscribe"),
+            price_line()
         );
         return Ok(());
     }
@@ -329,16 +437,35 @@ fn cmd_subscribe(annual: bool) -> Result<()> {
     let (url, price) = if annual {
         (SUBSCRIBE_ANNUAL_URL, "$29/year")
     } else {
-        (SUBSCRIBE_URL, "$2.99/month")
+        (SUBSCRIBE_URL, price_line())
     };
+
+    // A fresh token per checkout: an old one belongs to the old subscription,
+    // which is the wrong row for somebody resubscribing after a cancellation.
+    let token = license::mint_token();
+    let email = account.as_ref().and_then(|a| a.email.clone());
+    let checkout = license::checkout_url(url, &token, email.as_deref());
+
+    // Claim the row before the browser opens, so the webhook has something to
+    // fill in the moment the payment lands. A claim that will not go through is
+    // not worth blocking a payment over: the webhook creates the row from the
+    // token either way, and only the tie to the Google account is lost.
+    if let (Some(account), Some(_)) = (&account, license::project()) {
+        if license::claim(&token, account).await.is_err() {
+            println!(
+                "  {}\n",
+                dim("could not record the checkout — it will still be picked up by token")
+            );
+        }
+    }
 
     println!(
         "\n  {} {}  ·  {}\n",
-        paint("★", ore::gold()),
-        bold(url),
+        paint(theme::glyph::STAR, ore::gold()),
+        bold(&checkout),
         price
     );
-    let _ = open::that(url);
+    let _ = open::that(&checkout);
 
     // The cheaper plan is worth a sentence rather than a flag to go and find.
     if !annual && !SUBSCRIBE_ANNUAL_URL.is_empty() {
@@ -348,10 +475,127 @@ fn cmd_subscribe(annual: bool) -> Result<()> {
         );
     }
 
+    if account.is_none() {
+        // Two different people to talk to: somebody who never signed in, and
+        // somebody who signed in on a build that never asked who they were.
+        // The second one is already logged in, so "not signed in" would read as
+        // a bug rather than as an instruction.
+        let known = auth::Tokens::load().ok().flatten().is_some();
+        println!(
+            "  {}\n",
+            dim(if known {
+                "signed in before subscriptions existed — run craft login again \
+                 so this follows you to other machines"
+            } else {
+                "not signed in — run craft login afterwards so this follows you \
+                 to other machines"
+            })
+        );
+    }
+
+    if license::project().is_none() {
+        // Nothing to poll. The flag is a line of TOML and always was;
+        // pretending otherwise would strand somebody who has paid.
+        println!(
+            "  once it's active, set {} in {}\n",
+            bold("supporter = true"),
+            config::Config::path()?.display()
+        );
+        return Ok(());
+    }
+
+    license::Record {
+        token: Some(token.clone()),
+        user_id: account.as_ref().map(|a| a.sub.clone()),
+        ..license::Record::default()
+    }
+    .save()?;
+
+    wait_for_payment(account.as_ref(), &token).await
+}
+
+/// Poll Supabase until the webhook says the payment landed.
+async fn wait_for_payment(account: Option<&auth::Account>, token: &str) -> Result<()> {
     println!(
-        "  once it's active, set {} in {}\n",
-        bold("supporter = true"),
-        config::Config::path()?.display()
+        "  {} waiting for Stripe — {}\n",
+        paint(theme::glyph::PICKAXE, ore::iron()),
+        dim("^C to stop, nothing is lost")
+    );
+
+    let deadline = std::time::Instant::now() + CHECKOUT_TIMEOUT;
+    let mut frame = 0usize;
+    loop {
+        if let Ok(status) = license::fetch(account, Some(token)).await {
+            if status.is_active() {
+                clear_line();
+                license::Record {
+                    token: Some(token.to_string()),
+                    user_id: account.map(|a| a.sub.clone()),
+                    status: status.clone(),
+                    checked: Some(chrono::Utc::now()),
+                }
+                .save()?;
+                return activated(&status);
+            }
+        }
+
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            clear_line();
+            println!(
+                "\n  {} once the payment clears, run {}\n",
+                paint("○", ore::stone()),
+                bold("craft subscribe --check")
+            );
+            return Ok(());
+        }
+
+        spin(frame, left);
+        frame += 1;
+        tokio::time::sleep(CHECKOUT_POLL).await;
+    }
+}
+
+/// One frame of the same spinner the dashboard uses, redrawn in place.
+fn spin(frame: usize, left: std::time::Duration) {
+    use std::io::Write;
+    let glyph = theme::glyph::SPINNER[frame % theme::glyph::SPINNER.len()];
+    print!(
+        "\r  {} {}",
+        paint(&glyph.to_string(), theme::accent()),
+        dim(&format!("waiting · {}m left ", left.as_secs() / 60 + 1)),
+    );
+    let _ = std::io::stdout().flush();
+}
+
+fn clear_line() {
+    use std::io::Write;
+    print!("\r\x1b[2K");
+    let _ = std::io::stdout().flush();
+}
+
+/// The one place that turns a confirmed subscription into the saved flag.
+fn activated(status: &license::Status) -> Result<()> {
+    let changed = license::set_supporter(true)?;
+    println!(
+        "\n  {} {}{}\n",
+        paint("✓", ore::emerald()),
+        bold(&paint("you're an Anacrafter", ore::gold())),
+        match status.since {
+            Some(since) => dim(&format!("  ·  since {}", since.format("%-d %b %Y"))),
+            None => String::new(),
+        },
+    );
+    if changed {
+        println!(
+            "  {} written to {}\n",
+            bold("supporter = true"),
+            dim(&config::Config::path()?.display().to_string()),
+        );
+    }
+    println!(
+        "  {}\n",
+        dim("craft mcp is unlocked, and the dashboard wears a gold star")
     );
     Ok(())
 }
@@ -362,6 +606,21 @@ async fn cmd_login() -> Result<()> {
     auth.login().await?;
 
     println!("  {} logged in.\n", paint("✓", ore::emerald()));
+
+    // Register the account, so a subscription can be found from any machine —
+    // and so a payment that arrived with nobody attached gets picked up here.
+    // Best-effort: a lookup that is down does not make this login any less
+    // valid, and the next dashboard launch tries again.
+    if let Some(account) = auth::Auth::account()? {
+        let _ = license::link(&account).await;
+        if license::sync(Config::load()?.supporter).await {
+            println!(
+                "  {} {}\n",
+                paint(theme::glyph::STAR, ore::gold()),
+                dim("subscription found on this account"),
+            );
+        }
+    }
 
     // A fresh login with no property selected is a dead end; nudge onward.
     let cfg = Config::load()?;

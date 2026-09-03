@@ -15,7 +15,15 @@ use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 
-const SCOPE: &str = "https://www.googleapis.com/auth/analytics.readonly";
+/// Analytics, plus the two non-sensitive OpenID scopes.
+///
+/// The identity scopes are not there to read anything about the person: they
+/// are how a subscription survives a new laptop. Stripe's webhook writes the
+/// Google account id against the payment, and a fresh machine that signs into
+/// the same account gets its subscription back without anybody copying a token
+/// around. `openid` and `email` are non-sensitive, so unlike a wider Analytics
+/// scope they add nothing to the consent review — see the test below.
+const SCOPE: &str = "openid email https://www.googleapis.com/auth/analytics.readonly";
 const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
@@ -77,6 +85,11 @@ pub struct Tokens {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_at: DateTime<Utc>,
+    /// Absent on credentials written before identity was asked for. Those still
+    /// work for every report; only carrying a subscription to another machine
+    /// needs a `craft login` to fill this in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<Account>,
 }
 
 impl Tokens {
@@ -119,6 +132,37 @@ struct TokenResponse {
     #[serde(default)]
     refresh_token: Option<String>,
     expires_in: i64,
+    /// Present whenever `openid` was granted. Carries the account id, so no
+    /// separate userinfo round trip is needed.
+    #[serde(default)]
+    id_token: Option<String>,
+}
+
+/// Who Google says is signed in.
+///
+/// `sub` is Google's stable, opaque id for the account — it survives an email
+/// change, which is exactly what a subscription needs to be keyed on. The email
+/// rides along only so a support question ("which account did I pay with?") has
+/// an answer a human recognises.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Account {
+    pub sub: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+/// Read the account out of an id token.
+///
+/// The token came straight from Google's token endpoint over TLS, so the
+/// signature is not re-checked here: there is no untrusted hop to protect
+/// against, and a JWT library for one field would be a dependency for nothing.
+/// A malformed token is simply no identity, never an error that blocks a login.
+fn account_from_id_token(id_token: &str) -> Option<Account> {
+    let payload = id_token.split('.').nth(1)?;
+    let raw = URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
+    serde_json::from_slice::<Account>(&raw)
+        .ok()
+        .filter(|a| !a.sub.is_empty())
 }
 
 pub struct Auth {
@@ -143,6 +187,11 @@ impl Auth {
             tokens.save()?;
         }
         Ok(tokens.access_token)
+    }
+
+    /// The signed-in Google account, if the stored credentials carry one.
+    pub fn account() -> Result<Option<Account>> {
+        Ok(Tokens::load()?.and_then(|t| t.account))
     }
 
     async fn refresh(&self, refresh_token: &str) -> Result<Tokens> {
@@ -174,6 +223,16 @@ impl Auth {
                 .refresh_token
                 .unwrap_or_else(|| refresh_token.to_string()),
             expires_at: Utc::now() + Duration::seconds(body.expires_in),
+            // Google re-issues the id token on refresh only when `openid` was
+            // granted at consent, so credentials from before the identity
+            // scopes stay identity-less until the next `craft login`. That
+            // costs them nothing but the cross-machine lookup — which is why
+            // the existing account, if any, is kept rather than cleared.
+            account: body
+                .id_token
+                .as_deref()
+                .and_then(account_from_id_token)
+                .or_else(|| Tokens::load().ok().flatten().and_then(|t| t.account)),
         })
     }
 
@@ -248,6 +307,7 @@ impl Auth {
             access_token: body.access_token,
             refresh_token,
             expires_at: Utc::now() + Duration::seconds(body.expires_in),
+            account: body.id_token.as_deref().and_then(account_from_id_token),
         }
         .save()?;
 
@@ -570,17 +630,63 @@ mod tests {
     }
 
     #[test]
-    fn we_ask_for_exactly_one_read_only_scope() {
+    fn we_ask_for_one_read_only_analytics_scope_and_nothing_else_sensitive() {
         // A Google OAuth review once stalled because the consent screen listed
         // `analytics` (read+write) and `analytics.manage.users.readonly`, which
-        // this app has never requested. Widening SCOPE is the one change that
-        // would make that mismatch real, so pin it.
-        assert_eq!(SCOPE, "https://www.googleapis.com/auth/analytics.readonly");
-        assert!(!SCOPE.contains(' '), "a second scope was added");
+        // this app has never requested. The identity scopes added for
+        // subscriptions are the non-sensitive pair and need no review; a second
+        // Analytics scope still would, so pin the whole set.
+        assert_eq!(
+            SCOPE,
+            "openid email https://www.googleapis.com/auth/analytics.readonly"
+        );
+        let analytics: Vec<&str> = SCOPE
+            .split(' ')
+            .filter(|s| s.contains("googleapis.com/auth/analytics"))
+            .collect();
+        assert_eq!(analytics.len(), 1, "a second Analytics scope was added");
         assert!(
-            SCOPE.ends_with(".readonly"),
+            analytics[0].ends_with(".readonly"),
             "anacraft has no write path; a write scope cannot be justified"
         );
+        for scope in SCOPE.split(' ') {
+            assert!(
+                matches!(scope, "openid" | "email") || scope.contains("/auth/analytics"),
+                "unreviewed scope {scope} crept in"
+            );
+        }
+    }
+
+    #[test]
+    fn the_account_comes_out_of_the_id_token() {
+        // A real id token's middle segment: base64url, no padding.
+        let payload =
+            URL_SAFE_NO_PAD.encode(br#"{"sub":"110147","email":"me@example.com","aud":"x"}"#);
+        let account = account_from_id_token(&format!("header.{payload}.signature")).unwrap();
+        assert_eq!(account.sub, "110147");
+        assert_eq!(account.email.as_deref(), Some("me@example.com"));
+    }
+
+    #[test]
+    fn a_token_without_identity_is_no_identity_rather_than_a_failure() {
+        // Google omits the id token when `openid` was never granted, and a
+        // login from before the identity scopes has none stored. Neither is an
+        // error: reports work regardless, only the cross-machine lookup needs
+        // it.
+        assert!(account_from_id_token("not-a-jwt").is_none());
+        assert!(account_from_id_token("a.!!!!.c").is_none());
+        let empty = URL_SAFE_NO_PAD.encode(br#"{"sub":""}"#);
+        assert!(account_from_id_token(&format!("a.{empty}.c")).is_none());
+        let no_sub = URL_SAFE_NO_PAD.encode(br#"{"email":"me@example.com"}"#);
+        assert!(account_from_id_token(&format!("a.{no_sub}.c")).is_none());
+    }
+
+    #[test]
+    fn stored_credentials_from_before_identity_still_load() {
+        // token.json written by 0.7.x has no `account` key at all.
+        let old = r#"{"access_token":"a","refresh_token":"r","expires_at":"2030-01-01T00:00:00Z"}"#;
+        let tokens: Tokens = serde_json::from_str(old).unwrap();
+        assert!(tokens.account.is_none());
     }
 
     #[test]

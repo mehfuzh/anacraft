@@ -49,6 +49,10 @@ jobs:
         env:
           ANACRAFT_OAUTH_CLIENT_ID: ${{ secrets.ANACRAFT_OAUTH_CLIENT_ID }}
           ANACRAFT_OAUTH_CLIENT_SECRET: ${{ secrets.ANACRAFT_OAUTH_CLIENT_SECRET }}
+          # The subscription lookup. Kept in repository secrets rather than in
+          # the source; see supabase/README.md.
+          ANACRAFT_SUPABASE_URL: ${{ secrets.ANACRAFT_SUPABASE_URL }}
+          ANACRAFT_SUPABASE_KEY: ${{ secrets.ANACRAFT_SUPABASE_KEY }}
         run: |
           if [[ "${{ matrix.target }}" == *musl* ]]; then
             cross build --release --target ${{ matrix.target }}

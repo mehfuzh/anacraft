@@ -3,6 +3,8 @@
 //! * `~/.config/anacraft/config.toml` — properties and their settings. Hand
 //!   editable, safe to commit to a dotfile repo.
 //! * `~/.anacraft/token.json` — OAuth tokens, written 0600.
+//! * `~/.anacraft/license.json` — the subscription token and the last answer
+//!   the lookup gave, written 0600: it names a Google account.
 //!
 //! Keeping them apart matters: people sync `~/.config` to public repos, and a
 //! refresh token has no business travelling with it.
@@ -87,9 +89,10 @@ pub struct Config {
     #[serde(default, rename = "property", skip_serializing_if = "Vec::is_empty")]
     pub properties: Vec<Property>,
     /// Set once an Anacraft subscription is active — the dashboard wears a star
-    /// when it is. Written by hand today: `craft subscribe` opens Stripe, and
-    /// Stripe has no way to tell this binary who paid, so nothing verifies it.
-    /// Treat it as a preference, not an entitlement.
+    /// when it is. Written by `craft subscribe`, and refreshed on every
+    /// dashboard and MCP launch from the record Stripe's webhook keeps in
+    /// Supabase (see `license`). It is still only a cached answer in a config
+    /// anybody can edit: a preference, not an entitlement.
     #[serde(default, skip_serializing_if = "is_false")]
     pub supporter: bool,
 }

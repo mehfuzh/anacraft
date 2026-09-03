@@ -78,6 +78,15 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
 
     let cfg = Config::load()?;
 
+    // Same check the dashboard runs on the way in: ask Supabase where the
+    // subscription stands, cache the answer, and write it back to the config.
+    // Cheap, short-timeout and best-effort — see `license::sync`.
+    let supporter = if demo {
+        false
+    } else {
+        crate::license::sync(cfg.supporter).await
+    };
+
     let source = if demo {
         // The demo is the shop window: no account, no subscription, no gate.
         // It exists so the server can be wired into a client and looked at
@@ -91,7 +100,7 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
         // unmet requirement locks the tools instead: the handshake succeeds,
         // the client stays connected, and every call answers with the one
         // sentence that gets the user unstuck.
-        match unlock(&cfg) {
+        match unlock(supporter) {
             Ok(ga) => Source::Api(Box::new(ga)),
             Err(reason) => {
                 // stderr is the client's log, and the protocol owns stdout.
@@ -114,8 +123,8 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
 /// Everything the live tools need, or the one sentence explaining what is
 /// missing. The `Err` is a message for a human and for the assistant relaying
 /// it, never a reason to stop serving — see `serve`.
-fn unlock(cfg: &Config) -> std::result::Result<Ga, String> {
-    subscription(cfg)?;
+fn unlock(supporter: bool) -> std::result::Result<Ga, String> {
+    subscription(supporter)?;
     login()?;
     // A client is not a place to open a browser, so this only builds the HTTP
     // client and reads the stored credentials; consent stays in `craft login`.
@@ -124,18 +133,19 @@ fn unlock(cfg: &Config) -> std::result::Result<Ga, String> {
 
 /// The subscriber gate.
 ///
-/// `supporter` is hand-written into the config today — `craft subscribe` opens
-/// Stripe, and Stripe has no way to tell this binary who paid. So this is an
-/// honour-system gate, and saying otherwise would be a lie. It lives in one
-/// function on purpose: when #7 lands the usage service, the body of this
-/// becomes a real entitlement check and nothing else moves.
-fn subscription(cfg: &Config) -> std::result::Result<(), String> {
-    if cfg.supporter {
+/// Takes the answer rather than reading the config, because by the time this
+/// runs `serve` has already asked Supabase and written what came back — see
+/// `license::sync`. It is still a soft gate: the flag it consults is a line of
+/// TOML in a config anybody can edit, in a binary anybody can rebuild.
+fn subscription(supporter: bool) -> std::result::Result<(), String> {
+    if supporter {
         return Ok(());
     }
     Err(format!(
         "craft mcp is part of the Anacraft subscription.\n     \
-         Run `craft subscribe` to start one, then set `supporter = true` in {}.\n     \
+         Run `craft subscribe` to start one — it writes `supporter = true` in {} \
+         once the payment clears. Already subscribed on another machine? \
+         `craft login` with the same Google account, then `craft subscribe --check`.\n     \
          `craft mcp --demo` serves synthetic data and needs no subscription.",
         Config::path()
             .map(|p| p.display().to_string())
@@ -1240,8 +1250,10 @@ pub fn install(demo: bool) -> Result<()> {
     // still missing here, where there is a terminal to read it in, rather than
     // leaving the user to meet it as a locked tool inside the client.
     match Config::load() {
+        // Installing is not serving, so this leans on the cached flag rather
+        // than going out to Supabase: the next `craft mcp` refreshes it.
         Ok(cfg) => {
-            if let Err(reason) = unlock(&cfg) {
+            if let Err(reason) = unlock(cfg.supporter) {
                 println!("  {} {reason}\n", paint("·", ore::iron()));
             }
         }
@@ -1680,22 +1692,24 @@ mod tests {
 
     #[test]
     fn the_gate_wants_a_subscription() {
-        let mut cfg = Config::default();
-        let err = subscription(&cfg).unwrap_err();
+        let err = subscription(false).unwrap_err();
         assert!(err.contains("craft subscribe"), "got {err}");
         assert!(
             err.contains("--demo"),
             "no way out for a non-subscriber: {err}"
         );
+        assert!(
+            err.contains("craft login"),
+            "a subscriber on a new machine is left guessing: {err}"
+        );
 
-        cfg.supporter = true;
-        assert!(subscription(&cfg).is_ok());
+        assert!(subscription(true).is_ok());
     }
 
     fn locked_server() -> Server {
         Server {
             cfg: Config::default(),
-            source: Source::Locked(subscription(&Config::default()).unwrap_err()),
+            source: Source::Locked(subscription(false).unwrap_err()),
             property: None,
             cache: HashMap::new(),
         }
