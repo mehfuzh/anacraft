@@ -24,14 +24,11 @@ A restricted key is enough, with write on Products, Prices and Payment Links.
 Dry run by default: this touches what real customers are charged.
 """
 
-import json
 import os
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 
-API = "https://api.stripe.com/v1"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from stripe_api import call, each, money  # noqa: E402
 
 # The link `craft subscribe` opens today, and the amount it should open instead.
 # Minor units, the way Stripe stores them: 299 is $2.99.
@@ -43,38 +40,11 @@ INTERVAL = "month"
 APPLY = "--apply" in sys.argv
 
 
-def call(method, path, params=None):
-    """One Stripe request. Form-encoded in, JSON out, brackets left unescaped
-    so `line_items[0][price]` arrives as Stripe's nested syntax rather than as
-    a literal key."""
-    key = os.environ.get("STRIPE_SECRET_KEY", "").strip()
-    if not key:
-        sys.exit("STRIPE_SECRET_KEY is not set")
-
-    url = f"{API}/{path}"
-    body = None
-    if params and method == "GET":
-        url += "?" + urllib.parse.urlencode(params, safe="[]")
-    elif params:
-        body = urllib.parse.urlencode(params, safe="[]").encode()
-
-    request = urllib.request.Request(url, data=body, method=method)
-    request.add_header("Authorization", f"Bearer {key}")
-    request.add_header("Stripe-Version", "2024-12-18.acacia")
-    try:
-        with urllib.request.urlopen(request) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as err:
-        detail = json.load(err).get("error", {}).get("message", err.reason)
-        sys.exit(f"stripe {method} {path} failed: {detail}")
-
-
 def find_link():
     """The Payment Link whose URL the binary ships. Matched on `url` because
     the short code in the URL is not the link's id, and the id was never
     written down anywhere in this repo."""
-    page = call("GET", "payment_links", {"limit": 100, "expand[]": "data.line_items"})
-    for link in page["data"]:
+    for link in each("payment_links", {"expand[]": "data.line_items"}):
         if link["url"].rstrip("/") == CURRENT_LINK.rstrip("/"):
             return link
     sys.exit(f"no payment link on this account has the URL {CURRENT_LINK}")
@@ -88,24 +58,24 @@ def main():
 
     print(f"  link      {link['id']}  active={link['active']}")
     print(f"  product   {product}")
-    print(f"  price     {old['id']}  {old['unit_amount']} {old['currency']}"
-          f"/{(old.get('recurring') or {}).get('interval')}")
+    print(f"  price     {old['id']}  {money(old['unit_amount'], old['currency'])}"
+          f" / {(old.get('recurring') or {}).get('interval')}")
 
     if old["unit_amount"] == NEW_AMOUNT:
-        print(f"\n  already at {NEW_AMOUNT} — nothing to do")
+        print(f"\n  already at {money(NEW_AMOUNT, CURRENCY)} — nothing to do")
         return
 
     # Reuse a matching price if a previous run already made one, so this is
     # safe to run twice without leaving two identical prices behind.
     existing = [
-        p for p in call("GET", "prices", {"product": product, "active": "true", "limit": 100})["data"]
+        p for p in each("prices", {"product": product, "active": "true"})
         if p["unit_amount"] == NEW_AMOUNT
         and p["currency"] == CURRENCY
         and (p.get("recurring") or {}).get("interval") == INTERVAL
     ]
 
-    print(f"\n  → create price {NEW_AMOUNT} {CURRENCY}/{INTERVAL} on {product}")
-    print(f"  → create payment link for it")
+    print(f"\n  → create price {money(NEW_AMOUNT, CURRENCY)}/{INTERVAL} on {product}")
+    print("  → create payment link for it")
     if not APPLY:
         print("\n  dry run — nothing was changed. re-run with --apply\n")
         return
