@@ -1088,11 +1088,11 @@ async fn event_loop(
                         KeyCode::Char('7') | KeyCode::Char('d') => {
                             dash.panels.trend = !dash.panels.trend
                         }
-                        // The demo is where someone decides whether $5 is
+                        // The demo is where someone decides whether $2.99 is
                         // worth it, so it can wear the Anacrafter treatment on
-                        // request. Gated to the demo: on real data the flag is
-                        // the config's to set, and a key that grants it would
-                        // make the box meaningless.
+                        // request. Gated to the demo: on real data the flag
+                        // answers to the subscription lookup, and a key that
+                        // granted it would make the box meaningless.
                         KeyCode::Char('s') if dash.demo => dash.supporter = !dash.supporter,
                         // Nothing to announce: every color on screen changes,
                         // which is the feedback.
