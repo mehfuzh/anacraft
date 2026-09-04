@@ -967,18 +967,60 @@ async fn drive(
         let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
     }
     ratatui::restore();
-    // Persist the theme the user settled on — so the next launch starts there.
-    // It belongs to the property they were looking at when they pressed `t`,
-    // not to every property at once.
+
+    // Persist what the session settled on, so the next launch starts there.
+    //
+    // Both halves of this are about the property the dashboard *ended* on
+    // rather than the one it opened on. Tab used to move the view and nothing
+    // else, so a person who tabbed to another property and quit found every
+    // later command — `craft overview`, a cron'd `craft watch` — still reading
+    // the one they had left, while the config comment told them Tab was how
+    // properties are switched. The theme had the same fault from the other
+    // side: pressing `t` after tabbing wrote the palette onto the property no
+    // longer on screen.
+    //
+    // Landing is what commits it, not passing through. Tabbing along the
+    // rotation to look at each property in turn costs nothing until you quit
+    // somewhere, which is the reading of "current" that does not repoint a
+    // scheduled job under somebody halfway through browsing.
+    let settled = result
+        .as_ref()
+        .ok()
+        .and_then(|id| id.clone())
+        .filter(|id| !id.is_empty());
+
     if let Ok(mut cfg) = crate::config::Config::load() {
-        let name = theme::palette().name.to_string();
-        match cfg.active.clone().filter(|id| cfg.find(id).is_some()) {
-            Some(id) => cfg.upsert(&id, None).theme = Some(name),
-            None => cfg.theme = Some(name),
-        }
+        settle(&mut cfg, settled, theme::palette().name.to_string());
         let _ = cfg.save();
     }
-    result
+    result.map(|_| ())
+}
+
+/// Write the property and palette a dashboard session ended on into the config.
+///
+/// Split out from `drive` because the terminal around it cannot be driven from
+/// a test, and this is the part with a decision in it.
+fn settle(cfg: &mut crate::config::Config, landed: Option<String>, theme: String) {
+    // A property that is not in the config cannot be made active: it was
+    // reached with `--property`, and one run is not a decision to switch.
+    let target = landed
+        .filter(|id| cfg.find(id).is_some())
+        .or_else(|| cfg.active.clone().filter(|id| cfg.find(id).is_some()));
+    match target {
+        // `upsert` sets `active` as well as returning the entry, so this is
+        // the one write that moves both.
+        Some(id) => cfg.upsert(&id, None).theme = Some(theme),
+        None => cfg.theme = Some(theme),
+    }
+}
+
+/// The property the dashboard was showing when it closed.
+///
+/// `None` for the demo, which walks an empty rotation — there is no property
+/// there to make current, and a synthetic one must never be written to a real
+/// config.
+fn landed(rotation: &[Property], index: usize) -> Option<String> {
+    rotation.get(index).map(|p| p.id.clone())
 }
 
 async fn event_loop(
@@ -988,7 +1030,7 @@ async fn event_loop(
     rotation: &[Property],
     mut index: usize,
     settings: Settings,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut last_live = Instant::now();
     let mut last_frame = Instant::now();
@@ -1059,13 +1101,13 @@ async fn event_loop(
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                            return Ok(())
+                            return Ok(landed(rotation, index))
                         }
-                        KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char('q') => return Ok(landed(rotation, index)),
                         // Esc closes the help overlay first, so it isn't a
                         // surprise exit for anyone who opened it to look.
                         KeyCode::Esc if dash.help => dash.help = false,
-                        KeyCode::Esc => return Ok(()),
+                        KeyCode::Esc => return Ok(landed(rotation, index)),
                         KeyCode::Char('r') => {
                             dash.last_report = now - dash.report_every;
                             last_live = now - dash.live_every;
@@ -3099,6 +3141,89 @@ fn truncate(text: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// A config with two properties, the first of them active.
+    fn two_properties() -> crate::config::Config {
+        let mut cfg = crate::config::Config::default();
+        cfg.upsert("552157097", Some("anacraft".into()));
+        cfg.upsert("442488241", Some("smartloop.ai".into()));
+        cfg.upsert("552157097", None);
+        cfg
+    }
+
+    #[test]
+    fn quitting_on_a_property_makes_it_the_one_the_cli_uses() {
+        // The bug: Tab moved the view and nothing else, so somebody who tabbed
+        // to another property and quit found `craft overview` and a cron'd
+        // `craft watch` still reading the property they had left — while the
+        // config's own comment said Tab was how properties are switched.
+        let mut cfg = two_properties();
+        assert_eq!(cfg.active.as_deref(), Some("552157097"));
+
+        settle(&mut cfg, Some("442488241".into()), "osaka-jade".into());
+
+        assert_eq!(cfg.active.as_deref(), Some("442488241"));
+        assert_eq!(cfg.resolve_property(None).unwrap(), "442488241");
+    }
+
+    #[test]
+    fn the_palette_lands_on_the_property_that_was_on_screen() {
+        // The same fault from the other side: pressing `t` after tabbing used
+        // to write the palette onto the property no longer being looked at.
+        let mut cfg = two_properties();
+        settle(&mut cfg, Some("442488241".into()), "catppuccin".into());
+
+        assert_eq!(
+            cfg.find("442488241").unwrap().theme.as_deref(),
+            Some("catppuccin")
+        );
+        assert_eq!(cfg.find("552157097").unwrap().theme, None, "wrong property");
+    }
+
+    #[test]
+    fn a_property_that_is_not_in_the_config_does_not_become_the_default() {
+        // Reached with `--property`. One run is not a decision to switch, and
+        // silently rewriting `active` from a flag would be a surprise.
+        let mut cfg = two_properties();
+        settle(&mut cfg, Some("999999".into()), "osaka-jade".into());
+
+        assert_eq!(cfg.active.as_deref(), Some("552157097"));
+        assert!(
+            cfg.find("999999").is_none(),
+            "a flag must not add a property"
+        );
+    }
+
+    #[test]
+    fn the_demo_never_writes_a_property_into_a_real_config() {
+        // `run_demo` drives an empty rotation, so it lands nowhere. The theme
+        // still persists — it is the one thing the demo is allowed to change.
+        let mut cfg = two_properties();
+        settle(&mut cfg, None, "gruvbox".into());
+
+        assert_eq!(cfg.active.as_deref(), Some("552157097"));
+        assert_eq!(cfg.properties.len(), 2);
+        assert_eq!(
+            cfg.find("552157097").unwrap().theme.as_deref(),
+            Some("gruvbox")
+        );
+    }
+
+    #[test]
+    fn landing_reads_the_rotation_and_the_demo_walks_an_empty_one() {
+        let rotation = vec![
+            crate::config::Property {
+                id: "111".into(),
+                ..Default::default()
+            },
+            crate::config::Property {
+                id: "222".into(),
+                ..Default::default()
+            },
+        ];
+        assert_eq!(landed(&rotation, 1).as_deref(), Some("222"));
+        assert_eq!(landed(&[], 0), None);
+    }
     use super::*;
 
     /// A dashboard on the demo numbers, settled so nothing is mid-ease.

@@ -221,8 +221,9 @@ impl Config {
         let body = toml::to_string_pretty(self)?;
         let raw = format!(
             "# anacraft configuration\n\
-             # Properties are switched in the dashboard with Tab; every key under\n\
-             # [[property]] is optional and falls back to the global default.\n\n{body}"
+             # `active` is the property every command reads. `craft use <id>` sets it,\n\
+             # and so does quitting the dashboard on one \u{2014} Tab moves between them.\n\
+             # Every key under [[property]] is optional and falls back to the global default.\n\n{body}"
         );
         fs::write(&path, raw).with_context(|| format!("writing {}", path.display()))?;
         Ok(())

@@ -358,7 +358,14 @@ travelling with it. A pre-0.4 `~/.anacraft/config.json` is migrated on first run
 ### Multiple properties
 
 `craft use <id>` adds a property rather than replacing the last one, so the
-config accumulates. In the dashboard, `tab` cycles between them.
+config accumulates. In the dashboard, `tab` cycles between them, and whichever
+one you quit on becomes `active` — so the dashboard and the rest of the CLI do
+not disagree about which property is the current one. Passing through on the
+way somewhere else costs nothing; landing is what commits it.
+
+`active` is what every command reads when you do not say otherwise. The order
+is `--property <id>`, then `ANACRAFT_PROPERTY_ID`, then `active`, so a flag or
+an exported id will quietly outrank `craft use` for as long as it is set.
 
 ```toml
 active = "397412345"
