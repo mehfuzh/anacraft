@@ -238,17 +238,11 @@ impl Auth {
 
     /// Full interactive login: PKCE + loopback redirect + browser handoff.
     pub async fn login(&self) -> Result<()> {
-        let verifier: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(64)
-            .map(char::from)
-            .collect();
-        let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-        let state: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(24)
-            .map(char::from)
-            .collect();
+        let Pkce {
+            verifier,
+            challenge,
+        } = pkce();
+        let state = nonce(24);
 
         // Port 0 lets the OS pick; Desktop clients accept any loopback port.
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
@@ -274,7 +268,15 @@ impl Auth {
         println!("  if it doesn't open, paste this:\n\n  {auth_url}\n");
         let _ = open::that(&auth_url);
 
-        let code = wait_for_code(&listener, &state)?;
+        let code = wait_for_code(
+            &listener,
+            &state,
+            (
+                "Logged in",
+                "anacraft is connected to your Google Analytics account. \
+                 You can close this tab and return to the terminal.",
+            ),
+        )?;
 
         let res = self
             .http
@@ -329,7 +331,47 @@ impl Auth {
 }
 
 /// Block on the single redirect hit from the browser and pull `code` out of it.
-fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String> {
+/// One PKCE pair: the secret kept here and the digest sent to the provider.
+pub(crate) struct Pkce {
+    pub verifier: String,
+    pub challenge: String,
+}
+
+/// A fresh PKCE pair.
+pub(crate) fn pkce() -> Pkce {
+    let verifier: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect();
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    Pkce {
+        verifier,
+        challenge,
+    }
+}
+
+/// Random alphanumerics, for an OAuth `state` that has to be unguessable but
+/// means nothing on its own.
+pub(crate) fn nonce(len: usize) -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
+}
+
+/// Serve the loopback redirect until the provider hands over a code.
+///
+/// `success` is the page the browser lands on, as `(title, body)`. It is an
+/// argument rather than a constant because two providers arrive here now and
+/// "connected to your Google Analytics account" is the wrong sentence for a
+/// Slack install.
+pub(crate) fn wait_for_code(
+    listener: &TcpListener,
+    expected_state: &str,
+    success: (&str, &str),
+) -> Result<String> {
     for stream in listener.incoming() {
         let mut stream = stream?;
         let request_line = {
@@ -376,7 +418,7 @@ fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String>
                 &page(
                     "Rejected",
                     "The redirect did not match the request that started it. \
-                     Close this tab and run craft login again.",
+                     Close this tab and start again.",
                     Tone::Bad,
                 ),
             );
@@ -389,15 +431,7 @@ fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String>
             .map(|(_, v)| v.clone())
             .context("no authorization code in redirect")?;
 
-        respond(
-            &mut stream,
-            &page(
-                "Logged in",
-                "anacraft is connected to your Google Analytics account. \
-                 You can close this tab and return to the terminal.",
-                Tone::Good,
-            ),
-        );
+        respond(&mut stream, &page(success.0, success.1, Tone::Good));
         return Ok(code);
     }
     bail!("browser never completed the login")
@@ -532,7 +566,7 @@ fn page(title: &str, body: &str, tone: Tone) -> String {
 }
 
 /// Percent-encode everything outside the unreserved set.
-fn encode(s: &str) -> String {
+pub(crate) fn encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
@@ -591,6 +625,9 @@ fn parse_query(query: &str) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Stand-in for whatever page a caller lands the browser on.
+    const DONE: (&str, &str) = ("Done", "Close this tab.");
     use std::net::TcpStream;
     use std::thread;
 
@@ -746,7 +783,7 @@ mod tests {
 
         thread::spawn(move || hit(port, "/?code=4%2FabcXYZ&state=secret"));
 
-        let code = wait_for_code(&listener, "secret").unwrap();
+        let code = wait_for_code(&listener, "secret", DONE).unwrap();
         assert_eq!(code, "4/abcXYZ");
     }
 
@@ -763,7 +800,10 @@ mod tests {
             hit(port, "/?code=realcode&state=secret");
         });
 
-        assert_eq!(wait_for_code(&listener, "secret").unwrap(), "realcode");
+        assert_eq!(
+            wait_for_code(&listener, "secret", DONE).unwrap(),
+            "realcode"
+        );
     }
 
     #[test]
@@ -773,7 +813,9 @@ mod tests {
 
         thread::spawn(move || hit(port, "/?code=abc&state=attacker"));
 
-        let err = wait_for_code(&listener, "secret").unwrap_err().to_string();
+        let err = wait_for_code(&listener, "secret", DONE)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("state mismatch"), "got: {err}");
     }
 
@@ -784,7 +826,9 @@ mod tests {
 
         thread::spawn(move || hit(port, "/?error=access_denied&state=secret"));
 
-        let err = wait_for_code(&listener, "secret").unwrap_err().to_string();
+        let err = wait_for_code(&listener, "secret", DONE)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("access_denied"), "got: {err}");
     }
 }

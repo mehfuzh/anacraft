@@ -246,10 +246,26 @@ on the first dropped connection is a watch that was not running when the thing i
 happened.</p>
 
 <h2><span class="n">04</span>Send it to Slack</h2>
-<p>Create an <b>incoming webhook</b> at <a href="https://api.slack.com/apps">api.slack.com/apps</a> —
-<i>Create New App → From scratch</i>, then <i>Incoming Webhooks</i>, activate it, and
-<i>Add New Webhook to Workspace</i> against the channel you want. You get a URL. That URL is the whole
-credential: anyone holding it can post to that channel, so treat it like a password.</p>
+<p>One command. Slack's own install screen carries the workspace and channel pickers, so the channel
+is chosen where you would expect to choose it and nothing is copied by hand.</p>
+<pre class="code"><span class="k">$</span> craft slack --install   <span class="d"># opens Slack; pick a channel there</span>
+<span class="k">$</span> craft slack --test      <span class="d"># post one message, to be sure</span>
+<span class="k">$</span> craft watch             <span class="d"># alerts go there now</span></pre>
+<p>It asks for <b>one</b> permission, and the narrowest one that works: to post to the single channel
+you pick. Not <code>chat:write</code>, which would be permission to post anywhere in the workspace.
+anacraft cannot read your messages, see your other channels, or post anywhere else.</p>
+<p>No secret is embedded in the binary to make this work. Slack's PKCE support marks the app a public
+client, which drops the client secret from the code exchange — the only reason an OAuth install can
+live in a program anybody can download.</p>
+<p>The webhook Slack hands back is a credential: anyone holding it can post to that channel. So it
+lands in <code>~/.anacraft/slack.json</code> at <code>0600</code>, beside the OAuth token, and
+deliberately <b>not</b> in <code>config.toml</code> — that file is meant to be safe to commit to a
+dotfile repo, and this URL is not.</p>
+
+<h3>Or bring your own webhook</h3>
+<p>Some workspaces do not let members install apps, and cron and CI are happier with a URL in the
+environment. <code>--webhook</code> takes an <a href="https://api.slack.com/apps">incoming webhook</a>
+you made yourself, and always works:</p>
 <pre class="code"><span class="d"># a daemon posts for itself — it has nothing to pipe into</span>
 <span class="k">$</span> craft watch --every 3600 --webhook <span class="k">"$SLACK_WEBHOOK"</span>
 
@@ -257,9 +273,11 @@ credential: anyone holding it can post to that channel, so treat it like a passw
 0 9 * * *  craft watch --format slack \
              | curl -sX POST -d @- <span class="k">"$SLACK_WEBHOOK"</span></pre>
 <p><code>--format slack</code> prints <b>nothing at all</b> on a quiet day, which is what stops a cron
-line posting an empty message every morning. <code>ANACRAFT_WEBHOOK</code> works in place of the flag.</p>
-<p>The URL is deliberately <b>not</b> a config file setting. <code>config.toml</code> is meant to be safe
-to commit to a dotfile repo, and a URL that can post into your Slack is not that.</p>
+line posting an empty message every morning. <code>ANACRAFT_WEBHOOK</code> works in place of the flag,
+and <code>--format</code> chooses what the webhook receives — so a URL pointed at something other than
+Slack gets a shape it can read.</p>
+<p>The destination is resolved in that order: the flag, then the environment, then whatever
+<code>craft slack --install</code> saved.</p>
 
 <h2><span class="n">05</span>Tune it per property</h2>
 <pre class="code"><span class="d"># ~/.config/anacraft/config.toml</span>

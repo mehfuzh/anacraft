@@ -53,6 +53,11 @@ jobs:
           # the source; see supabase/README.md.
           ANACRAFT_SUPABASE_URL: ${{ secrets.ANACRAFT_SUPABASE_URL }}
           ANACRAFT_SUPABASE_KEY: ${{ secrets.ANACRAFT_SUPABASE_KEY }}
+          # `craft slack --install`. Both are public by design — PKCE is what
+          # removes the need for a secret — but they live beside the others so
+          # there is one place a build's baked-in values come from.
+          ANACRAFT_SLACK_CLIENT_ID: ${{ secrets.ANACRAFT_SLACK_CLIENT_ID }}
+          ANACRAFT_SLACK_REDIRECT: ${{ secrets.ANACRAFT_SLACK_REDIRECT }}
         run: |
           if [[ "${{ matrix.target }}" == *musl* ]]; then
             cross build --release --target ${{ matrix.target }}

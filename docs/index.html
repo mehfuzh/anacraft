@@ -1774,8 +1774,9 @@
         <pre class="code"><span class="d"># check once, print what moved, exit</span>
 <span class="c">$</span> <span class="w">craft watch</span>
 
-<span class="d"># or keep checking, and post to slack</span>
-<span class="c">$</span> <span class="w">craft watch --every 3600 --webhook "$HOOK"</span>
+<span class="d"># pick a slack channel, then keep checking</span>
+<span class="c">$</span> <span class="w">craft slack --install</span>
+<span class="c">$</span> <span class="w">craft watch --every 3600</span>
 
 <span class="d"># see all three shapes on synthetic data</span>
 <span class="c">$</span> <span class="w">craft watch --demo</span>

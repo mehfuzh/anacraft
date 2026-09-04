@@ -192,9 +192,37 @@ craft watch --format slack \
 cron line from posting an empty message every hour. In a loop, `--webhook`
 does the POST itself — a daemon has nothing to pipe into.
 
-The webhook URL comes from `--webhook` or `ANACRAFT_WEBHOOK`, and deliberately
+`--format` chooses what the webhook receives, so a URL pointed at something
+other than Slack gets a shape it can read: `--format json --webhook <url>`
+posts the JSON object. Panels have no wire form, so leaving `--format` alone
+and passing a webhook posts the Slack blocks.
+
+### Installing into Slack
+
+Making a webhook by hand is six steps in a developer console. `craft slack`
+does it the way `craft login` does Google:
+
+```sh
+craft slack --install     # opens Slack; pick the workspace and channel there
+craft slack --test        # post one message, to check it before an alert needs to
+craft slack               # say where alerts currently go
+craft slack --uninstall   # forget the webhook (the app stays installed in Slack)
+```
+
+Slack's own install screen carries the workspace and channel pickers, and the
+`incoming-webhook` scope returns the URL in the OAuth response — so nothing is
+copied by hand. `craft watch` then needs no `--webhook` at all.
+
+One scope, and the narrowest one that works: permission to post to the single
+channel you pick. Not `chat:write`, which would be permission to post anywhere
+in the workspace.
+
+The webhook URL comes from `--webhook`, then `ANACRAFT_WEBHOOK`, then whatever
+`craft slack --install` saved in `~/.anacraft/slack.json` — and deliberately
 **not** from `config.toml`. That file is meant to be safe to commit to a
 dotfile repo, and a URL that can post into your Slack is not.
+
+`--webhook` stays for cron, CI, and workspaces where you cannot install apps.
 
 `craft watch` is part of the subscription, the same as `craft mcp`.
 `craft watch --demo` is not, so what an alert looks like can be seen before

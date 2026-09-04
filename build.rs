@@ -14,11 +14,16 @@ use std::fs;
 
 /// Everything the binary may have baked in. Anything else in `.env` is left
 /// alone: this is a build script, not a general-purpose dotenv loader.
-const BAKED: [&str; 4] = [
+const BAKED: [&str; 6] = [
     "ANACRAFT_OAUTH_CLIENT_ID",
     "ANACRAFT_OAUTH_CLIENT_SECRET",
     "ANACRAFT_SUPABASE_URL",
     "ANACRAFT_SUPABASE_KEY",
+    // The Slack app's client id is public by design; PKCE is what removes the
+    // need for a secret here. The redirect is the relay a distributed app
+    // needs, because Slack refuses a loopback URL on one.
+    "ANACRAFT_SLACK_CLIENT_ID",
+    "ANACRAFT_SLACK_REDIRECT",
 ];
 
 fn main() {

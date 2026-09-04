@@ -581,7 +581,7 @@ impl State {
 ///
 /// Slack answers a bad payload with 200 and the word `invalid`, so the status
 /// alone is not the whole check.
-async fn post(webhook: &str, payload: &Value) -> Result<()> {
+pub(crate) async fn post(webhook: &str, payload: &Value) -> Result<()> {
     let response = reqwest::Client::builder()
         .timeout(POST_TIMEOUT)
         .build()?
@@ -698,10 +698,26 @@ async fn emit(findings: &Findings, format: Format, webhook: Option<&str>) -> Res
 
     if let Some(webhook) = webhook {
         if !findings.quiet() {
-            post(webhook, &as_slack(findings)).await?;
+            post(webhook, &payload(findings, format)).await?;
         }
     }
     Ok(())
+}
+
+/// What a webhook receives.
+///
+/// `--format` chooses it. Posting Block Kit to whatever URL was handed over
+/// regardless made the flag a lie for anyone pointing `--webhook` at their own
+/// service, at Discord, or at anything else that cannot read Slack's blocks.
+///
+/// Panels are the exception, because they have no wire form — a payload of
+/// ANSI escapes is not a payload. Somebody who left `--format` alone and
+/// passed a webhook means "put this in my chat", so that is what they get.
+fn payload(findings: &Findings, format: Format) -> Value {
+    match format {
+        Format::Json => as_json(findings),
+        Format::Slack | Format::Panels => as_slack(findings),
+    }
 }
 
 /// Exit 2 when something fired, the way a monitoring command is expected to.
@@ -901,6 +917,23 @@ mod tests {
             loud["blocks"][0]["text"]["text"],
             "⛏ Contoso Labs (demo) · 3 alerts"
         );
+    }
+
+    #[test]
+    fn a_webhook_gets_the_shape_the_format_asked_for() {
+        let findings = demo_findings(28);
+
+        // The bug this covers: --format json --webhook used to print JSON and
+        // post Block Kit, so the flag was ignored for the one destination the
+        // caller had actually named.
+        let json = payload(&findings, Format::Json);
+        assert!(json["alerts"].is_array(), "not the json shape: {json}");
+        assert!(json.get("blocks").is_none());
+
+        for chat in [Format::Slack, Format::Panels] {
+            let blocks = payload(&findings, chat);
+            assert!(blocks["blocks"].is_array(), "not the chat shape: {blocks}");
+        }
     }
 
     #[test]

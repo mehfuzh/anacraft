@@ -1,6 +1,6 @@
-# The subscription service
+# The service side
 
-Two RPCs and one webhook. Everything else about anacraft runs on the user's own
+Two RPCs, one webhook, and one relay. Everything else about anacraft runs on the user's own
 machine; this exists only so a payment made in a browser can be seen by a binary
 on a laptop — and so it is still seen after that laptop is replaced.
 
@@ -118,3 +118,40 @@ curl -s "$URL/rest/v1/rpc/subscription_status" \
   -H 'content-type: application/json' \
   -d '{"p_user_id":null,"p_token":"<token from ~/.anacraft/license.json>"}'
 ```
+
+## The Slack relay
+
+`slack-oauth` has nothing to do with subscriptions and holds no secret. It
+exists because Slack refuses a loopback redirect URL on a publicly distributed
+app — every URL on one must be HTTPS — while `craft slack --install` is a
+process on a laptop listening on an ephemeral port.
+
+```
+craft slack --install            Slack                      slack-oauth
+     │                             │                             │
+     ├─ PKCE verifier, port 0      │                             │
+     ├─ opens authorize ──────────►│                             │
+     │   ?state=<nonce>.<port>     │  user picks channel         │
+     │                             ├─ redirect ?code&state ─────►│
+     │◄──────── 302 to 127.0.0.1:<port>?code&state ──────────────┤
+     ├─ oauth.v2.access with code_verifier, no secret ──►│
+     ▼
+  ~/.anacraft/slack.json (0600)
+```
+
+The port travels inside `state`, which Slack echoes back verbatim and the CLI
+checks in full — so carrying a second value there costs none of its purpose as
+a CSRF token. The relay reads the port as the last dot-separated field and
+forwards only to `127.0.0.1`, because a relay that forwarded anywhere would be
+an open redirect wearing our domain.
+
+A code passing through here is useless to whoever sees it, this function
+included: PKCE means the exchange needs the verifier, which never leaves the
+CLI. That is what lets the relay be public and unauthenticated.
+
+```
+supabase functions deploy slack-oauth --no-verify-jwt
+```
+
+No secrets to set. The function's URL goes in the Slack app's **Redirect URLs**
+and in `ANACRAFT_SLACK_REDIRECT` at build time.

@@ -133,8 +133,16 @@ by the GA4 API name; `baseline_days` and `min_baseline` live in the same table.
 
 Exit codes are `0` quiet, `2` something fired, `1` error. `--format slack`
 prints nothing on a quiet day, so a cron pipe never posts an empty message.
-The webhook comes from `--webhook` or `ANACRAFT_WEBHOOK` and never from
-`config.toml` — that file is meant to be safe to commit. Repeat alerts are
+`--format` also chooses the webhook's payload — `--format json --webhook <url>`
+POSTs the JSON object, so a non-Slack endpoint gets a shape it can read.
+`craft slack --install` is the easy way to set a destination: it opens Slack's
+own install screen, where the workspace and channel are picked, and saves the
+webhook to `~/.anacraft/slack.json` (0600). Then `craft watch` needs no
+`--webhook`. Also `--test` (post one message), `--uninstall`, and no flag for
+status. One scope, `incoming-webhook`, so it can post only to the channel
+chosen. Resolution order for the destination is `--webhook`, then
+`ANACRAFT_WEBHOOK`, then the saved install — never `config.toml`, which is
+meant to be safe to commit. Repeat alerts are
 suppressed per day via `~/.anacraft/watch.json`, recorded only after delivery
 succeeds.
 

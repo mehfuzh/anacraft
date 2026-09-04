@@ -9,6 +9,7 @@ mod license;
 mod mcp;
 mod render;
 mod report;
+mod slack;
 mod theme;
 mod ui;
 mod watch;
@@ -146,6 +147,23 @@ enum Command {
         #[arg(long)]
         demo: bool,
     },
+    /// Install anacraft into a Slack workspace, so alerts have somewhere to go.
+    ///
+    /// With no flag it says where alerts currently go. `--install` opens
+    /// Slack's own install screen, where the workspace and channel are picked,
+    /// and saves the webhook it hands back to `~/.anacraft/slack.json` —
+    /// `craft watch` then needs no `--webhook` at all.
+    Slack {
+        /// Run the install: opens the browser, then saves what Slack returns.
+        #[arg(long)]
+        install: bool,
+        /// Forget the saved webhook. The app stays installed in Slack.
+        #[arg(long, conflicts_with = "install")]
+        uninstall: bool,
+        /// Post one message, to check the install before an alert needs it.
+        #[arg(long, conflicts_with_all = ["install", "uninstall"])]
+        test: bool,
+    },
     /// Serve the dashboard's numbers to an AI assistant over MCP.
     ///
     /// Speaks the Model Context Protocol on stdin/stdout, so an MCP client
@@ -252,14 +270,17 @@ async fn run() -> Result<()> {
             format,
             demo,
         } => {
-            // The flag wins, then the environment. Never the config file: a
-            // URL that posts into somebody's Slack does not belong in a file
-            // the README calls safe to commit to a dotfile repo.
-            let webhook = webhook.or_else(|| {
-                std::env::var("ANACRAFT_WEBHOOK")
-                    .ok()
-                    .filter(|url| !url.trim().is_empty())
-            });
+            // The flag wins, then the environment, then whatever
+            // `craft slack --install` saved. Never the config file: a URL that
+            // posts into somebody's Slack does not belong in a file the README
+            // calls safe to commit to a dotfile repo.
+            let webhook = webhook
+                .or_else(|| {
+                    std::env::var("ANACRAFT_WEBHOOK")
+                        .ok()
+                        .filter(|url| !url.trim().is_empty())
+                })
+                .or_else(|| slack::Install::load().map(|saved| saved.webhook_url));
             watch::run(
                 &cfg,
                 cli.property.as_deref(),
@@ -272,6 +293,21 @@ async fn run() -> Result<()> {
                 },
             )
             .await
+        }
+        Command::Slack {
+            install,
+            uninstall,
+            test,
+        } => {
+            if install {
+                slack::install().await
+            } else if uninstall {
+                slack::uninstall()
+            } else if test {
+                slack::test().await
+            } else {
+                slack::status()
+            }
         }
         Command::Login => cmd_login().await,
         Command::Logout => cmd_logout().await,
