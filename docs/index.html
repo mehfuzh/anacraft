@@ -450,6 +450,7 @@
       <a href="#dashboard">Dashboard</a>
       <a href="#start">Quick start</a>
       <a href="#mcp">MCP</a>
+      <a href="/alerts.html">Alerts</a>
       <a href="/setup-ga4.html">Configure GA4</a>
     </div>
   </div>
@@ -1705,8 +1706,8 @@
       <code style="font-family:var(--mono);color:var(--fg)">craft mcp</code> serves the same numbers over the Model Context
       Protocol, so Claude Desktop — or any MCP client — answers “how is the site
       doing” without a human reading a TUI.
-      The dashboard and the one-shot reports are free; this is the part the
-      Anacrafter subscription pays for, and
+      The dashboard and the one-shot reports are free; this is one of the two
+      parts the Anacrafter subscription pays for, and
       <code style="font-family:var(--mono);color:var(--fg)">craft mcp --demo</code>
       is ungated so it can be wired up and looked at first.
     </p>
@@ -1753,6 +1754,53 @@
       numbers it quotes. Needs <code style="font-family:var(--mono)">craft login</code> first, and a
       subscription; <code style="font-family:var(--mono)">--demo</code> needs neither.
     </p>
+  </div>
+</section>
+
+<section id="alerts">
+  <div class="wrap">
+    <div class="sec-label">Alerts</div>
+    <h2>Told, not asked.</h2>
+    <p class="sec-sub">
+      A dashboard answers <i>how is the site doing</i> when somebody thinks to
+      ask. <code style="font-family:var(--mono);color:var(--fg)">craft watch</code>
+      answers the one nobody is awake to ask — <b>did something break</b>. It
+      compares the most recent complete day against the mean of the days before
+      it and reports what moved further than it usually does. Nothing to
+      configure for it to be useful: a site's own history is the threshold.
+    </p>
+    <div class="two">
+      <div>
+        <pre class="code"><span class="d"># check once, print what moved, exit</span>
+<span class="c">$</span> <span class="w">craft watch</span>
+
+<span class="d"># or keep checking, and post to slack</span>
+<span class="c">$</span> <span class="w">craft watch --every 3600 --webhook "$HOOK"</span>
+
+<span class="d"># see all three shapes on synthetic data</span>
+<span class="c">$</span> <span class="w">craft watch --demo</span>
+
+<span class="d">⛏ VILLAGERS      412  ▼38%</span>
+<span class="d">  28-day normal 664 · fires past 30%</span>
+<span class="d">⛏ DIAMONDS         0  nothing recorded</span>
+<span class="d">  28-day normal 12 · fires past 40%</span></pre>
+      </div>
+      <div>
+        <table class="keys">
+          <tr><th>Fires on</th><th>Which is</th></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">drop</code></td><td><b>Down past the metric's threshold</b> — 30% for users, 40% for conversions, 20% for bounce rate</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">spike</code></td><td>Up past the same line. A good morning is worth knowing about too</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">silent</code></td><td><b>A count that went to nothing</b> against a baseline that was not nothing — a deleted tag, a broken banner, a site that is down</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">no data</code></td><td>Nothing anywhere in the window. Said once, rather than as six metrics all going quiet</td></tr>
+        </table>
+        <p class="sec-sub" style="margin-top:22px">
+          Tuned per property when the defaults are wrong for your site, and
+          silent about a day it has already told you about — one message about a
+          drop, not one an hour.
+          <a href="/alerts.html" style="color:var(--jade)">How alerts work &rarr;</a>
+        </p>
+      </div>
+    </div>
   </div>
 </section>
 

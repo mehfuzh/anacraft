@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Terms of Service — anacraft</title>
-<meta name="description" content="anacraft is free, open-source software provided as-is under the Apache License 2.0. Terms of use, warranty disclaimer, and trademark notices.">
-<link rel="canonical" href="https://anacraft.dev/terms.html">
+<title>Alerts — anacraft</title>
+<meta name="description" content="craft watch compares the most recent complete day against its own recent normal and tells you what moved — a drop, a spike, or a metric that went silent. Print it, pipe it, or post it to Slack.">
+<link rel="canonical" href="https://anacraft.dev/alerts.html">
 <meta name="robots" content="index, follow">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://anacraft.dev/terms.html">
-<meta property="og:title" content="Terms of Service — anacraft">
-<meta property="og:description" content="anacraft is free, open-source software provided as-is under the Apache License 2.0. Terms of use, warranty disclaimer, and trademark notices.">
+<meta property="og:url" content="https://anacraft.dev/alerts.html">
+<meta property="og:title" content="Alerts — anacraft">
+<meta property="og:description" content="craft watch compares the most recent complete day against its own recent normal and tells you what moved — a drop, a spike, or a metric that went silent. Print it, pipe it, or post it to Slack.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=2dd77504">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -105,6 +105,16 @@
             border-bottom-color: var(--line-2); }
   .tbl td:first-child { font-family: var(--mono); color: var(--jade); white-space: nowrap; }
 
+  /* the legal pages never needed a code block; this guide does */
+  pre.code { font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+             background: var(--panel); border: 1px solid var(--line);
+             border-left: 3px solid var(--jade-deep);
+             padding: 16px 18px; margin: 0 0 18px; overflow-x: auto; color: var(--fg); }
+  pre.code .d { color: var(--dim); }
+  pre.code .k { color: var(--jade); }
+  .step { font-size: 15.5px; margin: 0 0 14px; padding-left: 16px;
+          border-left: 2px solid var(--line-2); }
+
   /* footer:start */
   footer {
     border-top: 1px solid var(--line); padding: 34px 0;
@@ -164,7 +174,6 @@
 <script src="/analytics.js?v=8fa4ec5f"></script>
 </head>
 <body>
-
 <!-- nav:start -->
 <nav>
   <div class="wrap nav-in">
@@ -182,99 +191,127 @@
 
 <main class="doc">
 
-<div class="eyebrow">Legal</div>
-<h1>Terms of Service</h1>
-<div class="stamp">Last updated 20 August 2026</div>
+<div class="eyebrow">Guide</div>
+<h1>Alerts</h1>
+<div class="stamp">craft watch · part of the Anacrafter subscription</div>
 
 <div class="tldr">
-  <div class="h">The short version</div>
-  <p>anacraft is free, open-source software provided as-is under the Apache License 2.0. Use it on
-  analytics data you are entitled to see, follow Google's rules while you do, and accept that a
-  volunteer-maintained dashboard carries no warranty. Minecraft is a trademark of Mojang Studios;
-  this project is affiliated with neither Mojang, Microsoft, nor Google.</p>
+  <div class="h">What it does</div>
+  <p>A dashboard answers <i>how is the site doing</i> when somebody thinks to ask.
+  <code>craft watch</code> answers the question nobody is awake to ask: <b>did something break</b>.
+  It compares the most recent complete day against the mean of the days before it and reports what
+  moved further than it usually does.</p>
+  <p>There is nothing to configure for it to be useful. A site's own history is the threshold.</p>
 </div>
 
-<h2><span class="n">01</span>Agreement</h2>
-<p>These terms cover your use of the anacraft program, its source repository, and this website.
-Installing or running anacraft means you accept them. If you do not accept them, do not use it — and,
-this being open source, you remain free to fork it under the terms of its licence.</p>
+<h2><span class="n">01</span>Three things fire</h2>
+<p>A <b>drop</b> or a <b>spike</b> past the metric's threshold, and <b>silence</b> — a count that went
+to nothing against a baseline that was not nothing.</p>
+<p>Silence is its own alert rather than a hundred-percent drop, because the number is the same but what
+it means is not. A bad week and a tag deleted in a deploy produce the same figure and call for
+completely different mornings. Silence is the one alert here that is almost never a false positive:
+sites have quiet days, they do not have days with literally no users.</p>
+<p>If <i>nothing</i> came back anywhere in the window, that is reported once, as itself — a property
+that is not collecting, or an id that is not the one the site reports to. Six metrics all announcing
+their own silence would be six ways of saying that once.</p>
 
-<h2><span class="n">02</span>Licence</h2>
-<p>anacraft is licensed under the
-<a href="https://github.com/mehfuzh/anacraft/blob/main/LICENSE">Apache License, Version 2.0</a>. That
-licence is what grants your rights to use, modify, and redistribute the software, and it prevails
-wherever it and these terms disagree. Nothing here takes away a right the Apache licence gives you.</p>
+<h2><span class="n">02</span>Thresholds that differ by metric</h2>
+<p>One number for all six either shouts about conversions, which swing by a third on an ordinary
+Tuesday, or never notices bounce rate, which barely moves. So the defaults are per metric:</p>
+<table class="tbl">
+  <tr><th>Metric</th><th>Fires past</th><th>Config key</th></tr>
+  <tr><td>users</td><td>30%</td><td>users</td></tr>
+  <tr><td>sessions</td><td>30%</td><td>sessions</td></tr>
+  <tr><td>page views</td><td>30%</td><td>views</td></tr>
+  <tr><td>conversions</td><td>40%</td><td>conversions</td></tr>
+  <tr><td>avg. session</td><td>25%</td><td>avg_session</td></tr>
+  <tr><td>bounce rate</td><td>20%</td><td>bounce_rate</td></tr>
+</table>
+<p>A count whose baseline is under <b>10</b> does not fire at all. On a site averaging four conversions
+a day, one quiet day is a twenty-five percent “drop” that means nothing, and an alert that cries wolf
+every morning is an alert people learn to close.</p>
 
-<h2><span class="n">03</span>What you bring</h2>
-<ul>
-  <li>A Google account with access to at least one Google Analytics 4 property.</li>
-  <li>The authority to view that property's data. anacraft shows you only what Google already permits
-      your account to see; it grants no access of its own and circumvents nothing.</li>
-</ul>
-<p>Ensuring your use of the data you view is lawful and permitted by whoever owns it is your
-responsibility, not ours.</p>
+<h2><span class="n">03</span>Run it</h2>
+<pre class="code"><span class="d"># check once, print what moved, exit</span>
+<span class="k">$</span> craft watch
 
-<h2><span class="n">04</span>Acceptable use</h2>
-<p>You agree not to:</p>
-<ul>
-  <li>use anacraft to reach analytics data you are not authorised to see;</li>
-  <li>use it in any way that breaches the <a href="https://policies.google.com/terms">Google Terms of
-      Service</a>, the
-      <a href="https://marketingplatform.google.com/about/analytics/terms/us/">Google Analytics Terms of
-      Service</a>, or the <a href="https://developers.google.com/terms">Google APIs Terms of Service</a>;</li>
-  <li>extract the bundled OAuth client credentials for use in other software, or present another
-      application as though it were anacraft;</li>
-  <li>work around API quotas or rate limits, including by distributing modified builds that do so while
-      still identifying themselves as anacraft.</li>
-</ul>
+<span class="d"># keep checking, hourly</span>
+<span class="k">$</span> craft watch --every 3600
 
-<h2><span class="n">05</span>The bundled OAuth client</h2>
-<p>Official releases include an OAuth client so that login works the moment you install. It is a
-convenience, not a guarantee: it is shared by everyone running an official build, it is subject to
-Google's per-project quotas, and it may be rate-limited, rotated, or revoked at any time without notice
-— including if it is abused.</p>
-<p>If anacraft matters to your workflow, register your own Google Cloud project and supply your own
-client through <code>ANACRAFT_OAUTH_CLIENT_ID</code> and <code>ANACRAFT_OAUTH_CLIENT_SECRET</code>, or
-through <code>~/.anacraft/client.json</code>. Doing so also insulates you from other people's quota
-consumption.</p>
+<span class="d"># synthetic alerts — no account, no subscription</span>
+<span class="k">$</span> craft watch --demo</pre>
+<p>One-shot is the shape for cron; <code>--every</code> is the shape for a service manager. Both survive a
+bad network: in the loop, a failed check is reported and slept off rather than fatal. A watch that exits
+on the first dropped connection is a watch that was not running when the thing it was watching for
+happened.</p>
 
-<h2><span class="n">06</span>No warranty</h2>
-<p>As stated in section 7 of the Apache licence, anacraft is provided <b>"as is", without warranties or
-conditions of any kind</b>, whether express or implied.</p>
-<p>In practical terms: figures may be delayed, sampled, rounded, or simply wrong — through API quirks,
-network failures, exhausted quota, a bug here, or a change at Google. <b>Do not treat anacraft as a
-system of record.</b> Verify anything consequential in the Google Analytics interface before acting on
-it.</p>
+<h2><span class="n">04</span>Send it to Slack</h2>
+<p>Create an <b>incoming webhook</b> at <a href="https://api.slack.com/apps">api.slack.com/apps</a> —
+<i>Create New App → From scratch</i>, then <i>Incoming Webhooks</i>, activate it, and
+<i>Add New Webhook to Workspace</i> against the channel you want. You get a URL. That URL is the whole
+credential: anyone holding it can post to that channel, so treat it like a password.</p>
+<pre class="code"><span class="d"># a daemon posts for itself — it has nothing to pipe into</span>
+<span class="k">$</span> craft watch --every 3600 --webhook <span class="k">"$SLACK_WEBHOOK"</span>
 
-<h2><span class="n">07</span>Limitation of liability</h2>
-<p>To the fullest extent the law allows, and as set out in section 8 of the Apache licence, the
-maintainers and contributors are not liable for any damages arising from your use of anacraft —
-including lost profits, lost or corrupted data, business interruption, or decisions taken on the
-strength of figures it displayed.</p>
+<span class="d"># or let cron do the delivery</span>
+0 9 * * *  craft watch --format slack \
+             | curl -sX POST -d @- <span class="k">"$SLACK_WEBHOOK"</span></pre>
+<p><code>--format slack</code> prints <b>nothing at all</b> on a quiet day, which is what stops a cron
+line posting an empty message every morning. <code>ANACRAFT_WEBHOOK</code> works in place of the flag.</p>
+<p>The URL is deliberately <b>not</b> a config file setting. <code>config.toml</code> is meant to be safe
+to commit to a dotfile repo, and a URL that can post into your Slack is not that.</p>
 
-<h2><span class="n">08</span>Third-party services</h2>
-<p>anacraft is a client for Google's APIs and depends on them entirely. Your use of those APIs is
-governed by Google's own terms, and Google may change, restrict, meter, or withdraw them at any time.
-We have no control over that and are not responsible for it. If Google's APIs stop serving your
-property, anacraft stops showing it.</p>
+<h2><span class="n">05</span>Tune it per property</h2>
+<pre class="code"><span class="d"># ~/.config/anacraft/config.toml</span>
+[[property]]
+id = <span class="k">"397412345"</span>
 
-<h2><span class="n">09</span>Trademarks and affiliation</h2>
-<p>anacraft is an independent open-source project.</p>
-<ul>
-  <li><b>Google</b>, Google Analytics, and GA4 are trademarks of Google LLC. anacraft is not affiliated
-      with, endorsed by, sponsored by, or certified by Google.</li>
-  <li><b>Minecraft</b> is a trademark of Mojang Studios, part of Microsoft. anacraft is not affiliated
-      with, endorsed by, or sponsored by Mojang Studios or Microsoft. Its look is an original homage
-      drawn entirely with Unicode block characters — no Minecraft artwork, textures, sounds, fonts, or
-      code are included or distributed.</li>
-</ul>
+  [property.watch]
+  baseline_days = 28   <span class="d"># days the baseline averages over</span>
+  min_baseline  = 10   <span class="d"># a baseline under this never fires a count</span>
+  users         = 25   <span class="d"># % deviation that wakes somebody</span>
+  conversions   = 40
+  bounce_rate   = 15</pre>
+<p>Keys take the short names in the table above, or the GA4 API name if you prefer it. Everything is
+optional and falls back to the default, so a property that says nothing still gets useful alerts.
+<code>--baseline &lt;days&gt;</code> overrides the window for a single run.</p>
+<p>Twenty-eight days is the default because four weeks covers every weekday the same number of times.
+A site that is quiet at weekends is then not permanently half a standard deviation from its own normal.</p>
 
-<h2><span class="n">10</span>Changes to these terms</h2>
-<p>These terms may be revised. The date above will change with them and the full history remains public
-in the repository. Continuing to use anacraft after a revision means accepting the revised terms.</p>
+<h2><span class="n">06</span>It only tells you once</h2>
+<p>The same day's alert is sent once. State is keyed by the day being reported on, so
+<code>--every 3600</code> sends one message about a drop rather than twenty-four, and tomorrow is news
+again.</p>
+<p>An alert is recorded as sent only after delivery <b>succeeds</b>. A webhook that was unreachable has
+told nobody anything, so the next pass tries again instead of treating the alert as spent.</p>
 
-<h2><span class="n">11</span>Contact</h2>
-<p>anacraft is published by Smartloop Inc. Questions about these terms: <a href="mailto:support@anacraft.dev">support@anacraft.dev</a>.</p>
+<h2><span class="n">07</span>Numbers you can trust the date of</h2>
+<p>Two things here are less obvious than they look, and both are about not guessing.</p>
+<p>The day being checked is <b>GA's</b>, never your laptop's. <code>yesterday</code> resolves in the
+property's reporting time zone, so a window derived from the local clock is silently a day out for
+anyone whose property sits elsewhere.</p>
+<p>And the baseline's divisor depends on the metric. For a count, a day Google returned no row for is a
+day the site had none, and it belongs in the divisor — a site that went dark for a week has a genuinely
+lower daily average. For a rate or an average it does not: a day with no sessions has no bounce rate,
+and averaging it in as zero would pull the baseline toward a number the site never had.</p>
+
+<h2><span class="n">08</span>Scripting it</h2>
+<table class="tbl">
+  <tr><th>Exit</th><th>Means</th></tr>
+  <tr><td>0</td><td>Checked, nothing fired</td></tr>
+  <tr><td>2</td><td>Something fired</td></tr>
+  <tr><td>1</td><td>The check itself failed</td></tr>
+</table>
+<p><code>--format json</code> prints one object carrying the property, the day, each alert's value,
+baseline, deviation and the threshold it crossed — the same shape the MCP server answers in, so a
+script and an assistant read the same numbers.</p>
+
+<h2><span class="n">09</span>Look at it first</h2>
+<p><code>craft watch --demo</code> runs on synthetic data: no Google account, no subscription, and three
+alerts every time, so you can see what a drop, a silence and a spike look like — in your terminal or in
+your Slack — before wiring anything up.</p>
+<pre class="code"><span class="k">$</span> craft watch --demo --webhook <span class="k">"$SLACK_WEBHOOK"</span></pre>
+<p>The watch itself is part of the <a href="/#mcp">Anacrafter subscription</a>, alongside <code>craft mcp</code>. The dashboard and the one-shot reports stay free.</p>
 
 </main>
 
