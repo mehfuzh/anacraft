@@ -452,6 +452,33 @@ pub fn set_supporter(active: bool) -> Result<bool> {
     Ok(true)
 }
 
+/// The subscriber gate, and the sentence that gets an unsubscribed user
+/// unstuck.
+///
+/// Shared by every command that is part of the subscription so the wording
+/// exists once: `craft mcp` relays it through a locked tool, `craft watch`
+/// bails with it. `command` names the caller, because "run this with --demo"
+/// is only useful advice if it names the thing to run.
+///
+/// It is a soft gate either way. The flag it consults is a line of TOML in a
+/// config anybody can edit, in a binary anybody can rebuild — the point is to
+/// ask honestly, not to be unpickable.
+pub fn gate(supporter: bool, command: &str) -> std::result::Result<(), String> {
+    if supporter {
+        return Ok(());
+    }
+    Err(format!(
+        "{command} is part of the Anacraft subscription.\n     \
+         Run `craft subscribe` to start one — it writes `supporter = true` in {} \
+         once the payment clears. Already subscribed on another machine? \
+         `craft login` with the same Google account, then `craft subscribe --check`.\n     \
+         `{command} --demo` runs on synthetic data and needs no subscription.",
+        crate::config::Config::path()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "your config".into())
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

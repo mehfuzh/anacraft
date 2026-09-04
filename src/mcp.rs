@@ -124,33 +124,11 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
 /// missing. The `Err` is a message for a human and for the assistant relaying
 /// it, never a reason to stop serving — see `serve`.
 fn unlock(supporter: bool) -> std::result::Result<Ga, String> {
-    subscription(supporter)?;
+    crate::license::gate(supporter, "craft mcp")?;
     login()?;
     // A client is not a place to open a browser, so this only builds the HTTP
     // client and reads the stored credentials; consent stays in `craft login`.
     Ga::new().map_err(|err| format!("could not start the GA4 client: {err}"))
-}
-
-/// The subscriber gate.
-///
-/// Takes the answer rather than reading the config, because by the time this
-/// runs `serve` has already asked Supabase and written what came back — see
-/// `license::sync`. It is still a soft gate: the flag it consults is a line of
-/// TOML in a config anybody can edit, in a binary anybody can rebuild.
-fn subscription(supporter: bool) -> std::result::Result<(), String> {
-    if supporter {
-        return Ok(());
-    }
-    Err(format!(
-        "craft mcp is part of the Anacraft subscription.\n     \
-         Run `craft subscribe` to start one — it writes `supporter = true` in {} \
-         once the payment clears. Already subscribed on another machine? \
-         `craft login` with the same Google account, then `craft subscribe --check`.\n     \
-         `craft mcp --demo` serves synthetic data and needs no subscription.",
-        Config::path()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "your config".into())
-    ))
 }
 
 /// Said once at startup rather than discovered on the first tool call.
@@ -745,7 +723,16 @@ async fn site_status(ga: &Ga, property: &str, days: u32) -> Result<Value> {
 }
 
 /// Shared by the live server and the demo, so both answer in one shape.
-fn status_payload(totals: &[f64], prior: &[f64], daily: &[(String, f64)], empty: bool) -> Value {
+///
+/// `craft overview --format json` renders through here too, so the number an
+/// assistant reads over MCP and the number a script pipes out of the CLI are
+/// the same number in the same shape.
+pub(crate) fn status_payload(
+    totals: &[f64],
+    prior: &[f64],
+    daily: &[(String, f64)],
+    empty: bool,
+) -> Value {
     let metrics: Vec<Value> = OVERVIEW
         .iter()
         .enumerate()
@@ -961,7 +948,7 @@ fn query_of(args: &Value) -> Result<String> {
     Ok(query.to_string())
 }
 
-fn unit_of(kind: Kind) -> &'static str {
+pub(crate) fn unit_of(kind: Kind) -> &'static str {
     match kind {
         Kind::Count => "count",
         Kind::Ratio => "ratio (0-1)",
@@ -970,7 +957,7 @@ fn unit_of(kind: Kind) -> &'static str {
 }
 
 /// `None` rather than infinity when there is no baseline to grow from.
-fn change_pct(now: f64, before: f64) -> Option<f64> {
+pub(crate) fn change_pct(now: f64, before: f64) -> Option<f64> {
     if before == 0.0 {
         return None;
     }
@@ -979,7 +966,7 @@ fn change_pct(now: f64, before: f64) -> Option<f64> {
 
 /// `YYYYMMDD` is what GA returns and `YYYY-MM-DD` is what everything else
 /// reads, this server's readers included.
-fn iso_date(raw: &str) -> String {
+pub(crate) fn iso_date(raw: &str) -> String {
     if raw.len() == 8 && raw.chars().all(|c| c.is_ascii_digit()) {
         return format!("{}-{}-{}", &raw[0..4], &raw[4..6], &raw[6..8]);
     }
@@ -1692,24 +1679,24 @@ mod tests {
 
     #[test]
     fn the_gate_wants_a_subscription() {
-        let err = subscription(false).unwrap_err();
+        let err = crate::license::gate(false, "craft mcp").unwrap_err();
         assert!(err.contains("craft subscribe"), "got {err}");
         assert!(
-            err.contains("--demo"),
-            "no way out for a non-subscriber: {err}"
+            err.contains("craft mcp --demo"),
+            "no way out for a non-subscriber, named: {err}"
         );
         assert!(
             err.contains("craft login"),
             "a subscriber on a new machine is left guessing: {err}"
         );
 
-        assert!(subscription(true).is_ok());
+        assert!(crate::license::gate(true, "craft mcp").is_ok());
     }
 
     fn locked_server() -> Server {
         Server {
             cfg: Config::default(),
-            source: Source::Locked(subscription(false).unwrap_err()),
+            source: Source::Locked(crate::license::gate(false, "craft mcp").unwrap_err()),
             property: None,
             cache: HashMap::new(),
         }

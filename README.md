@@ -77,6 +77,34 @@ craft demo                 # render an overview from synthetic data
 Two flags are global: `--property <id>` queries a property other than the saved
 default, and `--theme <name>` renders with a palette other than the saved one.
 
+### Piping the numbers somewhere
+
+`overview` takes `--format`, so the same report a person reads as panels can
+also leave the terminal as data.
+
+```sh
+craft overview --format json            # one object, one line — for jq or a script
+craft overview --format slack           # a Block Kit payload, for a webhook
+```
+
+`json` answers in the same shape as the `site_status` MCP tool: labelled
+metrics with their unit, the previous period, the percentage change, the daily
+user series, and the achievements that fired. The window is reported as the
+first and last day the API actually returned rather than computed here — GA
+resolves `last 7 days` in the property's timezone, which is not necessarily
+this machine's.
+
+`slack` wraps the same numbers as blocks. Both print the payload and nothing
+else, so a weekly digest is one cron line:
+
+```sh
+0 9 * * 1  craft overview --days 7 --format slack \
+             | curl -sX POST -H 'Content-Type: application/json' -d @- "$SLACK_WEBHOOK"
+```
+
+Neither format needs a subscription — they render a report `craft overview`
+already prints for free.
+
 ### Claude Desktop
 
 ```sh
@@ -100,6 +128,77 @@ Needs `craft login` first and an active subscription — without either the
 server still starts and its tools say which one is missing, so the client never
 reports it as disconnected. `craft mcp --demo` runs on synthetic data without
 either. More in [Ask an assistant](#ask-an-assistant).
+
+## Alerts
+
+`craft watch` compares the most recent complete day against the mean of the
+days before it and reports what moved further than it usually does. There is
+nothing to configure for it to be useful: a site's own history is the
+threshold.
+
+```sh
+craft watch                      # check once, print what moved, exit
+craft watch --every 3600         # keep checking, hourly
+craft watch --webhook "$HOOK"    # POST the alert to a Slack incoming webhook
+craft watch --format json        # the same finding as one object, for a script
+craft watch --demo               # synthetic alerts — no account, no subscription
+```
+
+Three things fire. A **drop** or a **spike** past the metric's threshold, and
+**silence** — a count that went to nothing against a baseline that was not
+nothing, which is what a removed tag or a site that is down looks like from
+here. A window with no rows anywhere is reported once, as itself, rather than
+as six metrics all going silent.
+
+The defaults are per-metric, because conversions swing by a third on an
+ordinary Tuesday and bounce rate does not: 30% for users, sessions and views,
+40% for conversions, 25% for average session, 20% for bounce rate. A baseline
+under 10 does not fire a count at all — on a site averaging four conversions a
+day, one quiet day is a 25% "drop" that means nothing.
+
+Any of it can be tuned per property:
+
+```toml
+[[property]]
+id = "552157097"
+
+  [property.watch]
+  baseline_days = 28   # days the baseline averages over
+  min_baseline  = 10   # a baseline under this never fires a count
+  users         = 25   # % deviation that wakes somebody
+  conversions   = 40
+  bounce_rate   = 15
+```
+
+Keys are `users`, `sessions`, `views`, `conversions`, `bounce_rate`,
+`avg_session`, or the GA4 API name if you prefer it. `--baseline <days>`
+overrides the window for one run.
+
+The same day's alert is only sent once. State lives in `~/.anacraft/watch.json`
+and is keyed by the day being reported on, so `--every 3600` sends one message
+about a drop rather than twenty-four, and a new day is news again. It is
+recorded only after delivery succeeds — a webhook that was unreachable has
+told nobody anything, so the next pass tries again.
+
+**Exit codes.** `0` when nothing fired, `2` when something did, `1` on an
+error. So a shell can decide for itself:
+
+```sh
+craft watch --format slack \
+  || craft watch --format slack | curl -sX POST -d @- "$SLACK_WEBHOOK"
+```
+
+`--format slack` prints nothing at all on a quiet day, which is what keeps a
+cron line from posting an empty message every hour. In a loop, `--webhook`
+does the POST itself — a daemon has nothing to pipe into.
+
+The webhook URL comes from `--webhook` or `ANACRAFT_WEBHOOK`, and deliberately
+**not** from `config.toml`. That file is meant to be safe to commit to a
+dotfile repo, and a URL that can post into your Slack is not.
+
+`craft watch` is part of the subscription, the same as `craft mcp`.
+`craft watch --demo` is not, so what an alert looks like can be seen before
+anything is paid for or wired up.
 
 ## The dashboard
 

@@ -8,8 +8,10 @@ mod ga;
 mod license;
 mod mcp;
 mod render;
+mod report;
 mod theme;
 mod ui;
+mod watch;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -17,6 +19,7 @@ use clap::{Parser, Subcommand};
 use config::Config;
 use ga::{DateRange, Ga, ReportRequest};
 use render::{bold, dim, paint, panel_bottom, panel_top};
+use report::{Format, Overview};
 use theme::{ore, OVERVIEW};
 
 const DEFAULT_DAYS: u32 = 7;
@@ -66,6 +69,10 @@ enum Command {
         /// Days to look back, ending yesterday.
         #[arg(long, short, default_value_t = DEFAULT_DAYS)]
         days: u32,
+        /// How to render: panels for a terminal, json for a script, slack for
+        /// a webhook.
+        #[arg(long, short, value_enum, default_value = "panels")]
+        format: Format,
     },
     /// Most-visited pages.
     Pages {
@@ -109,6 +116,33 @@ enum Command {
         #[arg(long)]
         live_refresh: Option<u64>,
         /// Drive the dashboard from synthetic data — no Google account needed.
+        #[arg(long)]
+        demo: bool,
+    },
+    /// Check the numbers against their own recent normal, and report what moved.
+    ///
+    /// Compares the most recent complete day against the mean of the days
+    /// before it. Needs no configuration to be useful — a site's own history
+    /// is the threshold — and takes per-metric percentages under
+    /// `[property.watch]` for anything that should be tighter or quieter.
+    /// Exits 2 when something fired, so a script can tell.
+    Watch {
+        /// Days of history the baseline averages over.
+        #[arg(long)]
+        baseline: Option<u32>,
+        /// Keep checking every N seconds instead of checking once and exiting.
+        #[arg(long, value_name = "SECONDS")]
+        every: Option<u64>,
+        /// POST the alert to a Slack incoming webhook. Also read from
+        /// ANACRAFT_WEBHOOK, and deliberately not from config.toml — that
+        /// file is meant to be safe to commit, and this URL is not.
+        #[arg(long)]
+        webhook: Option<String>,
+        /// How to render: panels for a person, json for a script, slack for a
+        /// webhook payload.
+        #[arg(long, short, value_enum, default_value = "panels")]
+        format: Format,
+        /// Alert on synthetic data — no Google account, no subscription.
         #[arg(long)]
         demo: bool,
     },
@@ -211,12 +245,45 @@ async fn run() -> Result<()> {
                 mcp::serve(demo, cli.property.as_deref()).await
             }
         }
+        Command::Watch {
+            baseline,
+            every,
+            webhook,
+            format,
+            demo,
+        } => {
+            // The flag wins, then the environment. Never the config file: a
+            // URL that posts into somebody's Slack does not belong in a file
+            // the README calls safe to commit to a dotfile repo.
+            let webhook = webhook.or_else(|| {
+                std::env::var("ANACRAFT_WEBHOOK")
+                    .ok()
+                    .filter(|url| !url.trim().is_empty())
+            });
+            watch::run(
+                &cfg,
+                cli.property.as_deref(),
+                watch::Options {
+                    baseline,
+                    every,
+                    webhook,
+                    format,
+                    demo,
+                },
+            )
+            .await
+        }
         Command::Login => cmd_login().await,
         Command::Logout => cmd_logout().await,
         Command::Props => cmd_props().await,
         Command::Use { id } => cmd_use(&id).await,
-        Command::Overview { days } => {
-            cmd_overview(&cfg.resolve_property(cli.property.as_deref())?, days).await
+        Command::Overview { days, format } => {
+            cmd_overview(
+                &cfg.resolve_property(cli.property.as_deref())?,
+                days,
+                format,
+            )
+            .await
         }
         Command::Pages { days, limit } => {
             let property = cfg.resolve_property(cli.property.as_deref())?;
@@ -745,7 +812,7 @@ fn cmd_theme(name: Option<&str>) -> Result<()> {
 
 // ---------------------------------------------------------------- reports ---
 
-async fn cmd_overview(property: &str, days: u32) -> Result<()> {
+async fn cmd_overview(property: &str, days: u32, format: Format) -> Result<()> {
     let client = Ga::new()?;
     let metrics: Vec<&str> = OVERVIEW.iter().map(|m| m.api).collect();
 
@@ -772,10 +839,15 @@ async fn cmd_overview(property: &str, days: u32) -> Result<()> {
         )
         .await?;
 
-    // GA returns date rows unordered; the sparkline needs them chronological.
-    let mut daily = trend.rows.clone();
-    daily.sort_by(|a, b| a.dimension(0).cmp(b.dimension(0)));
-    let series: Vec<f64> = daily.iter().map(|r| r.metric(0)).collect();
+    // GA returns date rows unordered; the sparkline needs them chronological,
+    // and the JSON window is read off the first and last of them.
+    let mut rows = trend.rows.clone();
+    rows.sort_by(|a, b| a.dimension(0).cmp(b.dimension(0)));
+    let daily: Vec<(String, f64)> = rows
+        .iter()
+        .map(|row| (row.dimension(0).to_string(), row.metric(0)))
+        .collect();
+    let series: Vec<f64> = daily.iter().map(|(_, users)| *users).collect();
 
     let empty = current.rows.is_empty() && current.totals.is_empty();
     let cfg = Config::load()?;
@@ -787,7 +859,29 @@ async fn cmd_overview(property: &str, days: u32) -> Result<()> {
     let totals: Vec<f64> = (0..OVERVIEW.len()).map(|i| current.total(i)).collect();
     let prior: Vec<f64> = (0..OVERVIEW.len()).map(|i| previous.total(i)).collect();
 
-    print_overview(&title, days, &totals, &prior, &series, empty);
+    match format {
+        Format::Panels => print_overview(&title, days, &totals, &prior, &series, empty),
+        // One object on one line, so a shell pipes it straight into curl or jq
+        // with nothing to strip first. Both of these print the numbers and
+        // nothing else: a progress line or a hint on stdout would be a parse
+        // error at the other end of the pipe.
+        machine => {
+            let overview = Overview {
+                property,
+                title: &title,
+                days,
+                totals: &totals,
+                prior: &prior,
+                daily: &daily,
+                empty,
+            };
+            let payload = match machine {
+                Format::Slack => report::slack(&overview),
+                _ => report::json(&overview),
+            };
+            println!("{payload}");
+        }
+    }
     Ok(())
 }
 

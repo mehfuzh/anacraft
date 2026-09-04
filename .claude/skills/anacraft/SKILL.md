@@ -21,8 +21,9 @@ out to be in the GA4 console rather than in this tool.
 | Nothing installed | 1 |
 | Installed, wants to see it before signing in | 2 |
 | Installed, has a GA4 property | 3 |
-| Signed in, wants numbers | 4 / 5 |
-| Wants an assistant to read the site | 6 |
+| Signed in, wants numbers | 4 / 6 |
+| Wants to be told when the numbers break | 5 |
+| Wants an assistant to read the site | 7 |
 | A command failed | `references/troubleshooting.md` |
 
 ## 1. Install
@@ -94,7 +95,52 @@ craft live                 # who is on the site right now
 global: `--property <id>` queries something other than the default without
 saving it, and `--theme <name>` renders in another palette for one run.
 
-## 5. The dashboard
+`overview` also takes `--format`, for when the reader is not a person:
+`--format json` prints one object in the same shape as the `site_status` MCP
+tool, and `--format slack` prints a Block Kit payload to POST to an incoming
+webhook. Both print the payload alone, so they pipe into `jq` or `curl -d @-`
+with nothing to strip first, and neither needs a subscription. A weekly digest
+is a cron line:
+
+```sh
+0 9 * * 1  craft overview --days 7 --format slack \
+             | curl -sX POST -H 'Content-Type: application/json' -d @- "$SLACK_WEBHOOK"
+```
+
+## 5. Alerts
+
+`craft watch` compares the most recent complete day against the mean of the
+days before it (28 by default) and reports what moved further than it usually
+does. No configuration needed — the site's own history is the threshold.
+
+```sh
+craft watch                      # check once, print, exit
+craft watch --every 3600         # keep checking, hourly
+craft watch --webhook "$HOOK"    # POST to a Slack incoming webhook
+craft watch --format json|slack  # same three formats as overview
+craft watch --demo               # synthetic alerts, no account or subscription
+```
+
+Fires on a **drop** or **spike** past the metric's threshold, and on
+**silence** — a count that went to nothing against a non-zero baseline, which
+is what a removed tag or a downed site looks like. A window with no rows at all
+is reported once as itself rather than as six silent metrics.
+
+Per-metric defaults: 30% for `users`/`sessions`/`views`, 40% `conversions`,
+25% `avg_session`, 20% `bounce_rate`; a count baseline under 10 never fires.
+Tune under `[property.watch]` in `config.toml`, keyed by those short names or
+by the GA4 API name; `baseline_days` and `min_baseline` live in the same table.
+
+Exit codes are `0` quiet, `2` something fired, `1` error. `--format slack`
+prints nothing on a quiet day, so a cron pipe never posts an empty message.
+The webhook comes from `--webhook` or `ANACRAFT_WEBHOOK` and never from
+`config.toml` — that file is meant to be safe to commit. Repeat alerts are
+suppressed per day via `~/.anacraft/watch.json`, recorded only after delivery
+succeeds.
+
+Part of the subscription, like `craft mcp`. `--demo` is not.
+
+## 6. The dashboard
 
 `craft` (or `craft dash`). Seven panels; hiding one gives its space back to the
 rest rather than leaving a hole.
@@ -117,7 +163,7 @@ Cadence flags: `--days`, `--refresh` (seconds between reports, default 30),
 `--live-refresh` (the realtime tick, minimum 2). Each falls back to what the
 property saved, then to the default.
 
-## 6. Let an assistant read the site
+## 7. Let an assistant read the site
 
 `craft mcp` serves the same numbers over the Model Context Protocol, so Claude
 Desktop or any MCP client can answer "how is the site doing" without a human
@@ -172,6 +218,7 @@ mapped onto whichever palette is selected, so the texture pack survives a swap.
 |---|---|
 | `~/.config/anacraft/config.toml` | Properties and their settings. Hand-editable. |
 | `~/.anacraft/token.json` | OAuth refresh token, written `0600`. |
+| `~/.anacraft/watch.json` | Which alerts `craft watch` has already sent, per day. |
 
 They are split deliberately: `~/.config` ends up in dotfile repos, and a
 refresh token has no business travelling with it. `$XDG_CONFIG_HOME` is
@@ -191,6 +238,12 @@ days         = 14
 refresh      = 60
 live_refresh = 5
 
+  [property.watch]         # thresholds for `craft watch`, all optional
+  baseline_days = 28
+  min_baseline  = 10
+  users         = 25       # % deviation that fires
+  conversions   = 40
+
 [[property]]
 id = "88820011"            # everything optional: inherits the defaults
 ```
@@ -201,6 +254,7 @@ default. Command-line flags beat both.
 | Variable | Does |
 |---|---|
 | `ANACRAFT_PROPERTY_ID` | Overrides the saved property, for keeping none on disk |
+| `ANACRAFT_WEBHOOK` | Where `craft watch` POSTs an alert, so the URL stays out of the config |
 | `ANACRAFT_OAUTH_CLIENT_ID` / `_SECRET` | Use your own OAuth client instead of the built-in one |
 
 `~/.anacraft/client.json` does the same as the two OAuth variables. Registering

@@ -150,6 +150,13 @@ pub fn delta(current: f64, previous: f64, lower_is_better: bool) -> String {
 
 /// Sparkline over a daily series, drawn with block heights.
 pub fn sparkline(values: &[f64], color: Color) -> String {
+    paint(&spark_glyphs(values), color)
+}
+
+/// The sparkline without the ANSI, for the renderers that send a series
+/// somewhere a terminal escape is literal text rather than a color — a Slack
+/// message, a JSON field. Same glyph mapping as `sparkline`, which paints this.
+pub fn spark_glyphs(values: &[f64]) -> String {
     if values.is_empty() {
         return String::new();
     }
@@ -157,7 +164,7 @@ pub fn sparkline(values: &[f64], color: Color) -> String {
     let min = values.iter().cloned().fold(f64::MAX, f64::min);
     let span = (max - min).max(f64::EPSILON);
 
-    let line: String = values
+    values
         .iter()
         .map(|v| {
             let norm = (v - min) / span;
@@ -165,8 +172,7 @@ pub fn sparkline(values: &[f64], color: Color) -> String {
                 .min(glyph::SPARK.len() - 1);
             glyph::SPARK[idx]
         })
-        .collect();
-    paint(&line, color)
+        .collect()
 }
 
 /// How full to draw a metric's bar.

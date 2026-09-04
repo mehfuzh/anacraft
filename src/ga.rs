@@ -37,6 +37,24 @@ impl DateRange {
             end_date: format!("{}daysAgo", days + 1),
         }
     }
+
+    /// The single most recent complete day.
+    pub fn yesterday() -> DateRange {
+        DateRange {
+            start_date: "yesterday".to_string(),
+            end_date: "yesterday".to_string(),
+        }
+    }
+
+    /// An arbitrary `NdaysAgo` span for the windows the named constructors do
+    /// not cover. `end` is the more recent bound, so `span(29, 2)` is the 28
+    /// days ending the day before yesterday.
+    pub fn span(start_days_ago: u32, end_days_ago: u32) -> DateRange {
+        DateRange {
+            start_date: format!("{}daysAgo", start_days_ago),
+            end_date: format!("{}daysAgo", end_days_ago),
+        }
+    }
 }
 
 #[derive(Serialize)]

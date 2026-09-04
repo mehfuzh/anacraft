@@ -11,6 +11,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -65,6 +66,54 @@ pub struct Property {
     /// Seconds between realtime polls.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub live_refresh: Option<u64>,
+    /// What `craft watch` should treat as worth waking somebody for. Declared
+    /// last because it is the only field that serialises as a TOML table, and
+    /// a table written before a scalar swallows the scalar into it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watch: Option<Watch>,
+}
+
+/// Per-property thresholds for `craft watch`.
+///
+/// Every field is optional and the whole table may be absent, which is what
+/// lets `craft watch` fire useful alerts on a config that has never heard of
+/// it. Metric deviations are flattened into the same table rather than nested
+/// under a `[threshold]` header, so tuning one metric is one line:
+///
+/// ```toml
+/// [property.watch]
+/// baseline_days = 28
+/// users = 25
+/// conversions = 40
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Watch {
+    /// Days of history the baseline averages over. GA4 keeps 14 months of
+    /// this data by default, and a longer window is steadier but slower to
+    /// notice that a site's normal has genuinely moved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baseline_days: Option<u32>,
+    /// A baseline below this never fires. On a site averaging four
+    /// conversions a day, one quiet day is a 25% "drop" and means nothing —
+    /// the floor is what keeps a small property from alerting every morning.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_baseline: Option<f64>,
+    /// Percentage deviation from the baseline that wakes somebody, keyed by
+    /// metric — `users`, `sessions`, `views`, `conversions`, `bounce_rate`,
+    /// `avg_session`, or the GA4 API name. Unknown keys are ignored rather
+    /// than refused: a typo here should not stop the watch from running.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub thresholds: BTreeMap<String, f64>,
+}
+
+impl Watch {
+    /// The threshold for a metric under either of the names it answers to.
+    pub fn threshold(&self, key: &str, api: &str) -> Option<f64> {
+        self.thresholds
+            .get(key)
+            .or_else(|| self.thresholds.get(api))
+            .copied()
+    }
 }
 
 impl Property {
@@ -230,6 +279,11 @@ impl Config {
             .context("no property selected — run `craft props` to pick one")
     }
 
+    /// A property's watch settings, if it named any.
+    pub fn watch_for(&self, id: &str) -> Option<&Watch> {
+        self.find(id).and_then(|p| p.watch.as_ref())
+    }
+
     /// Palette for a property: its own, else the global default.
     pub fn theme_for(&self, id: &str) -> Option<&str> {
         self.find(id)
@@ -283,6 +337,7 @@ mod tests {
                     days: Some(14),
                     refresh: Some(60),
                     live_refresh: Some(5),
+                    watch: None,
                 },
                 Property {
                     id: "222".into(),
@@ -357,5 +412,79 @@ mod tests {
         assert_eq!(p.display(), "anacraft.dev");
         p.label = Some("site".into());
         assert_eq!(p.display(), "site");
+    }
+
+    /// The flattened threshold table is the shape documented in the README, so
+    /// it is worth a test that reads exactly what a user would type.
+    #[test]
+    fn watch_thresholds_sit_flat_in_the_property_table() {
+        let raw = r#"
+active = "552157097"
+
+[[property]]
+id = "552157097"
+name = "anacraft"
+
+[property.watch]
+baseline_days = 28
+min_baseline = 10
+users = 25
+conversions = 40
+"#;
+        let cfg: Config = toml::from_str(raw).unwrap();
+        let watch = cfg.watch_for("552157097").expect("watch table");
+
+        assert_eq!(watch.baseline_days, Some(28));
+        assert_eq!(watch.min_baseline, Some(10.0));
+        assert_eq!(watch.threshold("users", "totalUsers"), Some(25.0));
+        assert_eq!(watch.threshold("conversions", "keyEvents"), Some(40.0));
+        // Not named, so the metric falls back to its default.
+        assert_eq!(watch.threshold("sessions", "sessions"), None);
+    }
+
+    /// A threshold may be written under the GA4 API name instead.
+    #[test]
+    fn a_threshold_answers_to_the_api_name_too() {
+        let raw = r#"
+[[property]]
+id = "1"
+
+[property.watch]
+bounceRate = 15
+"#;
+        let cfg: Config = toml::from_str(raw).unwrap();
+        let watch = cfg.watch_for("1").unwrap();
+        assert_eq!(watch.threshold("bounce_rate", "bounceRate"), Some(15.0));
+    }
+
+    /// `save` writes what `load` reads. The risk this covers is TOML's rule
+    /// that a table ends the scalars around it: if `watch` serialised before
+    /// `Property`'s own keys, `name` and `theme` would land inside it.
+    #[test]
+    fn a_watch_table_survives_a_save_and_reload() {
+        let mut thresholds = BTreeMap::new();
+        thresholds.insert("users".to_string(), 25.0);
+
+        let cfg = Config {
+            active: Some("1".into()),
+            properties: vec![Property {
+                id: "1".into(),
+                name: Some("anacraft".into()),
+                theme: Some("github".into()),
+                days: Some(14),
+                watch: Some(Watch {
+                    baseline_days: Some(28),
+                    min_baseline: None,
+                    thresholds,
+                }),
+                ..Property::default()
+            }],
+            ..Config::default()
+        };
+
+        let written = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&written).unwrap();
+
+        assert_eq!(back.properties, cfg.properties, "\n{written}");
     }
 }
