@@ -452,6 +452,69 @@ pub fn set_supporter(active: bool) -> Result<bool> {
     Ok(true)
 }
 
+/// What the star says to somebody who has already paid.
+///
+/// Six lines rather than one. The old single thank-you was about us; these are
+/// about them, and about the work they opened the dashboard to do.
+///
+/// The last one earns its place by answering the question a subscriber does
+/// ask — whether this is still worth the line on the card — without naming a
+/// number to do it. A competitor's price compiled into a binary cannot be
+/// corrected without a release, so it would be wrong the first time they
+/// change their pricing page and stay wrong on every installed copy. Price
+/// comparisons belong on the site, where they can be edited.
+pub const SUPPORTER_LINES: [&str; 6] = [
+    "keep mining",
+    "the vein runs deep",
+    "go make the bars go up",
+    "swing away",
+    "this pickaxe is yours",
+    "the same numbers, none of the invoice",
+];
+
+/// Keeps this digest distinct from any other use of the same token.
+const LINE_DOMAIN: &[u8] = b"anacraft/supporter-line/v1";
+
+/// The line shown when there is no account to derive one from.
+///
+/// An index rather than a fixed seed, which is where [`crate::avatar`]'s
+/// pattern stops applying: a face nobody can read means nothing either way,
+/// but this string is baked into the site's dashboard captures, so it is the
+/// one line a prospect reads. That makes it an editorial decision, not
+/// something to leave to the low byte of a digest.
+const DEMO_LINE: usize = 5;
+
+/// Pick a line for whoever is signed in, falling back to the fixed one when
+/// there is no token to read.
+///
+/// Seeded off the refresh token the way [`crate::avatar`] seeds a face, so an
+/// account keeps the same line on every machine it signs in from and a
+/// different one from its neighbour. Stable rather than random per run on
+/// purpose: a line that changed every thirty seconds would read as a ticker
+/// rather than as something said to you.
+pub fn supporter_line() -> &'static str {
+    match crate::auth::Tokens::load() {
+        Ok(Some(tokens)) => line_from_seed(tokens.refresh_token.as_bytes()),
+        _ => demo_supporter_line(),
+    }
+}
+
+/// The fixed line, for the demo and for the site's captures.
+pub fn demo_supporter_line() -> &'static str {
+    SUPPORTER_LINES[DEMO_LINE]
+}
+
+/// Derive a line from arbitrary bytes.
+///
+/// A digest rather than `seed[0] % 7`: the low byte of a refresh token is not
+/// uniform, and the domain prefix means the same secret used elsewhere cannot
+/// produce a matching value. Only the index reaches the screen.
+fn line_from_seed(seed: &[u8]) -> &'static str {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest([LINE_DOMAIN, seed].concat());
+    SUPPORTER_LINES[digest[0] as usize % SUPPORTER_LINES.len()]
+}
+
 /// The subscriber gate, and the sentence that gets an unsubscribed user
 /// unstuck.
 ///
@@ -482,6 +545,68 @@ pub fn gate(supporter: bool, command: &str) -> std::result::Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_account_keeps_the_same_line_on_every_machine() {
+        assert_eq!(
+            line_from_seed(b"1//0aRefreshToken"),
+            line_from_seed(b"1//0aRefreshToken")
+        );
+    }
+
+    #[test]
+    fn a_different_account_gets_a_different_line() {
+        // Not guaranteed for any given pair — there are seven lines — but
+        // these two specific seeds must not collide, or the test below is
+        // testing nothing.
+        assert_ne!(
+            line_from_seed(b"1//0aRefreshToken"),
+            line_from_seed(b"1//0bRefreshToken")
+        );
+    }
+
+    #[test]
+    fn every_line_is_reachable() {
+        // A picker that can only ever produce two of seven lines is a bug that
+        // no single-seed assertion would catch.
+        let mut seen = std::collections::BTreeSet::new();
+        for n in 0..500u32 {
+            seen.insert(line_from_seed(&n.to_le_bytes()));
+        }
+        assert_eq!(
+            seen.len(),
+            SUPPORTER_LINES.len(),
+            "unreachable lines: {:?}",
+            SUPPORTER_LINES
+                .iter()
+                .filter(|line| !seen.contains(*line))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn the_demo_line_is_fixed() {
+        // The site's captures bake this in, so it must not depend on whose
+        // machine regenerated them.
+        assert_eq!(
+            demo_supporter_line(),
+            "the same numbers, none of the invoice"
+        );
+        assert!(
+            DEMO_LINE < SUPPORTER_LINES.len(),
+            "index is out of the table"
+        );
+    }
+
+    #[test]
+    fn no_line_is_wide_enough_to_break_a_narrow_panel() {
+        // The box is one line in a panel that can be 80 columns; the star, the
+        // word ANACRAFTER and the separator take about 20 of them.
+        for line in SUPPORTER_LINES {
+            assert!(line.len() <= 40, "too wide for the panel: {line:?}");
+            assert_eq!(line.trim(), line, "padding belongs to the caller: {line:?}");
+        }
+    }
 
     fn account(sub: &str) -> Account {
         Account {

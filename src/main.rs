@@ -487,7 +487,7 @@ async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
             "\n  {} {}  ·  {}\n",
             paint(theme::glyph::STAR, ore::gold()),
             bold(&paint("already an Anacrafter", ore::gold())),
-            dim("thanks for keeping the lights on")
+            dim(license::supporter_line())
         );
         return Ok(());
     }

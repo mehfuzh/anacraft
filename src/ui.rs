@@ -305,6 +305,11 @@ struct Dash {
     demo: bool,
     /// The signed-in Anacrafter's pixel face, worn in the top-right corner.
     avatar: Avatar,
+    /// What the star says to a subscriber. Derived from the account the same
+    /// way `avatar` is, and held rather than looked up per frame — the
+    /// dashboard redraws sixty times a second and this must not read the
+    /// token that often, nor change while somebody is looking at it.
+    supporter_line: &'static str,
 }
 
 impl Dash {
@@ -352,6 +357,7 @@ impl Dash {
             supporter: false,
             demo: false,
             avatar: Avatar::demo(),
+            supporter_line: crate::license::demo_supporter_line(),
         };
         dash.apply_report(snapshot);
         // The constructor's own report shouldn't set every row flashing.
@@ -933,6 +939,7 @@ async fn drive(
     // what the site's captures show, and it is not this account's to hand out.
     if !dash.demo {
         dash.avatar = Avatar::for_account();
+        dash.supporter_line = crate::license::supporter_line();
     }
 
     let mut terminal = ratatui::init();
@@ -1553,11 +1560,10 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
                 // Said out loud in the demo: nobody should read a synthetic
                 // dashboard as proof they already subscribed.
                 if dash.demo {
-                    "  ·  preview  ·  press s to switch back"
+                    "  ·  preview  ·  press s to switch back".to_string()
                 } else {
-                    "  ·  thanks for keeping the lights on"
-                }
-                .to_string(),
+                    format!("  ·  {}", dash.supporter_line)
+                },
                 Style::default().fg(ore::stone()),
             ),
         ])
@@ -3341,12 +3347,15 @@ mod tests {
         assert!(text.contains("ANACRAFTER"), "no status: {text:?}");
         assert!(text.contains("preview"), "reads as earned: {text:?}");
 
-        // Off the demo, the thank-you is a thank-you and nothing mentions a key.
+        // Off the demo, the star carries one of the subscriber lines and
+        // nothing mentions a key.
         dash.demo = false;
         let text = render_to_string(supporter_box(&dash));
         assert!(
-            text.contains("keeping the lights on"),
-            "no thanks: {text:?}"
+            crate::license::SUPPORTER_LINES
+                .iter()
+                .any(|line| text.contains(line)),
+            "no line for a subscriber: {text:?}"
         );
         assert!(!text.contains("preview"), "leaked the demo copy: {text:?}");
     }
