@@ -698,7 +698,7 @@ async fn emit(findings: &Findings, format: Format, webhook: Option<&str>) -> Res
 
     if let Some(webhook) = webhook {
         if !findings.quiet() {
-            post(webhook, &payload(findings, format)).await?;
+            post(webhook, &payload(findings, format, Some(webhook))).await?;
         }
     }
     Ok(())
@@ -706,18 +706,36 @@ async fn emit(findings: &Findings, format: Format, webhook: Option<&str>) -> Res
 
 /// What a webhook receives.
 ///
-/// `--format` chooses it. Posting Block Kit to whatever URL was handed over
-/// regardless made the flag a lie for anyone pointing `--webhook` at their own
-/// service, at Discord, or at anything else that cannot read Slack's blocks.
+/// `--format` chooses it, with two exceptions.
 ///
-/// Panels are the exception, because they have no wire form — a payload of
-/// ANSI escapes is not a payload. Somebody who left `--format` alone and
-/// passed a webhook means "put this in my chat", so that is what they get.
-fn payload(findings: &Findings, format: Format) -> Value {
+/// Panels, because they have no wire form — a payload of ANSI escapes is not a
+/// payload. Somebody who left `--format` alone and passed a webhook means "put
+/// this in my chat".
+///
+/// And Slack, because it cannot read anything but its own shape: handed a bare
+/// JSON object it answers `400 no_text`. `--format json` with a Slack
+/// destination is not a request worth honouring literally — it is a report
+/// printed as JSON, which is what the caller asked for, going to a place that
+/// only speaks blocks. The destination wins over the flag there, which is what
+/// keeps `craft slack --install` from turning `--format json` into an error:
+/// that destination is saved, not typed, so the flag was never about it.
+fn payload(findings: &Findings, format: Format, webhook: Option<&str>) -> Value {
+    if webhook.is_some_and(is_slack) {
+        return as_slack(findings);
+    }
     match format {
         Format::Json => as_json(findings),
         Format::Slack | Format::Panels => as_slack(findings),
     }
+}
+
+/// Whether a URL is one only Slack will answer.
+///
+/// The host, not where the URL came from: this has to cover the webhook
+/// `craft slack --install` saved and one somebody pasted into `--webhook`
+/// themselves, and both are the same string from the same place.
+fn is_slack(webhook: &str) -> bool {
+    webhook.starts_with("https://hooks.slack.com/")
 }
 
 /// Exit 2 when something fired, the way a monitoring command is expected to.
@@ -926,14 +944,38 @@ mod tests {
         // The bug this covers: --format json --webhook used to print JSON and
         // post Block Kit, so the flag was ignored for the one destination the
         // caller had actually named.
-        let json = payload(&findings, Format::Json);
+        let own_service = Some("https://example.com/hook");
+        let json = payload(&findings, Format::Json, own_service);
         assert!(json["alerts"].is_array(), "not the json shape: {json}");
         assert!(json.get("blocks").is_none());
 
         for chat in [Format::Slack, Format::Panels] {
-            let blocks = payload(&findings, chat);
+            let blocks = payload(&findings, chat, own_service);
             assert!(blocks["blocks"].is_array(), "not the chat shape: {blocks}");
         }
+    }
+
+    #[test]
+    fn slack_gets_blocks_whatever_the_format_says() {
+        let findings = demo_findings(28);
+        let slack = Some("https://hooks.slack.com/services/T/B/x");
+
+        // v0.10.0's bug, and it needed no flags to hit: with a destination
+        // saved by `craft slack --install`, plain `craft watch --format json`
+        // posted a bare JSON object to Slack, which answers `400 no_text`.
+        for format in [Format::Json, Format::Slack, Format::Panels] {
+            let body = payload(&findings, format, slack);
+            assert!(body["blocks"].is_array(), "slack cannot read this: {body}");
+        }
+    }
+
+    #[test]
+    fn only_a_real_slack_host_is_treated_as_slack() {
+        assert!(is_slack("https://hooks.slack.com/services/T/B/x"));
+        // A lookalike host must not silently reshape somebody's payload.
+        assert!(!is_slack("https://hooks.slack.com.evil.test/x"));
+        assert!(!is_slack("http://hooks.slack.com/services/T/B/x"));
+        assert!(!is_slack("https://example.com/hook"));
     }
 
     #[test]

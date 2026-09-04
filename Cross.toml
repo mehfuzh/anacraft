@@ -6,11 +6,17 @@
 #
 # v0.8.0 shipped Linux binaries with no subscription lookup for exactly this
 # reason: the two Supabase vars were added to the release workflow and not to
-# this list. Anything the build bakes in with `option_env!` belongs here.
+# this list. v0.10.0 then shipped Linux binaries that could not install into
+# Slack, by making the identical mistake with the two Slack vars — the comment
+# above was already here. Anything the build bakes in with `option_env!`
+# belongs in this list, and the check is `strings` on a musl artifact, not a
+# reading of the workflow.
 [build.env]
 passthrough = [
     "ANACRAFT_OAUTH_CLIENT_ID",
     "ANACRAFT_OAUTH_CLIENT_SECRET",
     "ANACRAFT_SUPABASE_URL",
     "ANACRAFT_SUPABASE_KEY",
+    "ANACRAFT_SLACK_CLIENT_ID",
+    "ANACRAFT_SLACK_REDIRECT",
 ]

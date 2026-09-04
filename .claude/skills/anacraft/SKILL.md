@@ -134,7 +134,9 @@ by the GA4 API name; `baseline_days` and `min_baseline` live in the same table.
 Exit codes are `0` quiet, `2` something fired, `1` error. `--format slack`
 prints nothing on a quiet day, so a cron pipe never posts an empty message.
 `--format` also chooses the webhook's payload — `--format json --webhook <url>`
-POSTs the JSON object, so a non-Slack endpoint gets a shape it can read.
+POSTs the JSON object, so a non-Slack endpoint gets a shape it can read. A
+`hooks.slack.com` URL is the exception and always gets blocks: Slack answers a
+bare JSON object with `400 no_text`.
 `craft slack --install` is the easy way to set a destination: it opens Slack's
 own install screen, where the workspace and channel are picked, and saves the
 webhook to `~/.anacraft/slack.json` (0600). Then `craft watch` needs no

@@ -275,7 +275,8 @@ you made yourself, and always works:</p>
 <p><code>--format slack</code> prints <b>nothing at all</b> on a quiet day, which is what stops a cron
 line posting an empty message every morning. <code>ANACRAFT_WEBHOOK</code> works in place of the flag,
 and <code>--format</code> chooses what the webhook receives — so a URL pointed at something other than
-Slack gets a shape it can read.</p>
+Slack gets a shape it can read. A <code>hooks.slack.com</code> URL is the exception and always gets
+blocks, because Slack answers a bare JSON object with <code>400 no_text</code>.</p>
 <p>The destination is resolved in that order: the flag, then the environment, then whatever
 <code>craft slack --install</code> saved.</p>
 

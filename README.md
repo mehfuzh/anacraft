@@ -194,8 +194,12 @@ does the POST itself — a daemon has nothing to pipe into.
 
 `--format` chooses what the webhook receives, so a URL pointed at something
 other than Slack gets a shape it can read: `--format json --webhook <url>`
-posts the JSON object. Panels have no wire form, so leaving `--format` alone
-and passing a webhook posts the Slack blocks.
+posts the JSON object. Two exceptions. Panels have no wire form, so leaving
+`--format` alone and passing a webhook posts the Slack blocks. And a
+`hooks.slack.com` URL always gets blocks whatever `--format` says, because
+Slack answers a bare JSON object with `400 no_text` — the destination wins
+over the flag there, which is what keeps `craft slack --install` from turning
+`--format json` into an error.
 
 ### Installing into Slack
 
