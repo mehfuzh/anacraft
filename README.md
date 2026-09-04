@@ -174,6 +174,18 @@ Keys are `users`, `sessions`, `views`, `conversions`, `bounce_rate`,
 `avg_session`, or the GA4 API name if you prefer it. `--baseline <days>`
 overrides the window for one run.
 
+**What lands in Slack.** Each alert carries the metric, the day's value, how
+far it moved, and the baseline it moved away from — plus a sparkline of the
+whole window ending on the day being reported, because "38% below normal" does
+not say whether the number slid all week or fell off a cliff last night. Where
+one channel carries most of a move, it is named: *mostly Organic Search — 96
+against 331 (79% of the move)*. Counts only, and only when that channel
+accounts for at least 35% of the total movement — under that the move was
+site-wide, and naming its largest slice would read as a cause. The message
+carries a link back to the property in GA4, and a red or amber bar down its
+side so an alert is told from everything else in the channel before a word of
+it is read.
+
 The same day's alert is only sent once. State lives in `~/.anacraft/watch.json`
 and is keyed by the day being reported on, so `--every 3600` sends one message
 about a drop rather than twenty-four, and a new day is news again. It is

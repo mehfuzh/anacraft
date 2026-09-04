@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::config::{self, Config, Watch as Settings};
-use crate::ga::{DateRange, Ga, ReportRequest};
+use crate::ga::{DateRange, Ga, Report, ReportRequest};
 use crate::mcp::unit_of;
 use crate::render::{self, bold, dim, paint, panel_bottom, panel_top};
 use crate::report::Format;
@@ -46,6 +46,38 @@ const MIN_INTERVAL: u64 = 60;
 
 /// How long to give a webhook before giving up on it.
 const POST_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The dimension an alert is attributed to.
+///
+/// Channel group rather than source/medium: "Organic Search" is a phrase a
+/// person reads, `google / organic` is a row out of a report, and the point of
+/// the line is that somebody scanning a channel understands it without opening
+/// anything.
+const CHANNEL: &str = "sessionDefaultChannelGroup";
+
+/// How much of a move one channel has to carry before it is named.
+///
+/// Under this the move was spread across the whole site, and naming its
+/// largest slice would point somebody at a channel that did nothing unusual —
+/// worse than saying nothing, because a named channel reads as a cause.
+const MOVER_SHARE: f64 = 0.35;
+
+/// The color down the side of a Slack message. Fixed rather than read from the
+/// palette: this is going to other people's Slack, where the theme selected on
+/// this machine is not a thing that exists. Darker than the terminal reds and
+/// golds because it has to hold against a white background too.
+const BAR_ALARM: &str = "#e03131";
+const BAR_WATCH: &str = "#c99700";
+
+/// Where a property lives in the GA4 web UI.
+///
+/// A link rather than a Block Kit button: a `url` button still posts an
+/// interaction payload to the app's request URL, and `craft slack --install`
+/// asks for `incoming-webhook` and nothing else, so there is no endpoint to
+/// receive one. A link needs no scope and opens the same page.
+fn ga_url(property: &str) -> String {
+    format!("https://analytics.google.com/analytics/web/#/p{property}/reports/dashboard")
+}
 
 // ------------------------------------------------------------- thresholds ---
 
@@ -141,6 +173,24 @@ impl Trigger {
         }
     }
 
+    /// For Slack, where a terminal glyph is a font gamble and the color it
+    /// would have been painted does not survive the trip.
+    fn emoji(self) -> &'static str {
+        match self {
+            Trigger::Silent => "⚫",
+            Trigger::Drop => "🔻",
+            Trigger::Spike => "🔺",
+        }
+    }
+
+    fn arrow(self) -> char {
+        match self {
+            Trigger::Silent => '·',
+            Trigger::Drop => '↓',
+            Trigger::Spike => '↑',
+        }
+    }
+
     fn color(self) -> ratatui::style::Color {
         match self {
             // Silence is the serious one, so it gets the alarming color even
@@ -148,6 +198,30 @@ impl Trigger {
             Trigger::Silent | Trigger::Drop => ore::redstone(),
             Trigger::Spike => ore::gold(),
         }
+    }
+}
+
+/// The channel that carried most of a metric's move.
+///
+/// Attribution, not causation. This is the largest single slice of the change,
+/// and `share` is how much of the total movement that slice accounts for — so
+/// a reader can tell "it was all one channel" from "one channel edged the
+/// others", which are different findings and want different responses.
+#[derive(Debug, Clone)]
+pub struct Mover {
+    channel: String,
+    latest: f64,
+    baseline: f64,
+    /// 0.0-1.0 of the summed absolute per-channel movement.
+    share: f64,
+}
+
+impl Mover {
+    fn change_pct(&self) -> f64 {
+        if self.baseline <= 0.0 {
+            return 0.0;
+        }
+        (self.latest - self.baseline) / self.baseline * 100.0
     }
 }
 
@@ -160,6 +234,13 @@ pub struct Alert {
     change_pct: f64,
     threshold_pct: f64,
     trigger: Trigger,
+    /// The baseline window, chronological, with the alerting day appended as
+    /// the last point — so the shape a reader sees ends on the thing being
+    /// reported rather than stopping the day before it.
+    series: Vec<f64>,
+    /// Which channel moved, on the metrics where that decomposes and when one
+    /// channel clearly did.
+    mover: Option<Mover>,
 }
 
 impl Alert {
@@ -228,6 +309,10 @@ fn check(metric: &'static Metric, latest: f64, baseline: f64, rules: &Rules) -> 
             change_pct: 0.0,
             threshold_pct,
             trigger: Trigger::Silent,
+            // Filled in by the caller, which is the only thing holding the
+            // window and the channel split. `check` stays a pure comparison.
+            series: Vec::new(),
+            mover: None,
         });
     }
 
@@ -247,6 +332,8 @@ fn check(metric: &'static Metric, latest: f64, baseline: f64, rules: &Rules) -> 
         } else {
             Trigger::Drop
         },
+        series: Vec::new(),
+        mover: None,
     })
 }
 
@@ -318,16 +405,29 @@ async fn examine(
         });
     }
 
-    let alerts = OVERVIEW
+    // GA returns date rows in no particular order, and a sparkline drawn from
+    // them in that order is a picture of the sort, not of the week.
+    let mut ordered = history.rows.clone();
+    ordered.sort_by(|a, b| a.dimension(0).cmp(b.dimension(0)));
+
+    let mut alerts: Vec<Alert> = OVERVIEW
         .iter()
         .enumerate()
         .filter_map(|(i, metric)| {
             let today = latest.rows.first().map(|row| row.metric(i)).unwrap_or(0.0);
             let sum: f64 = history.rows.iter().map(|row| row.metric(i)).sum();
             let base = baseline_of(metric.kind, sum, history.rows.len(), days);
-            check(metric, today, base, &rules)
+            let mut alert = check(metric, today, base, &rules)?;
+            alert.series = ordered
+                .iter()
+                .map(|row| row.metric(i))
+                .chain(std::iter::once(today))
+                .collect();
+            Some(alert)
         })
         .collect();
+
+    attribute(ga, property, &metrics, days, &mut alerts).await;
 
     Ok(Findings {
         property: property.to_string(),
@@ -336,6 +436,90 @@ async fn examine(
         baseline_days: days,
         dark: false,
         alerts,
+    })
+}
+
+/// Name the channel behind each count alert, where one channel is behind it.
+///
+/// Best effort by construction. These are two extra reports, fired only when
+/// something has already fired — a quiet pass pays nothing — and a failure
+/// leaves the alerts exactly as they were. An alert that says less than it
+/// could is worth sending; an alert that never sent because the attribution
+/// query timed out is not.
+async fn attribute(ga: &Ga, property: &str, metrics: &[&str], days: u32, alerts: &mut [Alert]) {
+    // Rates and durations do not decompose this way. A per-channel bounce rate
+    // does not average back to the site's, so a "share of the move" computed
+    // from one would be a confident number about nothing.
+    if !alerts.iter().any(|a| a.metric.kind == Kind::Count) {
+        return;
+    }
+
+    let Ok((today, before)) = tokio::try_join!(
+        ga.report(
+            property,
+            ReportRequest::new(metrics)
+                .by(&[CHANNEL])
+                .range(DateRange::yesterday())
+        ),
+        ga.report(
+            property,
+            ReportRequest::new(metrics)
+                .by(&[CHANNEL])
+                .range(DateRange::span(days + 1, 2))
+        )
+    ) else {
+        return;
+    };
+
+    for (i, metric) in OVERVIEW.iter().enumerate() {
+        if metric.kind != Kind::Count {
+            continue;
+        }
+        if let Some(alert) = alerts.iter_mut().find(|a| a.metric.api == metric.api) {
+            alert.mover = biggest_mover(&today, &before, i, days);
+        }
+    }
+}
+
+/// The channel with the largest movement, if it carries enough of the total.
+///
+/// The denominator is the summed absolute per-channel movement, not the
+/// headline change, and those are different numbers on purpose: users are
+/// deduplicated per channel and so do not add back up to the site's total. A
+/// share measured against a total its own parts never summed to would quietly
+/// overstate itself on the metric people read first.
+fn biggest_mover(today: &Report, before: &Report, i: usize, days: u32) -> Option<Mover> {
+    let mut moves: BTreeMap<String, (f64, f64)> = BTreeMap::new();
+    for row in &today.rows {
+        moves.entry(row.dimension(0).to_string()).or_default().0 = row.metric(i);
+    }
+    for row in &before.rows {
+        // The window came back as a total; the alert compares against a daily
+        // normal, so this has to be the same shape as the number it explains.
+        moves.entry(row.dimension(0).to_string()).or_default().1 =
+            row.metric(i) / days.max(1) as f64;
+    }
+
+    let total: f64 = moves.values().map(|(l, b)| (l - b).abs()).sum();
+    if !total.is_finite() || total <= 0.0 {
+        return None;
+    }
+
+    let (channel, (latest, baseline)) = moves.iter().max_by(|a, b| {
+        let (x, y) = ((a.1 .0 - a.1 .1).abs(), (b.1 .0 - b.1 .1).abs());
+        x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)
+    })?;
+
+    let share = (latest - baseline).abs() / total;
+    if share < MOVER_SHARE {
+        return None;
+    }
+
+    Some(Mover {
+        channel: channel.clone(),
+        latest: *latest,
+        baseline: *baseline,
+        share,
     })
 }
 
@@ -401,8 +585,15 @@ fn panels(findings: &Findings) -> String {
             bold(&render::value(alert.metric, alert.latest)),
             headline,
         ));
+        // Its own line, not appended to the one below it: a 28-day sparkline
+        // and the sentence about the baseline do not both fit inside the
+        // panel, and the frame is what tells a person where the report ends.
         out.push_str(&format!(
-            "    {}\n\n",
+            "    {}\n",
+            render::sparkline(&alert.series, alert.trigger.color())
+        ));
+        out.push_str(&format!(
+            "    {}\n",
             dim(&format!(
                 "{}-day normal {} · fires past {:.0}%",
                 findings.baseline_days,
@@ -410,10 +601,29 @@ fn panels(findings: &Findings) -> String {
                 alert.threshold_pct,
             ))
         ));
+        if let Some(mover) = &alert.mover {
+            // A channel group can be named anything — "Organic Video", "Cross-
+            // network" — so this is clipped rather than trusted to be short.
+            let line = truncate(&mover_line(alert, mover), render::PANEL_WIDTH - 6);
+            out.push_str(&format!("    {}\n", dim(&line)));
+        }
+        out.push('\n');
     }
 
     out.push_str(&format!("{}\n", panel_bottom()));
     out
+}
+
+/// How the attribution reads out loud. One function because the panel and the
+/// Slack message must not describe the same finding two different ways.
+fn mover_line(alert: &Alert, mover: &Mover) -> String {
+    format!(
+        "mostly {} — {} against {} ({:.0}% of the move)",
+        mover.channel,
+        render::value(alert.metric, mover.latest),
+        render::value(alert.metric, mover.baseline),
+        mover.share * 100.0,
+    )
 }
 
 /// One object, the same way `overview --format json` answers.
@@ -421,6 +631,7 @@ fn as_json(findings: &Findings) -> Value {
     json!({
         "property": findings.property,
         "title": findings.title,
+        "url": ga_url(&findings.property),
         "date": findings.date,
         "baseline_days": findings.baseline_days,
         "quiet": findings.quiet(),
@@ -434,11 +645,39 @@ fn as_json(findings: &Findings) -> Value {
             "baseline": a.baseline,
             "change_pct": a.change_pct,
             "threshold_pct": a.threshold_pct,
+            // The window itself, so something downstream can draw it rather
+            // than re-query the days this pass has already read.
+            "series": a.series,
+            "mover": a.mover.as_ref().map(|m| json!({
+                "dimension": CHANNEL,
+                "channel": m.channel,
+                "value": m.latest,
+                "baseline": m.baseline,
+                "change_pct": m.change_pct(),
+                "share": m.share,
+            })),
         })).collect::<Vec<_>>(),
     })
 }
 
 /// A Block Kit payload, ready for an incoming webhook.
+///
+/// Four things here are not decoration.
+///
+/// The top-level `text`, because Slack extracts a desktop notification out of
+/// the blocks but mobile notifications use `text` and nothing else — so
+/// without it the one surface this whole feature exists for, somebody away
+/// from their terminal, buzzes with an empty message.
+///
+/// The attachment, for the color bar down its side. That bar is how an alert
+/// is told from everything else in a busy channel before a word is read.
+///
+/// The sparkline, because "38% below normal" does not say whether the number
+/// slid all week or fell off a cliff last night, and those are different
+/// problems. The days are already in hand from the baseline query.
+///
+/// And the link, because a message that names a property id and stops is
+/// asking the reader to go and find it.
 fn as_slack(findings: &Findings) -> Value {
     let heading = if findings.dark {
         format!("⛏ {} · nothing recorded", findings.title)
@@ -451,13 +690,10 @@ fn as_slack(findings: &Findings) -> Value {
         )
     };
 
-    let mut blocks = vec![json!({
-        "type": "header",
-        "text": { "type": "plain_text", "text": truncate(&heading, 150) },
-    })];
+    let mut body = Vec::new();
 
     if findings.dark {
-        blocks.push(json!({
+        body.push(json!({
             "type": "section",
             "text": { "type": "mrkdwn", "text": format!(
                 "*No rows at all in {} days.* Check the tag is installed, or that `{}` \
@@ -468,39 +704,128 @@ fn as_slack(findings: &Findings) -> Value {
     }
 
     for alert in &findings.alerts {
-        let line = match alert.trigger {
-            Trigger::Silent => format!(
-                "*{}* — nothing recorded, against a {}-day normal of {}",
-                alert.metric.plain,
-                findings.baseline_days,
-                render::value(alert.metric, alert.baseline),
-            ),
-            _ => format!(
-                "*{}* {} — {} against a {}-day normal of {}",
-                alert.metric.plain,
-                render::value(alert.metric, alert.latest),
-                format_args!("{}{:.0}%", alert.trigger.glyph(), alert.change_pct.abs()),
-                findings.baseline_days,
-                render::value(alert.metric, alert.baseline),
-            ),
-        };
-        blocks.push(json!({
+        body.push(json!({
             "type": "section",
-            "text": { "type": "mrkdwn", "text": line },
+            "text": { "type": "mrkdwn", "text": headline(alert, findings.baseline_days) },
         }));
-    }
-
-    if let Some(date) = &findings.date {
-        blocks.push(json!({
+        // The supporting numbers go in a context block rather than the section:
+        // Slack sets it smaller and dimmer, which is the same thing `dim` does
+        // to this line in the terminal panel.
+        body.push(json!({
             "type": "context",
-            "elements": [{
-                "type": "mrkdwn",
-                "text": format!("{} · property {}", date, findings.property),
-            }],
+            "elements": [{ "type": "mrkdwn", "text": detail(alert) }],
         }));
     }
 
-    json!({ "blocks": blocks })
+    let mut footer = format!(
+        "<{}|Open in GA4> · property {}",
+        ga_url(&findings.property),
+        findings.property
+    );
+    if let Some(date) = &findings.date {
+        footer = format!("{date} · {footer}");
+    }
+    body.push(json!({
+        "type": "context",
+        "elements": [{ "type": "mrkdwn", "text": footer }],
+    }));
+
+    json!({
+        "text": truncate(&fallback(findings, &heading), 300),
+        // The header stays outside the attachment so it reads as the message
+        // rather than as the first thing the message is about.
+        "blocks": [{
+            "type": "header",
+            "text": { "type": "plain_text", "text": truncate(&heading, 150) },
+        }],
+        "attachments": [{ "color": bar(findings), "blocks": body }],
+        // The GA4 link is the only link in here and it unfurls to a sign-in
+        // page, which is a preview of nothing taking up half the message.
+        "unfurl_links": false,
+        "unfurl_media": false,
+    })
+}
+
+/// The notification line — what a phone shows on a lock screen.
+///
+/// It names what moved rather than how many things did, because "3 alerts" is
+/// a reason to go and open the app and "users ↓38%, conversions silent" is an
+/// answer. Slack shows this instead of the blocks, not alongside them.
+fn fallback(findings: &Findings, heading: &str) -> String {
+    if findings.alerts.is_empty() {
+        return heading.to_string();
+    }
+    let moved: Vec<String> = findings
+        .alerts
+        .iter()
+        .map(|a| match a.trigger {
+            Trigger::Silent => format!("{} silent", a.metric.plain.to_lowercase()),
+            _ => format!(
+                "{} {}{:.0}%",
+                a.metric.plain.to_lowercase(),
+                a.trigger.arrow(),
+                a.change_pct.abs()
+            ),
+        })
+        .collect();
+    format!("{heading} — {}", moved.join(", "))
+}
+
+/// The bar down the side of the message.
+///
+/// The worst thing in it, not the first: a message carrying a silence and a
+/// spike is a red message, and sorting that out by reading is the work the
+/// color is supposed to save.
+fn bar(findings: &Findings) -> &'static str {
+    let alarming = findings.dark
+        || findings
+            .alerts
+            .iter()
+            .any(|a| matches!(a.trigger, Trigger::Silent | Trigger::Drop));
+    if alarming {
+        BAR_ALARM
+    } else {
+        BAR_WATCH
+    }
+}
+
+/// The one line that has to survive being skimmed.
+fn headline(alert: &Alert, baseline_days: u32) -> String {
+    match alert.trigger {
+        Trigger::Silent => format!(
+            "{} *{}* — nothing recorded, against a {}-day normal of {}",
+            alert.trigger.emoji(),
+            alert.metric.plain,
+            baseline_days,
+            render::value(alert.metric, alert.baseline),
+        ),
+        _ => format!(
+            "{} *{}* {} — {}{:.0}% against a {}-day normal of {}",
+            alert.trigger.emoji(),
+            alert.metric.plain,
+            render::value(alert.metric, alert.latest),
+            alert.trigger.arrow(),
+            alert.change_pct.abs(),
+            baseline_days,
+            render::value(alert.metric, alert.baseline),
+        ),
+    }
+}
+
+/// The line under it: the shape of the window, the threshold that fired, and
+/// the channel behind the move when one channel is behind it.
+fn detail(alert: &Alert) -> String {
+    let mut parts = Vec::new();
+    if !alert.series.is_empty() {
+        // Backticks so the blocks sit on one baseline. Slack sets context text
+        // in a proportional font, which staggers a bare sparkline into a hedge.
+        parts.push(format!("`{}`", render::spark_glyphs(&alert.series)));
+    }
+    parts.push(format!("fires past {:.0}%", alert.threshold_pct));
+    if let Some(mover) = &alert.mover {
+        parts.push(mover_line(alert, mover));
+    }
+    parts.join(" · ")
 }
 
 /// Character-wise, so a multi-byte title is not sliced mid-codepoint.
@@ -770,6 +1095,13 @@ fn demo_findings(baseline_days: u32) -> Findings {
                 change_pct: -37.95,
                 threshold_pct: 30.0,
                 trigger: Trigger::Drop,
+                series: demo_series(664.0, 412.0, baseline_days),
+                mover: Some(Mover {
+                    channel: "Organic Search".to_string(),
+                    latest: 96.0,
+                    baseline: 331.0,
+                    share: 0.79,
+                }),
             },
             Alert {
                 metric: at(3),
@@ -778,6 +1110,13 @@ fn demo_findings(baseline_days: u32) -> Findings {
                 change_pct: 0.0,
                 threshold_pct: 40.0,
                 trigger: Trigger::Silent,
+                series: demo_series(12.4, 0.0, baseline_days),
+                mover: Some(Mover {
+                    channel: "Direct".to_string(),
+                    latest: 0.0,
+                    baseline: 7.1,
+                    share: 0.58,
+                }),
             },
             Alert {
                 metric: at(4),
@@ -786,9 +1125,29 @@ fn demo_findings(baseline_days: u32) -> Findings {
                 change_pct: 61.4,
                 threshold_pct: 20.0,
                 trigger: Trigger::Spike,
+                series: demo_series(0.44, 0.71, baseline_days),
+                // A rate has no channel split worth showing — see `attribute`.
+                mover: None,
             },
         ],
     }
+}
+
+/// A plausible window for the demo: a steady series wandering around the
+/// baseline, then the day being reported on.
+///
+/// Two waves that do not share a period, rather than a table of wobble factors
+/// — a table short enough to write out repeats inside a 28-day window, and a
+/// sparkline that repeats reads as a comb rather than as a site. Deterministic
+/// either way, so two screenshots of `--demo` are of the same thing.
+fn demo_series(baseline: f64, latest: f64, days: u32) -> Vec<f64> {
+    (0..days)
+        .map(|i| {
+            let t = f64::from(i);
+            baseline * (1.0 + 0.11 * (t * 0.9).sin() + 0.07 * (t * 0.31).cos())
+        })
+        .chain(std::iter::once(latest))
+        .collect()
 }
 
 #[cfg(test)]
@@ -935,6 +1294,134 @@ mod tests {
             loud["blocks"][0]["text"]["text"],
             "⛏ Contoso Labs (demo) · 3 alerts"
         );
+    }
+
+    #[test]
+    fn a_phone_is_told_what_moved_and_not_only_that_something_did() {
+        // The bug this covers: the payload was `{"blocks": [...]}` and nothing
+        // else. Slack pulls a desktop notification out of blocks, so this read
+        // fine on a laptop — but mobile notifications use `text` exclusively,
+        // so every push from `craft watch` arrived empty, on the one surface
+        // the whole command exists to reach.
+        let text = as_slack(&demo_findings(28))["text"]
+            .as_str()
+            .expect("no fallback text: mobile push is blank")
+            .to_string();
+
+        assert!(text.contains("Contoso Labs (demo)"), "{text}");
+        // Named metrics and directions, not a count of alerts.
+        assert!(text.contains("users ↓38%"), "{text}");
+        assert!(text.contains("conversions silent"), "{text}");
+        assert!(text.contains("bounce rate ↑61%"), "{text}");
+    }
+
+    #[test]
+    fn the_message_has_somewhere_to_go() {
+        let slack = as_slack(&demo_findings(28)).to_string();
+        assert!(
+            slack.contains("analytics.google.com/analytics/web/#/p397412345"),
+            "no way back to the property: {slack}"
+        );
+        // A link, not a button: `craft slack --install` takes incoming-webhook
+        // and nothing else, so there is no endpoint to receive an interaction.
+        assert!(!slack.contains(r#""type":"button""#), "{slack}");
+
+        assert!(as_json(&demo_findings(28))["url"].as_str().is_some());
+    }
+
+    #[test]
+    fn the_bar_takes_the_colour_of_the_worst_thing_in_the_message() {
+        let findings = demo_findings(28);
+        assert_eq!(as_slack(&findings)["attachments"][0]["color"], BAR_ALARM);
+
+        // A spike on its own is worth looking at, not worth waking up for.
+        let spikes_only = Findings {
+            alerts: findings
+                .alerts
+                .into_iter()
+                .filter(|a| a.trigger == Trigger::Spike)
+                .collect(),
+            ..demo_findings(28)
+        };
+        assert_eq!(as_slack(&spikes_only)["attachments"][0]["color"], BAR_WATCH);
+
+        let dark = Findings {
+            dark: true,
+            alerts: Vec::new(),
+            ..demo_findings(28)
+        };
+        assert_eq!(as_slack(&dark)["attachments"][0]["color"], BAR_ALARM);
+    }
+
+    #[test]
+    fn each_alert_carries_its_window_and_its_cause() {
+        let slack = as_slack(&demo_findings(28));
+        let body = slack["attachments"][0]["blocks"].as_array().unwrap();
+
+        // section, context, per alert — then one context for the footer.
+        assert_eq!(body.len(), 3 * 2 + 1);
+        let detail = body[1]["elements"][0]["text"].as_str().unwrap();
+        assert!(detail.contains('▁') || detail.contains('█'), "{detail}");
+        assert!(detail.starts_with('`'), "unfenced sparkline: {detail}");
+        assert!(detail.contains("mostly Organic Search"), "{detail}");
+        assert!(detail.contains("79% of the move"), "{detail}");
+
+        // The window ends on the day being reported, not the day before it.
+        let series = &demo_findings(28).alerts[0].series;
+        assert_eq!(series.len(), 29);
+        assert_eq!(series[28], 412.0);
+    }
+
+    #[test]
+    fn a_channel_is_named_only_when_it_carries_the_move() {
+        // Organic collapsed; the rest of the site barely twitched.
+        let one = biggest_mover(
+            &report(&[("Organic Search", 40.0), ("Direct", 95.0)]),
+            &report(&[("Organic Search", 3100.0), ("Direct", 950.0)]),
+            0,
+            10,
+        )
+        .expect("one channel carried it");
+        assert_eq!(one.channel, "Organic Search");
+        assert_eq!(one.baseline, 310.0, "a window total is not a daily normal");
+        assert!(one.share > 0.9, "{}", one.share);
+
+        // The same size of drop, spread evenly. Naming the largest slice here
+        // would point somebody at a channel that did nothing unusual.
+        assert!(
+            biggest_mover(
+                &report(&[("Organic Search", 60.0), ("Direct", 55.0), ("Paid", 58.0)]),
+                &report(&[
+                    ("Organic Search", 1000.0),
+                    ("Direct", 950.0),
+                    ("Paid", 980.0)
+                ]),
+                0,
+                10,
+            )
+            .is_none(),
+            "a site-wide move has no one cause to name"
+        );
+
+        // Nothing moved at all: no division by a zero denominator.
+        assert!(biggest_mover(
+            &report(&[("Direct", 10.0)]),
+            &report(&[("Direct", 100.0)]),
+            0,
+            10
+        )
+        .is_none());
+    }
+
+    /// A one-dimension, one-metric report, built the way the API sends one.
+    fn report(rows: &[(&str, f64)]) -> Report {
+        serde_json::from_value(json!({
+            "rows": rows.iter().map(|(name, value)| json!({
+                "dimensionValues": [{ "value": name }],
+                "metricValues": [{ "value": value.to_string() }],
+            })).collect::<Vec<_>>(),
+        }))
+        .expect("a report shaped like GA4's")
     }
 
     #[test]

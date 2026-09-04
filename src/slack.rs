@@ -332,6 +332,10 @@ pub async fn test() -> Result<()> {
         .context("no Slack install on this machine — run `craft slack --install` first")?;
 
     let payload = json!({
+        // Same reason `craft watch` carries one: mobile notifications use the
+        // top-level text and nothing else, and a test message that arrives on
+        // a phone as a blank push has disproved the thing it was sent to prove.
+        "text": "⛏ anacraft is connected — this is where your alerts will land.",
         "blocks": [
             {
                 "type": "header",
