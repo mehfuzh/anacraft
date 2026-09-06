@@ -199,6 +199,17 @@
   skill: clone it and ask to <i>configure Google Analytics</i>, and Claude walks the steps with you.</p>
 </div>
 
+<div class="tldr">
+  <div class="h">Steps 01–03, as one command</div>
+  <p>If you are here to get a tag onto a site, anacraft can do the first three steps for you.
+  <a href="/#start">Install it</a>, then:</p>
+  <pre class="code">craft configure <span class="k">yoursite.com</span></pre>
+  <p>It creates the property and the web data stream, then prints the gtag.js snippet with your
+  measurement id already filled in. Google asks your permission on screen first, and the command
+  creates nothing if the domain already has a property — it prints that one's tag instead. Everything
+  from step 04 on still happens in the console, and is still worth reading.</p>
+</div>
+
 <h2><span class="n">01</span>Create the account and property</h2>
 <p>Everything starts at <a href="https://analytics.google.com">analytics.google.com</a> under
 <b>Admin</b>, the gear at the bottom left. GA4 nests <b>Account → Property → Data stream</b>; knowing
@@ -224,7 +235,8 @@ needs. It is <b>not</b> the property id, which is the single most common mix-up 
 see step 06.</p>
 
 <h2><span class="n">03</span>Install the tag</h2>
-<p>The cheapest correct install is the gtag.js snippet, in <code>&lt;head&gt;</code>, on every page:</p>
+<p>The cheapest correct install is the gtag.js snippet, in <code>&lt;head&gt;</code>, on every page.
+<code>craft configure yoursite.com</code> prints this with the id already in it; by hand it is:</p>
 <pre class="code"><span class="d">&lt;!-- Google tag (gtag.js) --&gt;</span>
 &lt;script async src="https://www.googletagmanager.com/gtag/js?id=<span class="k">G-XXXXXXXXXX</span>"&gt;&lt;/script&gt;
 &lt;script&gt;

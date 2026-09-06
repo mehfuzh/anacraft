@@ -4,6 +4,7 @@ mod achievements;
 mod auth;
 mod avatar;
 mod config;
+mod configure;
 mod ga;
 mod license;
 mod mcp;
@@ -64,6 +65,31 @@ enum Command {
     Use {
         /// Numeric property id, e.g. 397412345
         id: String,
+    },
+    /// Set a website up in GA4 and print the tag to paste on it.
+    ///
+    /// Creates the property and the web data stream for a domain, then prints
+    /// the gtag.js snippet with its measurement id already filled in — the
+    /// first three steps of the setup guide, without the console. Run it twice
+    /// and it reuses what it made the first time, so it is also how to get the
+    /// tag back.
+    ///
+    /// This is the one command that changes anything in Analytics, so it asks
+    /// Google for permission to do so when you run it, and not before.
+    Configure {
+        /// The site to measure, e.g. example.com
+        domain: String,
+        /// Analytics account to create the property under. Only needed when
+        /// the signed-in account can see more than one.
+        #[arg(long)]
+        account: Option<String>,
+        /// IANA reporting time zone, e.g. America/New_York. Defaults to this
+        /// machine's.
+        #[arg(long)]
+        timezone: Option<String>,
+        /// ISO 4217 reporting currency.
+        #[arg(long, default_value = "USD")]
+        currency: String,
     },
     /// Headline metrics for the period, with deltas and achievements.
     Overview {
@@ -313,6 +339,22 @@ async fn run() -> Result<()> {
         Command::Logout => cmd_logout().await,
         Command::Props => cmd_props().await,
         Command::Use { id } => cmd_use(&id).await,
+        Command::Configure {
+            domain,
+            account,
+            timezone,
+            currency,
+        } => {
+            configure::run(
+                &domain,
+                configure::Options {
+                    account,
+                    timezone,
+                    currency,
+                },
+            )
+            .await
+        }
         Command::Overview { days, format } => {
             cmd_overview(
                 &cfg.resolve_property(cli.property.as_deref())?,

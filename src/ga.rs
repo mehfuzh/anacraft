@@ -280,6 +280,12 @@ impl Ga {
         Ok(Ga { http, auth })
     }
 
+    /// The credential store behind this client, so a command that needs a
+    /// wider scope than reporting can ask for one before it starts.
+    pub fn auth(&self) -> &Auth {
+        &self.auth
+    }
+
     async fn post<T: for<'de> Deserialize<'de>>(
         &self,
         url: &str,
@@ -387,6 +393,180 @@ pub struct Property {
     pub account: String,
 }
 
+/// A GA4 account — the container a property is created inside.
+pub struct Account {
+    /// Bare numeric id, e.g. "1234". The API wants it back as `accounts/1234`.
+    pub id: String,
+    pub name: String,
+}
+
+impl Account {
+    /// The resource name a `parent` field expects.
+    pub fn parent(&self) -> String {
+        format!("accounts/{}", self.id)
+    }
+}
+
+/// A web data stream: the thing that owns a measurement id.
+pub struct WebStream {
+    pub measurement_id: String,
+    pub default_uri: String,
+}
+
+impl Ga {
+    /// Every GA4 account this login can act in.
+    ///
+    /// Distinct from `properties()`, which reads account *summaries* for their
+    /// property lists. Creating needs the account id itself, and an account
+    /// with no properties yet — the common case for somebody setting up their
+    /// first site — has no summary worth reading.
+    pub async fn accounts(&self) -> Result<Vec<Account>> {
+        let mut out = Vec::new();
+        let mut page_token: Option<String> = None;
+
+        loop {
+            let mut url = format!("{ADMIN_API}/accounts?pageSize=200");
+            if let Some(token) = &page_token {
+                url.push_str(&format!("&pageToken={token}"));
+            }
+            let page: AccountList = self.get(&url).await?;
+
+            for account in page.accounts {
+                out.push(Account {
+                    id: account.name.trim_start_matches("accounts/").to_string(),
+                    name: account.display_name,
+                });
+            }
+
+            match page.next_page_token {
+                Some(token) if !token.is_empty() => page_token = Some(token),
+                _ => break,
+            }
+        }
+        Ok(out)
+    }
+
+    /// The web data streams on a property. App streams are dropped: they carry
+    /// no measurement id, and nothing here can put a tag on a phone.
+    ///
+    /// Unpaginated on purpose — GA4 caps a property at 50 data streams, so one
+    /// page of 200 is all of them.
+    pub async fn web_streams(&self, property: &str) -> Result<Vec<WebStream>> {
+        let url = format!("{ADMIN_API}/properties/{property}/dataStreams?pageSize=200");
+        let page: DataStreamList = self.get(&url).await?;
+        Ok(page
+            .data_streams
+            .into_iter()
+            .filter_map(|stream| {
+                let web = stream.web_stream_data?;
+                Some(WebStream {
+                    measurement_id: web.measurement_id,
+                    default_uri: web.default_uri,
+                })
+            })
+            .collect())
+    }
+
+    /// Create a property. Requires `analytics.edit`.
+    pub async fn create_property(
+        &self,
+        account: &Account,
+        display_name: &str,
+        time_zone: &str,
+        currency: &str,
+    ) -> Result<Property> {
+        let url = format!("{ADMIN_API}/properties");
+        let body = serde_json::json!({
+            "parent": account.parent(),
+            "displayName": display_name,
+            "timeZone": time_zone,
+            "currencyCode": currency,
+        });
+        let created: PropertyResource = self.post(&url, &body).await?;
+        Ok(Property {
+            id: created.name.trim_start_matches("properties/").to_string(),
+            name: created.display_name,
+            account: account.name.clone(),
+        })
+    }
+
+    /// Create the web data stream that mints the measurement id. Requires
+    /// `analytics.edit`.
+    pub async fn create_web_stream(
+        &self,
+        property: &str,
+        display_name: &str,
+        default_uri: &str,
+    ) -> Result<WebStream> {
+        let url = format!("{ADMIN_API}/properties/{property}/dataStreams");
+        let body = serde_json::json!({
+            "type": "WEB_DATA_STREAM",
+            "displayName": display_name,
+            "webStreamData": { "defaultUri": default_uri },
+        });
+        let created: DataStreamResource = self.post(&url, &body).await?;
+        let web = created.web_stream_data.context(
+            "Google created the stream but returned no web stream data, so there is no \
+             measurement id to print — check the property in the Analytics console",
+        )?;
+        Ok(WebStream {
+            measurement_id: web.measurement_id,
+            default_uri: web.default_uri,
+        })
+    }
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct AccountList {
+    #[serde(default)]
+    accounts: Vec<AccountResource>,
+    #[serde(default)]
+    next_page_token: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct AccountResource {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    display_name: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PropertyResource {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    display_name: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct DataStreamList {
+    #[serde(default)]
+    data_streams: Vec<DataStreamResource>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct DataStreamResource {
+    /// Absent on app streams, which is how they get filtered out.
+    #[serde(default)]
+    web_stream_data: Option<WebStreamData>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct WebStreamData {
+    #[serde(default)]
+    measurement_id: String,
+    #[serde(default)]
+    default_uri: String,
+}
+
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct AccountSummaries {
@@ -426,10 +606,111 @@ fn explain(status: u16, body: &str) -> String {
             "an API isn't enabled on your Google Cloud project.\n  \
              Enable both the Google Analytics Data API and Admin API, then retry.\n  ({detail})"
         ),
+        403 if detail.contains("insufficient authentication scopes") => format!(
+            "this login has not granted permission to change your Analytics setup.\n  \
+             Run `craft configure <domain>` again and approve the screen Google shows.\n  ({detail})"
+        ),
         403 => format!(
-            "access denied — the signed-in account needs at least Viewer on this property.\n  ({detail})"
+            "access denied — the signed-in account needs at least Viewer on this property,\n  \
+             or Editor on the account to create one.\n  ({detail})"
         ),
         429 => format!("Google rate-limited this request; try again shortly.\n  ({detail})"),
         _ => format!("Google Analytics API error {status}: {detail}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The source of this module, read at compile time.
+    ///
+    /// Scanning it is unusual, and deliberate. `docs/oauth-scopes.md` tells
+    /// Google's verification reviewers that the `analytics.edit` grant is only
+    /// ever used to create — that nothing here modifies or deletes anything in
+    /// somebody's Analytics account. That is a promise about the whole binary,
+    /// not about one function, and the only way to keep it true as this file
+    /// grows is to fail the build when it stops being true.
+    const SOURCE: &str = include_str!("ga.rs");
+
+    /// Everything above this test module — the part that can actually issue a
+    /// request. Scanning the whole file would match this test's own list of
+    /// forbidden verbs.
+    fn client_source() -> &'static str {
+        SOURCE
+            .split_once("\n#[cfg(test)]")
+            .map(|(code, _)| code)
+            .expect("this module is the first test module in the file")
+    }
+
+    #[test]
+    fn the_admin_api_surface_is_two_creates_and_nothing_destructive() {
+        let source = client_source();
+
+        // Every request goes through the `get`/`post` helpers, so a verb that
+        // could change or remove an existing resource can only appear as a new
+        // request builder.
+        for verb in [".delete(", ".patch(", ".put("] {
+            assert!(
+                !source.contains(verb),
+                "a `{verb}` request appeared in the Analytics client. If that is \
+                 intentional, the scope justification in docs/oauth-scopes.md no \
+                 longer describes what this binary does, and Google was told \
+                 otherwise — update the submission before shipping it."
+            );
+        }
+
+        // And the write path is the two documented creates, not a third thing
+        // that grew in beside them.
+        let creates: Vec<&str> = source
+            .lines()
+            .filter(|line| line.trim_start().starts_with("pub async fn create_"))
+            .collect();
+        assert_eq!(
+            creates.len(),
+            2,
+            "expected exactly properties.create and dataStreams.create, got: {creates:?}"
+        );
+    }
+
+    #[test]
+    fn an_account_id_becomes_the_parent_the_api_expects() {
+        let account = Account {
+            id: "1234".to_string(),
+            name: "Anacraft".to_string(),
+        };
+        assert_eq!(account.parent(), "accounts/1234");
+    }
+
+    #[test]
+    fn app_streams_are_dropped_because_they_carry_no_measurement_id() {
+        // dataStreams.list returns web and app streams together. An app stream
+        // has no webStreamData at all, and treating one as a match would print
+        // an empty tag.
+        let page: DataStreamList = serde_json::from_str(
+            r#"{"dataStreams":[
+                 {"displayName":"iOS","androidAppStreamData":{}},
+                 {"displayName":"example.com","webStreamData":
+                   {"measurementId":"G-1A2BCD345E","defaultUri":"https://example.com"}}
+               ]}"#,
+        )
+        .unwrap();
+
+        let web: Vec<&DataStreamResource> = page
+            .data_streams
+            .iter()
+            .filter(|s| s.web_stream_data.is_some())
+            .collect();
+        assert_eq!(web.len(), 1);
+        let data = web[0].web_stream_data.as_ref().unwrap();
+        assert_eq!(data.measurement_id, "G-1A2BCD345E");
+        assert_eq!(data.default_uri, "https://example.com");
+    }
+
+    #[test]
+    fn a_missing_scope_is_explained_as_the_command_that_fixes_it() {
+        let body = r#"{"error":{"message":"Request had insufficient authentication scopes."}}"#;
+        let message = explain(403, body);
+        assert!(message.contains("craft configure"), "got: {message}");
     }
 }

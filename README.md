@@ -61,6 +61,22 @@ craft use 1234567  # save it as the default
 craft
 ```
 
+No GA4 property yet? One command makes one and hands you the tag:
+
+```sh
+craft configure yoursite.com
+```
+
+It creates the property and its web data stream, prints the gtag.js snippet with
+your measurement id already in it, and saves the property as the default. Paste
+the snippet into `<head>`, then `craft live` to watch the first visit arrive.
+
+Run it again for the same domain and it creates nothing — it finds the property
+already measuring that site and prints its tag again. This is the only command
+that changes anything in your Analytics account, so it asks Google for
+permission to do so when you run it, and never at sign-in; see
+[docs/oauth-scopes.md](docs/oauth-scopes.md).
+
 ### One-shot reports
 
 Not everything needs a dashboard. These print and exit.
@@ -401,8 +417,10 @@ people's quota consumption.
 
 ## Setting up GA4
 
-The Google side — property, data stream, tag, access management, API enablement
-— is documented at [anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html).
+`craft configure <domain>` does the first three steps — property, data stream,
+tag — without the console. The rest of the Google side, including access
+management, retention, key events and API enablement, is documented at
+[anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html).
 
 Cloned the repo and use [Claude Code](https://claude.com/claude-code)? The same
 guide ships as a skill in `.claude/skills/google-analytics-setup/`. Ask Claude to

@@ -1,0 +1,124 @@
+# OAuth scopes anacraft asks for
+
+Every permission this binary requests, what uses it, and the justification for
+the one that is new in 0.12. The wording under [Justification](#justification)
+is written to be pasted into the Cloud Console verification form.
+
+## The set
+
+| Scope | Tier | Asked at | Used by |
+| --- | --- | --- | --- |
+| `openid` | Non-sensitive | `craft login` | Keying a subscription to an account so it survives a new laptop |
+| `email` | Non-sensitive | `craft login` | Naming the account in support questions |
+| `.../auth/analytics.readonly` | Sensitive | `craft login` | Every report, the dashboard, `craft watch`, `craft mcp` |
+| `.../auth/analytics.edit` | Sensitive | **`craft configure` only** | Creating one property and one web data stream |
+
+Cloud Console labels each scope's tier on the consent screen configuration
+page; confirm the label there when adding the scope, since Google does not
+publish a per-scope list. `analytics.edit` sits in the same tier as the
+read-only Analytics scope already in use, so this is a re-verification of an
+app that is already verified for sensitive scopes — not a first submission, and
+not a move into the restricted tier that would bring a third-party security
+assessment with it.
+
+## Why the new scope exists
+
+`craft configure example.com` does, as one command, what steps 01–03 of
+[the setup guide](setup-ga4.html) ask a person to do by hand across four
+screens of the Analytics console: create a GA4 property, add a web data stream
+for the domain, and read back the measurement id. It then prints the gtag.js
+snippet with that id already in both of the places it belongs.
+
+That is the whole feature. It is also the most-read page on the site, which is
+why it is worth a command.
+
+Two Admin API calls do the work, and Google documents the same requirement for
+both:
+
+| Call | Documented scope |
+| --- | --- |
+| [`properties.create`](https://developers.google.com/analytics/devguides/config/admin/v1/rest/v1beta/properties/create) | `https://www.googleapis.com/auth/analytics.edit` |
+| [`properties.dataStreams.create`](https://developers.google.com/analytics/devguides/config/admin/v1/rest/v1beta/properties.dataStreams/create) | `https://www.googleapis.com/auth/analytics.edit` |
+
+## Justification
+
+**What the app does.** anacraft is a terminal dashboard for Google Analytics 4.
+It reads a property's reports and draws them in a terminal. It runs entirely on
+the user's own machine, as a single binary, against the user's own Analytics
+account. There is no anacraft server that reports data passes through.
+
+**Why `analytics.edit` is necessary.** One command, `craft configure <domain>`,
+sets a website up in GA4 so the dashboard has something to read: it creates a
+property, creates that property's web data stream, and prints the resulting
+measurement id as a copy-and-paste gtag.js snippet. `properties.create` and
+`properties.dataStreams.create` are the only ways to do that, and both document
+`analytics.edit` as their required scope. Without it, a first-time user has to
+leave the tool, complete a multi-screen setup in the Analytics console, and copy
+a measurement id back by hand — which is the step where they currently stop.
+
+**Why a narrower scope will not work.** Google publishes no per-method or
+create-only Analytics scope. `analytics.edit` is the narrowest published scope
+that permits `properties.create`. Every neighbouring scope grants strictly
+more:
+
+| Rejected alternative | Why it is worse |
+| --- | --- |
+| `.../auth/analytics` | Adds read access to report data on top of edit; the app already has read via `analytics.readonly` and does not need it twice |
+| `.../auth/analytics.manage.users` | Adds control over who can see the account. Nothing here touches permissions |
+| `.../auth/analytics.provision` | Adds creating Analytics accounts and accepting Google's terms on the user's behalf. Deliberately not requested — see below |
+
+**How the request is minimised.** Four things, all verifiable in the source:
+
+1. **It is not requested at sign-in, and not until something will be created.**
+   `craft login` asks for the read-only set and nothing else. The write scope is
+   requested through Google's incremental authorization, by the one command that
+   writes, at the point in that command where a property is about to be created
+   — after the search for an existing one has come back empty — with a line on
+   screen naming what it is for. Re-running `craft configure` on a domain that
+   is already set up therefore completes entirely within read-only access and
+   shows no consent screen at all. (The one exception is a machine with no
+   credentials, where signing in and granting are the same browser trip rather
+   than two.) A user who only reads their numbers is never shown a screen
+   offering anacraft permission to change their Analytics setup. (`src/auth.rs`,
+   `ensure_scope`; `src/configure.rs`, `run`; pinned by the tests
+   `signing_in_asks_for_one_read_only_analytics_scope_and_nothing_else` and
+   `the_write_scope_is_the_narrowest_one_that_creates_a_property`.)
+2. **It only ever creates.** The client issues no update and no delete against
+   the Admin API — no `PATCH`, no `DELETE`, no method that modifies or removes
+   an existing property, stream or setting. (`src/ga.rs`, pinned by
+   `the_admin_api_surface_is_two_creates_and_nothing_destructive`.)
+3. **It will not create twice.** Before creating anything, `craft configure`
+   looks for a property that already measures the domain and reuses it,
+   printing its existing tag. Re-running the command is the supported way to
+   get the tag back, and does not leave a second property behind.
+   (`src/configure.rs`, `find_existing`.)
+4. **It does not create accounts.** Creating an Analytics *account* requires
+   accepting Google's terms, which is the user's decision to make in Google's
+   own words. If the signed-in account has no Analytics account, the command
+   stops and links them to the console rather than requesting
+   `analytics.provision`.
+
+**Where the data goes.** Nowhere. Tokens are written to `~/.anacraft/token.json`
+at mode `0600` on the user's own machine, alongside no copy of any report.
+Analytics data is rendered to the terminal and is not transmitted to anacraft or
+to any third party. The only network calls are to Google's own APIs, plus — if
+the user configures them — a Slack webhook they supply and a subscription
+lookup that sees an account id and no analytics data.
+
+## Demo video script
+
+For the verification submission, recording the whole flow end to end:
+
+1. `craft login` — show the consent screen. Read the scopes out loud: it asks
+   for read-only Analytics access, and offers no permission to make changes.
+2. `craft` — the dashboard, reading the account's numbers. This is the product,
+   and it works entirely within read-only access.
+3. `craft configure example.com` — show the *second* consent screen appearing
+   at this point, listing the edit permission, with the terminal line above it
+   naming what it is for.
+4. Approve. Show the property and the stream being created, and the printed tag.
+5. Open the Analytics console and show the new property and its data stream,
+   matching what the terminal printed.
+6. `craft configure example.com` again — show that it finds the existing
+   property, creates nothing, prints the same tag, and asks for no permission
+   in the process.

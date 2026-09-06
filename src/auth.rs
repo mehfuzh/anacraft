@@ -24,6 +24,17 @@ use std::net::{Ipv4Addr, TcpListener, TcpStream};
 /// around. `openid` and `email` are non-sensitive, so unlike a wider Analytics
 /// scope they add nothing to the consent review — see the test below.
 const SCOPE: &str = "openid email https://www.googleapis.com/auth/analytics.readonly";
+
+/// The one write scope, asked for separately and only by `craft configure`.
+///
+/// Creating a GA4 property and its web data stream is the whole reason it
+/// exists: those two Admin API calls are documented as requiring
+/// `analytics.edit`, and Google publishes no narrower "create a property"
+/// scope to drop to. It is deliberately *not* in `SCOPE` — see `ensure_scope`
+/// for why that distinction is the point rather than an implementation
+/// detail.
+pub const SCOPE_EDIT: &str = "https://www.googleapis.com/auth/analytics.edit";
+
 const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
@@ -90,6 +101,12 @@ pub struct Tokens {
     /// needs a `craft login` to fill this in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<Account>,
+    /// Space-separated scopes the consent screen actually granted, as Google
+    /// reported them. Stored so `ensure_scope` can tell whether it has to ask
+    /// for anything before a write, instead of provoking a 403 and explaining
+    /// it afterwards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 impl Tokens {
@@ -119,6 +136,17 @@ impl Tokens {
         Ok(())
     }
 
+    /// Whether consent covered `scope`.
+    ///
+    /// Credentials written before scopes were recorded answer `false`. That is
+    /// the safe direction: it costs one consent screen somebody can approve,
+    /// where a wrong `true` would cost a 403 in the middle of the work.
+    pub fn granted(&self, scope: &str) -> bool {
+        self.scope
+            .as_deref()
+            .is_some_and(|granted| granted.split(' ').any(|s| s == scope))
+    }
+
     /// Refresh a minute early so a long report can't expire mid-flight.
     fn is_stale(&self) -> bool {
         Utc::now() + Duration::seconds(60) >= self.expires_at
@@ -136,6 +164,10 @@ struct TokenResponse {
     /// separate userinfo round trip is needed.
     #[serde(default)]
     id_token: Option<String>,
+    /// What was granted, which is not always what was asked for: a person can
+    /// untick a scope on the consent screen.
+    #[serde(default)]
+    scope: Option<String>,
 }
 
 /// Who Google says is signed in.
@@ -168,6 +200,19 @@ fn account_from_id_token(id_token: &str) -> Option<Account> {
 pub struct Auth {
     http: reqwest::Client,
     creds: ClientCreds,
+}
+
+/// Which kind of trip through the consent screen this is.
+///
+/// `Additional` carries the sentence explaining what the extra permission is
+/// for — a person asked for more access mid-command deserves to read why before
+/// the browser opens rather than after — and the scope itself, so the check
+/// that it was actually granted names it rather than inferring it from the
+/// order of the request.
+#[derive(Clone, Copy)]
+enum Grant<'a> {
+    Fresh,
+    Additional { scope: &'a str, why: &'a str },
 }
 
 impl Auth {
@@ -233,11 +278,61 @@ impl Auth {
                 .as_deref()
                 .and_then(account_from_id_token)
                 .or_else(|| Tokens::load().ok().flatten().and_then(|t| t.account)),
+            // A refresh response repeats the granted scopes, but not on every
+            // path; keeping the stored set when it doesn't is what stops a
+            // refresh from silently "losing" a permission the user granted.
+            scope: body
+                .scope
+                .or_else(|| Tokens::load().ok().flatten().and_then(|t| t.scope)),
         })
     }
 
     /// Full interactive login: PKCE + loopback redirect + browser handoff.
     pub async fn login(&self) -> Result<()> {
+        self.consent(
+            SCOPE,
+            Grant::Fresh,
+            (
+                "Logged in",
+                "anacraft is connected to your Google Analytics account. \
+                 You can close this tab and return to the terminal.",
+            ),
+        )
+        .await
+    }
+
+    /// Ask for one scope more than the stored credentials carry, at the moment
+    /// something actually needs it.
+    ///
+    /// This is Google's incremental authorization, and using it is a decision
+    /// rather than a convenience. `craft login` asks for read-only access, and
+    /// for the person who only ever reads their numbers that is the last word:
+    /// they are never shown a screen offering anacraft permission to change
+    /// their Analytics setup. Only `craft configure`, which exists to create a
+    /// property, reaches this — so consent to write is asked for by the one
+    /// command that writes, with `why` naming what it is about to do.
+    ///
+    /// The request re-sends the scopes already held plus the new one, and
+    /// `include_granted_scopes=true` means the token that comes back covers
+    /// both rather than replacing the old grant.
+    pub async fn ensure_scope(&self, scope: &str, why: &str) -> Result<()> {
+        if Tokens::load()?.is_some_and(|t| t.granted(scope)) {
+            return Ok(());
+        }
+        self.consent(
+            &format!("{SCOPE} {scope}"),
+            Grant::Additional { scope, why },
+            (
+                "Permission granted",
+                "anacraft can set up the property now. \
+                 You can close this tab and return to the terminal.",
+            ),
+        )
+        .await
+    }
+
+    /// One trip through the browser, for either kind of grant.
+    async fn consent(&self, scope: &str, grant: Grant<'_>, success: (&str, &str)) -> Result<()> {
         let Pkce {
             verifier,
             challenge,
@@ -250,33 +345,33 @@ impl Auth {
         let port = listener.local_addr()?.port();
         let redirect_uri = format!("http://127.0.0.1:{port}");
 
-        let auth_url = format!(
+        let mut auth_url = format!(
             "{AUTH_URL}?client_id={}&redirect_uri={}&response_type=code&scope={}\
              &code_challenge={}&code_challenge_method=S256&state={}\
              &access_type=offline&prompt=consent",
             encode(&self.creds.client_id),
             encode(&redirect_uri),
-            encode(SCOPE),
+            encode(scope),
             encode(&challenge),
             encode(&state),
         );
+        if let Grant::Additional { why, .. } = grant {
+            auth_url.push_str("&include_granted_scopes=true");
+            println!("  {} {why}", crate::theme::glyph::PICKAXE);
+        }
 
         println!(
-            "  {} opening your browser to sign in with Google…",
-            crate::theme::glyph::PICKAXE
+            "  {} opening your browser to {}…",
+            crate::theme::glyph::PICKAXE,
+            match grant {
+                Grant::Fresh => "sign in with Google",
+                Grant::Additional { .. } => "approve it with Google",
+            }
         );
         println!("  if it doesn't open, paste this:\n\n  {auth_url}\n");
         let _ = open::that(&auth_url);
 
-        let code = wait_for_code(
-            &listener,
-            &state,
-            (
-                "Logged in",
-                "anacraft is connected to your Google Analytics account. \
-                 You can close this tab and return to the terminal.",
-            ),
-        )?;
+        let code = wait_for_code(&listener, &state, success)?;
 
         let res = self
             .http
@@ -298,18 +393,44 @@ impl Auth {
         }
 
         let body: TokenResponse = res.json().await?;
-        let refresh_token = body.refresh_token.ok_or_else(|| {
-            anyhow!(
-                "Google did not return a refresh token — revoke anacraft's access at \
+        let granted = body.scope.clone().unwrap_or_else(|| scope.to_string());
+
+        // `prompt=consent` means Google issues a refresh token every time,
+        // including on the incremental grant. Falling back to the stored one
+        // is belt and braces: re-consenting must never leave the install
+        // unable to refresh.
+        let stored = Tokens::load().ok().flatten();
+        let refresh_token = body
+            .refresh_token
+            .or_else(|| stored.as_ref().map(|t| t.refresh_token.clone()))
+            .ok_or_else(|| {
+                anyhow!(
+                    "Google did not return a refresh token — revoke anacraft's access at \
                      https://myaccount.google.com/permissions and try again"
-            )
-        })?;
+                )
+            })?;
+
+        // A person can untick a scope on the consent screen, and the write
+        // path has to hear about that here rather than as a 403 mid-run.
+        if let Grant::Additional { scope: wanted, .. } = grant {
+            if !granted.split(' ').any(|s| s == wanted) {
+                bail!(
+                    "that permission was not granted, so there is nothing to create with.\n  \
+                     Nothing was changed. Re-run the command to see the screen again."
+                );
+            }
+        }
 
         Tokens {
             access_token: body.access_token,
             refresh_token,
             expires_at: Utc::now() + Duration::seconds(body.expires_in),
-            account: body.id_token.as_deref().and_then(account_from_id_token),
+            account: body
+                .id_token
+                .as_deref()
+                .and_then(account_from_id_token)
+                .or_else(|| stored.and_then(|t| t.account)),
+            scope: Some(granted),
         }
         .save()?;
 
@@ -667,12 +788,16 @@ mod tests {
     }
 
     #[test]
-    fn we_ask_for_one_read_only_analytics_scope_and_nothing_else_sensitive() {
+    fn signing_in_asks_for_one_read_only_analytics_scope_and_nothing_else() {
         // A Google OAuth review once stalled because the consent screen listed
         // `analytics` (read+write) and `analytics.manage.users.readonly`, which
         // this app has never requested. The identity scopes added for
         // subscriptions are the non-sensitive pair and need no review; a second
         // Analytics scope still would, so pin the whole set.
+        //
+        // `craft configure` now does have a write path, but it is not here:
+        // signing in must stay read-only, so that someone who only reads their
+        // numbers is never offered permission to change their Analytics setup.
         assert_eq!(
             SCOPE,
             "openid email https://www.googleapis.com/auth/analytics.readonly"
@@ -684,7 +809,7 @@ mod tests {
         assert_eq!(analytics.len(), 1, "a second Analytics scope was added");
         assert!(
             analytics[0].ends_with(".readonly"),
-            "anacraft has no write path; a write scope cannot be justified"
+            "the login scope set has no write path; keep it that way"
         );
         for scope in SCOPE.split(' ') {
             assert!(
@@ -692,6 +817,59 @@ mod tests {
                 "unreviewed scope {scope} crept in"
             );
         }
+    }
+
+    #[test]
+    fn the_write_scope_is_the_narrowest_one_that_creates_a_property() {
+        // `analytics.edit` is what properties.create and dataStreams.create
+        // document as their requirement. The neighbouring scopes are all
+        // wider: `analytics` adds report data, `analytics.manage.users` adds
+        // permission to change who can see the account, and `analytics.provision`
+        // adds creating accounts and accepting terms on someone's behalf.
+        // Requesting any of those would be asking for access nothing here uses.
+        assert_eq!(SCOPE_EDIT, "https://www.googleapis.com/auth/analytics.edit");
+        assert!(
+            !SCOPE.contains(SCOPE_EDIT),
+            "the write scope leaked into login"
+        );
+    }
+
+    #[test]
+    fn the_extra_scope_is_only_ever_asked_for_on_top_of_the_granted_ones() {
+        // Sending the write scope alone would work, and would quietly drop
+        // read access on the way through — the report commands would then 403
+        // until the next `craft login`. The request has to name both.
+        let requested = format!("{SCOPE} {SCOPE_EDIT}");
+        assert!(requested.contains("analytics.readonly"));
+        assert!(requested.contains("analytics.edit"));
+        assert!(requested.starts_with("openid email"));
+    }
+
+    #[test]
+    fn stored_credentials_report_which_scopes_they_carry() {
+        let mut tokens: Tokens = serde_json::from_str(
+            r#"{"access_token":"a","refresh_token":"r","expires_at":"2030-01-01T00:00:00Z"}"#,
+        )
+        .unwrap();
+
+        // Written before scopes were recorded: unknown reads as not granted,
+        // which costs a consent screen rather than a 403.
+        assert!(!tokens.granted(SCOPE_EDIT));
+
+        tokens.scope = Some(SCOPE.to_string());
+        assert!(
+            !tokens.granted(SCOPE_EDIT),
+            "read-only must not imply write"
+        );
+        assert!(tokens.granted("https://www.googleapis.com/auth/analytics.readonly"));
+
+        tokens.scope = Some(format!("{SCOPE} {SCOPE_EDIT}"));
+        assert!(tokens.granted(SCOPE_EDIT));
+
+        // Prefix matching would be a real bug here: `analytics.edit` must not
+        // be satisfied by a scope that merely starts the same way.
+        tokens.scope = Some("https://www.googleapis.com/auth/analytics.editors".to_string());
+        assert!(!tokens.granted(SCOPE_EDIT));
     }
 
     #[test]
