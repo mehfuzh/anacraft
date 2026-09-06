@@ -30,8 +30,7 @@
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
   "keywords": "GA4, Google Analytics 4, terminal dashboard, CLI, TUI, MCP server",
   "screenshot": "https://anacraft.dev/dash.png",
-  "author": { "@type": "Organization", "name": "anacraft" },
-  "codeRepository": "https://github.com/mehfuzh/anacraft"
+  "author": { "@type": "Organization", "name": "anacraft" }
 }
 </script>
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=2dd77504">
@@ -306,7 +305,6 @@
     .row p { grid-column: 2; }
   }
 
-  .row.soon { text-decoration: none; }
   .row.soon:hover { background: rgba(255,225,107,.045); }
   .row.soon:hover .arw { color: var(--gold); }
   .tag {
@@ -386,12 +384,6 @@
     border-color: color-mix(in srgb, var(--jade) 32%, transparent);
     padding: 2px 8px; line-height: 1.6;
   }
-  /* The mark and the address travel together at the end of the row, closer to
-     each other than to the links they follow, so they read as one contact. */
-  footer .contact { display: inline-flex; align-items: center; gap: 8px; }
-  footer .social { display: block; color: var(--dim); transition: color .15s; }
-  footer .social svg { height: 14px; width: 14px; display: block; fill: currentColor; }
-  footer .social:hover { color: var(--jade); }
   /* The glow rides the same curve as the beat, brightest at the top of each
      pulse, so the heart reads as lit from within rather than merely resized.
      It is drawn with var(--jade), which the light theme redefines, so the
@@ -1614,33 +1606,33 @@
 
     <div class="sec-label" style="margin-top:64px">On the roadmap</div>
     <p class="sec-sub" style="margin-bottom:32px">
-      Where each one stands, tracked in the open. Each links to its issue.
+      Where each one stands.
     </p>
     <div class="rows">
-      <a class="row soon" href="https://github.com/mehfuzh/anacraft/issues/1">
+      <div class="row soon">
         <span class="n"><span class="tag">Soon</span></span>
         <h3>AI insights</h3>
         <p>Anomaly detection on sudden drops, content suggestions from page trends, and goal projections — surfaced in an Enchantment Table panel.</p>
         <span class="arw">→</span>
-      </a>
-      <a class="row soon" href="https://github.com/mehfuzh/anacraft/issues/2">
+      </div>
+      <div class="row soon">
         <span class="n"><span class="tag live">Live</span></span>
         <h3>One-click Google sign-in</h3>
         <p><code style="font-family:var(--mono)">craft login</code> in a single round trip — consent, redirect, token stored. The OAuth client is verified and live.</p>
         <span class="arw">→</span>
-      </a>
-      <a class="row soon" href="https://github.com/mehfuzh/anacraft/issues/7">
+      </div>
+      <div class="row soon">
         <span class="n"><span class="tag">Soon</span></span>
         <h3>Usage tracking and plans</h3>
         <p>A Supabase-backed count of AI usage per install, so plan tiers have something to meter — with your own key overriding the shipped one.</p>
         <span class="arw">→</span>
-      </a>
-      <a class="row soon" href="https://github.com/mehfuzh/anacraft/issues/5">
+      </div>
+      <div class="row soon">
         <span class="n"><span class="tag">Soon</span></span>
         <h3>Custom theme support</h3>
         <p>Build a palette with <code style="font-family:var(--mono)">craft theme create</code>, load one from JSON with <code style="font-family:var(--mono)">craft theme import</code>, or pull someone else's with <code style="font-family:var(--mono)">craft theme install user/repo</code>.</p>
         <span class="arw">→</span>
-      </a>
+      </div>
     </div>
   </div>
 </section>
@@ -1669,10 +1661,7 @@
 <span class="d"># one-shot reports</span>
 <span class="c">$</span> <span class="w">craft overview --days 30</span>
 <span class="c">$</span> <span class="w">craft pages</span>
-<span class="c">$</span> <span class="w">craft realms</span>
-
-<span class="d"># build from source instead</span>
-<span class="c">$</span> <span class="w">cargo install --git https://github.com/mehfuzh/anacraft</span></pre>
+<span class="c">$</span> <span class="w">craft realms</span></pre>
       </div>
       <div>
         <table class="keys">
@@ -1845,13 +1834,9 @@
     <span class="by"><span class="tag">crafted</span> in San Francisco <svg class="heart" role="img" aria-label="love" viewBox="0 0 9 8" fill="var(--jade)" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="5" y="1" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="1" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/></svg></span>
     <span class="legal">© 2026 · All rights reserved</span>
     <span class="r">
-      <a href="https://github.com/mehfuzh/anacraft/blob/main/LICENSE">Apache 2.0</a>
       <a href="/privacy.html">Privacy Policy</a>
       <a href="/terms.html">Terms of Service</a>
-      <span class="contact">
-        <a class="social" href="https://github.com/mehfuzh/anacraft" aria-label="anacraft on GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.64 7.64 0 0 1 8 3.87c.68 0 1.36.09 2 .26 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a>
-        <a href="mailto:support@anacraft.dev">support@anacraft.dev</a>
-      </span>
+      <a href="mailto:support@anacraft.dev">support@anacraft.dev</a>
     </span>
   </div>
 </footer>

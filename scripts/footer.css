@@ -25,12 +25,6 @@
     border-color: color-mix(in srgb, var(--jade) 32%, transparent);
     padding: 2px 8px; line-height: 1.6;
   }
-  /* The mark and the address travel together at the end of the row, closer to
-     each other than to the links they follow, so they read as one contact. */
-  footer .contact { display: inline-flex; align-items: center; gap: 8px; }
-  footer .social { display: block; color: var(--dim); transition: color .15s; }
-  footer .social svg { height: 14px; width: 14px; display: block; fill: currentColor; }
-  footer .social:hover { color: var(--jade); }
   /* The glow rides the same curve as the beat, brightest at the top of each
      pulse, so the heart reads as lit from within rather than merely resized.
      It is drawn with var(--jade), which the light theme redefines, so the
