@@ -78,7 +78,7 @@ Google's own descriptions:
 | `.../auth/analytics` | "View and manage your Google Analytics data" | Edit plus report data. The app already reads via `analytics.readonly`; this would request reads a second time |
 | `.../auth/analytics.manage.users` | "Manage Google Analytics Account users by email address" | Adds adding and removing people, and changing their permissions. Nothing here touches who can see an account |
 | `.../auth/analytics.manage.users.readonly` | "View Google Analytics user permissions" | Reads the permission list. Nothing here needs it |
-| `.../auth/analytics.provision` | "Create a new Google Analytics account along with its default property and view" | Adds creating Analytics *accounts* and accepting Google's terms on the user's behalf. Deliberately not requested — see minimisation point 4 |
+| `.../auth/analytics.provision` | "Create a new Google Analytics account along with its default property and view" | Belongs to the v3 provisioning API. The GA4 equivalent, `accounts.provisionAccountTicket`, sits in Admin API v1beta under `analytics.edit`, so this adds nothing this app could use |
 | `.../auth/analytics.user.deletion` | "Manage Google Analytics user deletion requests" | Deletes end-user data. Nothing here does |
 
 **What `analytics.edit` grants that this app does not use.** Stated plainly,
@@ -126,11 +126,16 @@ than merely documenting an intention.
    printing its existing tag. Re-running the command is the supported way to
    get the tag back, and does not leave a second property behind.
    (`src/configure.rs`, `find_existing`.)
-4. **It does not create accounts.** Creating an Analytics *account* requires
-   accepting Google's terms, which is the user's decision to make in Google's
-   own words. If the signed-in account has no Analytics account, the command
-   stops and links them to the console rather than requesting
-   `analytics.provision`.
+4. **It does not create accounts, though the grant would permit it.**
+   [`accounts.provisionAccountTicket`](https://developers.google.com/analytics/devguides/config/admin/v1/rest/v1beta/accounts/provisionAccountTicket)
+   creates an Analytics account and it requires `analytics.edit` — the same
+   scope, no wider one. This app does not call it. If the signed-in account has
+   no Analytics account, `craft configure` stops and links the user to the
+   console instead, because creating an account means accepting Google's terms
+   and that is a decision to make in Google's own words, on Google's own page.
+   Together with the delete in point 2, this is the pattern: the grant is one
+   scope wide, and what the app does with it is narrower than what the scope
+   allows. (`src/configure.rs`, `pick_account`.)
 
 **Where the data goes.** Nowhere. Tokens are written to `~/.anacraft/token.json`
 at mode `0600` on the user's own machine, alongside no copy of any report.

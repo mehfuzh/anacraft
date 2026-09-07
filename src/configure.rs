@@ -239,11 +239,14 @@ async fn pick_account(ga: &Ga, wanted: Option<&str>) -> Result<Account> {
     let accounts = ga.accounts().await?;
 
     if accounts.is_empty() {
-        // Creating the *account* is the one step that cannot move in here.
-        // It requires accepting Google's terms, which is a person's decision
-        // to make in Google's own words — and the scope that would let a
-        // client do it, `analytics.provision`, is far wider than anything
-        // else this command needs.
+        // Creating the *account* is a step this could take and does not.
+        // `accounts.provisionAccountTicket` is in the same API under the same
+        // `analytics.edit` scope, so there is no permission in the way — but
+        // it works by handing back a ticket to put in a Terms of Service URL,
+        // which means the person ends up on Google's page accepting Google's
+        // terms regardless. Sending them straight there is the same trip with
+        // one less moving part, and keeps this command's whole relationship
+        // with somebody's Analytics account down to two creates.
         bail!(
             "this Google account has no Analytics account to create a property in.\n  \
              Create one at https://analytics.google.com/analytics/web/#/provision \
