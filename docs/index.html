@@ -144,8 +144,16 @@
      which giving a column away costs the headline nothing. Below it the panel
      is not shrunk to fit, it is simply not there: a hero that has to choose
      between the sentence and the ornament keeps the sentence. */
-  .hero-in { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 32px; }
-  .hero-art { display: none; justify-self: end; }
+  /* No gutter between the columns: the panel carries its own frame, and a
+     gap on top of that border reads as the layout coming apart.
+
+     `start`, not `stretch`. The panel is told how tall to be by measuring this
+     column (see rows() in the script), so stretching the column to the row
+     height would mean measuring the panel's own height back out of it and
+     growing a little more on every resize. Top-aligned, both columns end up
+     the same height anyway — that is what the measurement is for. */
+  .hero-in { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 0; }
+  .hero-art { display: none; justify-self: end; align-self: start; }
   @media (min-width: 1180px) {
     .hero-in { grid-template-columns: minmax(0, 1fr) auto; }
     .hero-art { display: block; }
@@ -1969,7 +1977,30 @@
     // fixed either way — spending it on 36 big characters instead of 42 small
     // ones is what makes the thing legible next to an 87px headline.
     var W = 36;   // inner columns
-    var H = 11;   // inner rows
+    var H = 11;   // inner rows — replaced by rows() before the first frame
+
+    /* How tall to draw, measured rather than chosen.
+     *
+     * A fixed row count is a guess about how tall the headline and the lede
+     * happen to be, and the guess is wrong at every width where the headline
+     * wraps differently — which is what left the panel floating short in the
+     * middle of a much taller column. So: ask the column how tall it is, ask
+     * the browser how tall a line of this text is, and take the difference,
+     * less the two rows the panel's own frame costs.
+     */
+    function rows() {
+      var col = document.querySelector('.hero-say');
+      if (!col) return 11;
+      var line = parseFloat(getComputedStyle(pre).lineHeight);
+      if (!line || !isFinite(line)) return 11;
+      // Emptied first, so what gets measured is the column's own content and
+      // never the panel that is about to be sized from it.
+      pre.textContent = '';
+      var fits = Math.floor(col.offsetHeight / line) - 2;
+      // Floor and ceiling: below ten there is no room for a curve to climb,
+      // and past twenty-four the trail is steeper than it is legible.
+      return Math.max(10, Math.min(24, fits));
+    }
 
     var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -2085,10 +2116,20 @@
 
     // A still frame gets the ship most of the way up, which is the one moment
     // of the loop that says everything the animation says.
-    if (still) { pre.innerHTML = frame(0.62); return; }
+    if (still) { H = rows(); pre.innerHTML = frame(0.62); return; }
 
     var p = 0;
+    H = rows();
     pre.innerHTML = frame(0);
+
+    // The headline rewraps as the window changes, so the column it has to match
+    // changes with it.
+    var settle;
+    window.addEventListener('resize', function () {
+      clearTimeout(settle);
+      settle = setTimeout(function () { H = rows(); pre.innerHTML = frame(p); }, 150);
+    });
+
     setInterval(function () {
       if (document.hidden) return;
       p += 0.008;
