@@ -10,8 +10,12 @@ is written to be pasted into the Cloud Console verification form.
 | --- | --- | --- | --- |
 | `openid` | Non-sensitive | `craft login` | Keying a subscription to an account so it survives a new laptop |
 | `email` | Non-sensitive | `craft login` | Naming the account in support questions |
-| `.../auth/analytics.readonly` | Sensitive | `craft login` | Every report, the dashboard, `craft watch`, `craft mcp` |
-| `.../auth/analytics.edit` | Sensitive | **`craft configure` only** | Creating one property and one web data stream |
+| `.../auth/analytics.readonly` | Sensitive | `craft login` | Every report, the dashboard, `craft watch`, `craft mcp`, and the `accounts.list` / `properties.list` / `dataStreams.list` reads `craft configure` does before it creates anything |
+| `.../auth/analytics.edit` | Sensitive | **`craft configure` only** | `properties.create` and `dataStreams.create`, and nothing else |
+
+Only one scope is being added: `analytics.edit`. The reads `craft configure`
+performs — finding the account, and checking whether the domain already has a
+property — are all covered by the read-only scope the app already holds.
 
 Cloud Console labels each scope's tier on the consent screen configuration
 page; confirm the label there when adding the scope, since Google does not
@@ -56,16 +60,33 @@ measurement id as a copy-and-paste gtag.js snippet. `properties.create` and
 leave the tool, complete a multi-screen setup in the Analytics console, and copy
 a measurement id back by hand — which is the step where they currently stop.
 
-**Why a narrower scope will not work.** Google publishes no per-method or
-create-only Analytics scope. `analytics.edit` is the narrowest published scope
-that permits `properties.create`. Every neighbouring scope grants strictly
-more:
+**Why a narrower scope will not work.** The Google Analytics Admin API v1beta,
+which is the API this feature calls, publishes exactly two scopes:
+`analytics.readonly` and `analytics.edit`. There is no third, no per-method
+scope, and no create-only scope. `properties.create` and
+`dataStreams.create` accept only `analytics.edit`. So this is not a case of a
+narrower scope existing and being passed over — for this API the choice is two
+scopes wide, and the other one cannot create.
 
-| Rejected alternative | Why it is worse |
-| --- | --- |
-| `.../auth/analytics` | Adds read access to report data on top of edit; the app already has read via `analytics.readonly` and does not need it twice |
-| `.../auth/analytics.manage.users` | Adds control over who can see the account. Nothing here touches permissions |
-| `.../auth/analytics.provision` | Adds creating Analytics accounts and accepting Google's terms on the user's behalf. Deliberately not requested — see below |
+Every other Analytics scope Google publishes belongs to the older Analytics API
+v3 and grants strictly more than this feature uses. For completeness, with
+Google's own descriptions:
+
+| Rejected alternative | Google's description | Why it is worse |
+| --- | --- | --- |
+| `.../auth/analytics` | "View and manage your Google Analytics data" | Edit plus report data. The app already reads via `analytics.readonly`; this would request reads a second time |
+| `.../auth/analytics.manage.users` | "Manage Google Analytics Account users by email address" | Adds adding and removing people, and changing their permissions. Nothing here touches who can see an account |
+| `.../auth/analytics.manage.users.readonly` | "View Google Analytics user permissions" | Reads the permission list. Nothing here needs it |
+| `.../auth/analytics.provision` | "Create a new Google Analytics account along with its default property and view" | Adds creating Analytics *accounts* and accepting Google's terms on the user's behalf. Deliberately not requested — see minimisation point 4 |
+| `.../auth/analytics.user.deletion` | "Manage Google Analytics user deletion requests" | Deletes end-user data. Nothing here does |
+
+**What `analytics.edit` grants that this app does not use.** Stated plainly,
+because it is the honest shape of the request: "Edit Google Analytics management
+entities" covers updating and deleting configuration, not only creating it. The
+scope is broader than the feature, and no narrower one exists to drop to. What
+narrows the grant is therefore the code rather than the scope — which is what
+the four measures below are, and why the last of them fails the build rather
+than merely documenting an intention.
 
 **How the request is minimised.** Four things, all verifiable in the source:
 
