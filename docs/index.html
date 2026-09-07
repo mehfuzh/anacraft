@@ -147,16 +147,13 @@
   /* No gutter between the columns: the panel carries its own frame, and a
      gap on top of that border reads as the layout coming apart.
 
-     `start`, not `stretch`. The panel is told how tall to be by measuring this
-     column (see rows() in the script), so stretching the column to the row
-     height would mean measuring the panel's own height back out of it and
-     growing a little more on every resize. Top-aligned, both columns end up
-     the same height anyway — that is what the measurement is for. */
+     `start`, not `stretch`. The panel is a square, so its height is its own
+     business (see rows() in the script) and stretching a column to the row
+     height would only ever pull it out of square. */
   .hero-in { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 0; }
-  /* Centred, not top-aligned: rows() leaves the panel deliberately shorter
-     than the column, and centring is what splits that slack evenly above
-     and below it. `.hero-say` stays `start`, so it is never stretched and
-     the measurement it feeds cannot read the panel back out of itself. */
+  /* Centred, not top-aligned: the square is shorter than the sentence beside
+     it, and centring is what splits that slack evenly above and below rather
+     than dropping it all under the panel. */
   .hero-art { display: none; justify-self: end; align-self: center; }
   @media (min-width: 1180px) {
     .hero-in { grid-template-columns: minmax(0, 1fr) auto; }
@@ -1977,7 +1974,6 @@
 
     var W = 36;   // inner columns
     var H = 11;   // inner rows — replaced by rows() before the first frame
-    var INSET = 6;// rows of daylight left above and below, split by centring
 
     // `theme.rs`: the sparkline ramp, low to high, and the live indicator.
     var SPARK = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -1986,28 +1982,27 @@
 
     var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    /* How tall to draw, measured rather than chosen.
+    /* How tall to draw: square, measured rather than chosen.
      *
-     * A fixed row count is a guess about how tall the headline and the lede
-     * happen to be, and the guess is wrong at every width where the headline
-     * wraps differently. So: ask the column how tall it is, ask the browser how
-     * tall a line of this text is, and take the difference.
+     * The panel is a fixed 38 characters across counting its own rules, and a
+     * monospace cell is a good deal taller than it is wide, so the row count
+     * that draws a square is a property of this font at this size — not a
+     * number to pick. Draw one rule the full width of the panel, ask the
+     * browser how wide it came out and how tall a line of it is, and the
+     * quotient is how many rows fit in that width.
      */
     function rows() {
-      var col = document.querySelector('.hero-say');
-      if (!col) return 11;
       var line = parseFloat(getComputedStyle(pre).lineHeight);
-      if (!line || !isFinite(line)) return 11;
-      // Emptied first, so what gets measured is the column's own content and
-      // never the panel that is about to be sized from it.
+      // Filled with a single row of the panel's own width, so what gets
+      // measured is the box that is about to be drawn, then emptied again so
+      // nothing of the ruler is left on screen.
+      pre.textContent = new Array(W + 2 + 1).join('─');
+      var wide = pre.offsetWidth;
       pre.textContent = '';
-      // Two rows for the panel's own frame, and INSET more given back so the
-      // panel sits clear of the top and bottom of the column instead of ending
-      // flush against both. `align-self: center` splits those between above
-      // and below, so INSET is the one number to turn to make the graph
-      // shorter or taller against the sentence beside it.
-      var fits = Math.floor(col.offsetHeight / line) - 2 - INSET;
-      return Math.max(10, Math.min(24, fits));
+      if (!line || !isFinite(line) || !wide) return 11;
+      // Two of those rows are the panel's top and bottom rules. They are part
+      // of the square, so they come out of the graph's share of it.
+      return Math.max(10, Math.round(wide / line) - 2);
     }
 
     /* The traffic. A sum of slow sines rather than random noise: noise
@@ -2107,8 +2102,9 @@
     H = rows();
     pre.innerHTML = frame(0);
 
-    // The headline rewraps as the window changes, so the column it has to match
-    // changes with it.
+    // Re-measured on resize: the metrics the square is cut from can still move
+    // under it — a late webfont, a zoom step — and a stale row count is a
+    // panel that is no longer square.
     var settle;
     window.addEventListener('resize', function () {
       clearTimeout(settle);
