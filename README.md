@@ -280,6 +280,8 @@ reflows to fill the terminal.
 | Key | Action |
 |-----|--------|
 | `1`–`7` | Toggle a panel — `e` `l` `m` `p` `v` `g` `d` do the same |
+| `tab` | Next property, when more than one is configured |
+| `shift`+`D` | Forget the property on screen — drops it from the rotation, leaves it in Google |
 | `t` | Cycle the palette, and save it |
 | `s` | Demo only — preview the Anacrafter look |
 | `r` | Rebuild — force a refetch now |

@@ -265,6 +265,17 @@ struct FeedEvent {
     at: Instant,
 }
 
+/// What Shift+D is asking about.
+///
+/// anacraft does not delete properties, so this is a question about *this*
+/// config and nothing more: the property leaves the tab rotation and stays in
+/// Google with all of its data. The overlay says so, because a confirmation
+/// box in a dashboard is exactly where somebody would assume otherwise.
+struct Forget {
+    id: String,
+    name: String,
+}
+
 struct Dash {
     title: String,
     days: u32,
@@ -291,6 +302,10 @@ struct Dash {
     live_fetching: bool,
     panels: Panels,
     help: bool,
+    /// The property Shift+D is asking about, if it is asking. Holding the name
+    /// and id here rather than reading the rotation at draw time keeps the
+    /// overlay showing what was confirmed, not what the rotation says after.
+    forget: Option<Forget>,
     /// Highest realtime count seen this session — the meter's high-water mark.
     peak: f64,
     /// Drives every phase-based effect, so they all share one clock.
@@ -349,6 +364,7 @@ impl Dash {
                 events: true,
             },
             help: false,
+            forget: None,
             peak: live.max(1.0),
             started: Instant::now(),
             last_report: Instant::now(),
@@ -954,11 +970,12 @@ async fn drive(
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         );
     }
+    let mut rotation = rotation;
     let result = event_loop(
         &mut terminal,
         &mut source,
         &mut dash,
-        &rotation,
+        &mut rotation,
         index,
         settings,
     )
@@ -1014,6 +1031,33 @@ fn settle(cfg: &mut crate::config::Config, landed: Option<String>, theme: String
     }
 }
 
+/// Point the dashboard at another property and refetch at once.
+///
+/// Shared by Tab and by the forget confirmation, which both leave the screen
+/// showing numbers that belong to the property just left.
+fn show(
+    source: &mut Source,
+    dash: &mut Dash,
+    settings: &Settings,
+    next: &Property,
+    tx: &mpsc::UnboundedSender<Update>,
+    last_live: &mut Instant,
+) {
+    let resolved = settings.for_property(next);
+    source.set_property(&next.id);
+    dash.switch_to(next.display(), resolved);
+    // A property carrying its own palette should show it immediately, not on
+    // the next launch.
+    if let Some(name) = next.theme.as_deref() {
+        theme::select(name);
+    }
+    dash.in_flight = source.request_report(dash.days, tx);
+    dash.last_report = Instant::now();
+    source.request_live(tx);
+    dash.live_fetching = true;
+    *last_live = Instant::now();
+}
+
 /// The property the dashboard was showing when it closed.
 ///
 /// `None` for the demo, which walks an empty rotation — there is no property
@@ -1027,7 +1071,7 @@ async fn event_loop(
     terminal: &mut DefaultTerminal,
     source: &mut Source,
     dash: &mut Dash,
-    rotation: &[Property],
+    rotation: &mut Vec<Property>,
     mut index: usize,
     settings: Settings,
 ) -> Result<Option<String>> {
@@ -1103,6 +1147,37 @@ async fn event_loop(
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                             return Ok(landed(rotation, index))
                         }
+                        // The confirmation owns the keyboard while it is up:
+                        // `y` is the only key that does anything, and every
+                        // other one cancels rather than falling through to a
+                        // panel toggle nobody meant to press.
+                        KeyCode::Char('y') | KeyCode::Char('Y') if dash.forget.is_some() => {
+                            let target = dash.forget.take().expect("checked");
+                            if let Ok(mut cfg) = crate::config::Config::load() {
+                                if cfg.remove(&target.id) {
+                                    let _ = cfg.save();
+                                }
+                            }
+                            rotation.retain(|p| p.id != target.id);
+
+                            // Nothing left to show. Quitting is the honest
+                            // outcome — an empty dashboard would sit there
+                            // redrawing the numbers of a property that is no
+                            // longer configured.
+                            if rotation.is_empty() {
+                                return Ok(None);
+                            }
+                            index %= rotation.len();
+                            show(
+                                source,
+                                dash,
+                                &settings,
+                                &rotation[index],
+                                &tx,
+                                &mut last_live,
+                            );
+                        }
+                        _ if dash.forget.is_some() => dash.forget = None,
                         KeyCode::Char('q') => return Ok(landed(rotation, index)),
                         // Esc closes the help overlay first, so it isn't a
                         // surprise exit for anyone who opened it to look.
@@ -1137,6 +1212,18 @@ async fn event_loop(
                         KeyCode::Char('7') | KeyCode::Char('d') => {
                             dash.panels.trend = !dash.panels.trend
                         }
+                        // Shift, not a bare `d`: that one toggles the daily
+                        // users panel and always has. A key people press to
+                        // look at a chart is the wrong place to put anything
+                        // that changes their config.
+                        KeyCode::Char('D') if !dash.demo => {
+                            if let Some(property) = rotation.get(index) {
+                                dash.forget = Some(Forget {
+                                    id: property.id.clone(),
+                                    name: property.display(),
+                                });
+                            }
+                        }
                         // The demo is where someone decides whether $2.99 is
                         // worth it, so it can wear the Anacrafter treatment on
                         // request. Gated to the demo: on real data the flag
@@ -1158,24 +1245,14 @@ async fn event_loop(
                                 rotation.len() - 1
                             };
                             index = (index + step) % rotation.len();
-                            let next = &rotation[index];
-                            let resolved = settings.for_property(next);
-
-                            source.set_property(&next.id);
-                            dash.switch_to(next.display(), resolved);
-                            // A property carrying its own palette should show it
-                            // immediately, not on the next launch.
-                            if let Some(name) = next.theme.as_deref() {
-                                theme::select(name);
-                            }
-
-                            // Re-fetch at once: the numbers on screen belong to
-                            // the property we just left.
-                            dash.in_flight = source.request_report(dash.days, &tx);
-                            dash.last_report = Instant::now();
-                            source.request_live(&tx);
-                            dash.live_fetching = true;
-                            last_live = Instant::now();
+                            show(
+                                source,
+                                dash,
+                                &settings,
+                                &rotation[index],
+                                &tx,
+                                &mut last_live,
+                            );
                         }
                         _ => {}
                     }
@@ -1704,7 +1781,11 @@ fn draw(frame: &mut Frame, dash: &Dash) {
     frame.render_widget(supporter_box(dash), chunks[2]);
     frame.render_widget(footer(dash), chunks[3]);
 
-    if dash.help {
+    // The confirmation sits above the help, because it is a question waiting
+    // on an answer and the help is not.
+    if let Some(target) = &dash.forget {
+        forget_overlay(frame, area, target);
+    } else if dash.help {
         help_overlay(frame, area, dash.demo);
     }
 }
@@ -1892,6 +1973,90 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
 }
 
 /// The key list, centered over whatever is on screen.
+/// Shift+D's question.
+///
+/// The line that matters is the one saying the property stays in Google. A
+/// confirmation box in a dashboard is where somebody assumes the opposite, and
+/// they would only find out they were wrong much later.
+fn forget_overlay(frame: &mut Frame, area: Rect, target: &Forget) {
+    let lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                format!("  {}  ", target.name),
+                Style::default()
+                    .fg(ore::diamond())
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("({})", target.id),
+                Style::default().fg(theme::sage()),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  drops out of the tab rotation here",
+            Style::default().fg(theme::fg()),
+        )),
+        Line::from(vec![
+            Span::styled(
+                "  ! ",
+                Style::default()
+                    .fg(ore::redstone())
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "stays in Google, with its data",
+                Style::default()
+                    .fg(theme::fg())
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  delete it in the Analytics console:",
+            Style::default().fg(theme::sage()),
+        )),
+        Line::from(Span::styled(
+            "  Property details → Move to Trash Can",
+            Style::default().fg(theme::sage()),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(
+                "  y",
+                Style::default()
+                    .fg(ore::gold())
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" forget    ", Style::default().fg(theme::fg())),
+            Span::styled(
+                "esc",
+                Style::default()
+                    .fg(ore::gold())
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" keep it", Style::default().fg(theme::fg())),
+        ]),
+        Line::from(""),
+    ];
+
+    let width = 44.min(area.width.saturating_sub(4));
+    let height = (lines.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let rect = Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Paragraph::new(lines).block(framed("FORGET PROPERTY", "", ore::redstone())),
+        rect,
+    );
+}
+
 fn help_overlay(frame: &mut Frame, area: Rect, demo: bool) {
     let mut keys = vec![
         ("q / Esc", "quit"),
@@ -1907,9 +2072,11 @@ fn help_overlay(frame: &mut Frame, area: Rect, demo: bool) {
         ("tab", "next property"),
         ("? / h", "this list"),
     ];
-    // Only listed where it does something.
+    // Only listed where they do something.
     if demo {
         keys.push(("s", "preview Anacrafter"));
+    } else {
+        keys.push(("shift+D", "forget property"));
     }
 
     let width = 40.min(area.width.saturating_sub(4));
@@ -3623,6 +3790,87 @@ mod tests {
                         .sum();
                     assert!(drawn <= width, "width {width}, {days} days: drew {drawn}");
                 }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod forget_tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    /// Draw the confirmation into a fixed buffer and read it back as text.
+    fn render(width: u16, height: u16) -> String {
+        let target = Forget {
+            id: "397412345".to_string(),
+            name: "example.com".to_string(),
+        };
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                forget_overlay(frame, area, &target);
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn the_confirmation_says_the_property_stays_in_google() {
+        // The whole reason this overlay has more than one line. Somebody
+        // confirming a box called FORGET PROPERTY in a dashboard would
+        // otherwise assume their data went with it, and find out weeks later.
+        let drawn = render(60, 20);
+        assert!(drawn.contains("stays in Google"), "got:\n{drawn}");
+        assert!(drawn.contains("Move to Trash Can"), "got:\n{drawn}");
+        assert!(drawn.contains("FORGET PROPERTY"), "got:\n{drawn}");
+        // Names what it is about to act on, not just "this property".
+        assert!(drawn.contains("example.com"), "got:\n{drawn}");
+        assert!(drawn.contains("397412345"), "got:\n{drawn}");
+        // Both answers are offered; neither is implied by silence.
+        assert!(drawn.contains("forget"), "got:\n{drawn}");
+        assert!(drawn.contains("keep it"), "got:\n{drawn}");
+    }
+
+    #[test]
+    fn the_confirmation_never_calls_itself_a_delete() {
+        // It does not delete anything, and the word would be a lie the first
+        // time somebody trusted it.
+        let drawn = render(60, 20).to_lowercase();
+        let claims_to_delete = drawn
+            .lines()
+            .filter(|line| line.contains("delet"))
+            .all(|line| line.contains("console"));
+        assert!(
+            claims_to_delete,
+            "the only mention of deleting must point at the console:\n{}",
+            render(60, 20)
+        );
+    }
+
+    #[test]
+    fn the_confirmation_fits_a_small_terminal() {
+        // An overlay wider than the terminal is how a confirmation ends up
+        // unreadable at the moment it matters most.
+        for (w, h) in [(40, 12), (48, 16), (60, 20), (120, 40), (24, 8)] {
+            let drawn = render(w, h);
+            for line in drawn.lines() {
+                assert_eq!(
+                    line.chars().count(),
+                    w as usize,
+                    "{w}x{h} drew a ragged line"
+                );
             }
         }
     }
