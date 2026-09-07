@@ -191,11 +191,6 @@
   #chart .b  { color: var(--jade-deep); opacity: .34; }
   #chart .bc { color: var(--jade); }
   #chart .nb { color: var(--gold); }
-  /* the feed */
-  #chart .ok   { color: var(--jade); }
-  #chart .gone { color: var(--dim); }
-  #chart .pa   { color: var(--fg); }
-  #chart .dim  { color: var(--dim); }
   .eyebrow {
     font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
     text-transform: uppercase; color: var(--jade); margin-bottom: 22px;
@@ -1968,9 +1963,9 @@
    *
    * The headline is capped at 15ch, so on anything wide the right half of the
    * hero was empty. What fills it is the panel this product is known for — a
-   * realtime graph that scrolls, with the event feed underneath it — drawn in
-   * the same chrome, the same ■^n tag and the same block ramp `render.rs`
-   * builds bars out of. A screenshot would say the same thing and say it dead.
+   * realtime graph, scrolling — drawn in the same chrome, the same ■^n tag and
+   * the same block ramp `render.rs` builds bars out of. A screenshot would say
+   * the same thing and say it dead.
    *
    * The numbers are a function of time, not a feed, which is why the panel
    * carries DEMO in its footer the way `craft dash --demo` does. Nobody's real
@@ -2025,30 +2020,15 @@
       return Math.max(0.06, Math.min(1, v));
     }
 
-    // What the feed says. Real paths from this site, so the panel is showing
-    // the site it is sitting on.
-    var PAGES = ['/', '/pricing.html', '/setup-ga4.html', '/alerts.html', '/#mcp', '/#start'];
-    var KINDS = ['spawn', 'spawn', 'spawn', 'wander off'];
-
     var seq = 0;            // how many samples have ever been taken
     var buf = [];           // the last W of them
     for (var i = 0; i < W; i++) { buf.push(sampleAt(i)); seq = i + 1; }
 
-    var feed = [];
-    for (i = 0; i < 4; i++) feed.push({ kind: KINDS[i % KINDS.length], page: PAGES[i % PAGES.length], age: 3 + i * 5 });
-
     function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
     function span(cls, s) { return cls ? '<span class="' + cls + '">' + esc(s) + '</span>' : esc(s); }
-    function pad(s, n) {
-      var len = [].concat(Array.from(s)).length;
-      return len >= n ? Array.from(s).slice(0, n).join('') : s + new Array(n - len + 1).join(' ');
-    }
-
     function frame(tick) {
       var lines = [];
-      // Three feed rows and the rule above them, when there is room for them.
-      var feedRows = H >= 12 ? 4 : 0;
-      var CH = H - feedRows;
+      var CH = H;   // the graph has the panel to itself
 
       // ── header: the live count, off the newest sample ──
       var online = Math.round(40 + buf[buf.length - 1] * 190);
@@ -2103,25 +2083,6 @@
         lines.push(span('f', '│') + out + span('f', '│'));
       }
 
-      // ── the feed ──
-      if (feedRows) {
-        lines.push(span('f', '│') + span('f', new Array(W + 1).join('─')) + span('f', '│'));
-        // The three fields have to add up to exactly W or the panel's right
-        // edge walks off: 12 for the kind, 4 for the age and its trailing
-        // space, and whatever is left for the page.
-        var KINDW = 12, AGEW = 4, PAGEW = W - KINDW - AGEW;
-        for (var k = 0; k < feedRows - 1; k++) {
-          var e = feed[k];
-          lines.push(
-            span('f', '│') +
-            span(e.kind === 'spawn' ? 'ok' : 'gone', pad(' ' + e.kind, KINDW)) +
-            span('pa', pad(e.page, PAGEW)) +
-            span('dim', pad(e.age + 's', AGEW)) +
-            span('f', '│')
-          );
-        }
-      }
-
       var tag = ' DEMO ';
       lines.push(
         span('f', '└') +
@@ -2131,21 +2092,12 @@
       return lines.join('\n');
     }
 
-    /* One poll: the graph shifts left by a column and the feed ages. The real
-     * dashboard polls every few seconds, so this does too — a graph that
-     * redraws sixty times a second is not a realtime graph, it is a waveform. */
+    /* One poll: the graph shifts left by a column. The real dashboard polls
+     * every few seconds, so this does too — a graph redrawn sixty times a
+     * second is not a realtime graph, it is a waveform. */
     function poll() {
       buf.shift();
       buf.push(sampleAt(seq++));
-      for (var k = 0; k < feed.length; k++) feed[k].age += 3;
-      if (feed[0].age > 6) {
-        feed.pop();
-        feed.unshift({
-          kind: KINDS[seq % KINDS.length],
-          page: PAGES[seq % PAGES.length],
-          age: 1
-        });
-      }
     }
 
     if (still) { H = rows(); pre.innerHTML = frame(6); return; }
