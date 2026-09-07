@@ -97,6 +97,8 @@ const LIVE_GRAPH_ROWS: usize = 3;
 const CHUNKS_ROWS: u16 = 6;
 /// Ranked realms: eight country rows with bars, plus borders.
 const REALMS_RANKED_ROWS: u16 = 10;
+/// Ranked portals: the same shape, and the same eight rows of it.
+const PORTALS_ROWS: u16 = 10;
 /// The map's box: nine rows of world, a caption, and borders.
 const MAP_ROWS: u16 = 12;
 /// The events chart: enough rows that the two lines are told apart, plus the
@@ -183,6 +185,9 @@ struct Snapshot {
     daily: Vec<f64>,
     pages: Vec<(String, f64)>,
     realms: Vec<(String, f64)>,
+    /// Where the sessions arrived from, ranked. Source and medium together, so
+    /// a link from a search result and an ad on the same site are not one row.
+    portals: Vec<(String, f64)>,
     /// Event counts per day, for the period and the one before it.
     events: EventCounts,
 }
@@ -203,6 +208,8 @@ enum Update {
     Events(EventCounts),
     /// Users by country for the period — where they came from.
     Realms(Vec<(String, f64)>),
+    /// Sessions by source and medium — who is sending them.
+    Portals(Vec<(String, f64)>),
     Live {
         total: f64,
         realms: Vec<(String, f64)>,
@@ -251,6 +258,7 @@ struct Panels {
     live: bool,
     chunks: bool,
     realms_ranked: bool,
+    portals: bool,
     trend: bool,
     map: bool,
     events: bool,
@@ -262,6 +270,7 @@ impl Panels {
             || self.live
             || self.chunks
             || self.realms_ranked
+            || self.portals
             || self.trend
             || self.map
             || self.events
@@ -269,7 +278,7 @@ impl Panels {
 
     /// Panels that live in the right-hand column, top to bottom.
     fn right_any(&self) -> bool {
-        self.live || self.chunks || self.realms_ranked || self.trend
+        self.live || self.chunks || self.realms_ranked || self.portals || self.trend
     }
 }
 
@@ -307,6 +316,8 @@ struct Dash {
     realms: Vec<(String, f64)>,
     /// Countries with somebody on the site right now, lit on top of the base.
     live_realms: Vec<(String, f64)>,
+    /// Sessions by source and medium — who is sending the traffic.
+    portals: Vec<(String, f64)>,
     feed: VecDeque<FeedEvent>,
     updated: String,
     /// Set when a refresh fails; the last good numbers stay on screen.
@@ -367,6 +378,7 @@ impl Dash {
             history: VecDeque::from(vec![live]),
             realms: Vec::new(),
             live_realms: realms,
+            portals: Vec::new(),
             feed: VecDeque::new(),
             updated: stamp(),
             error: None,
@@ -377,6 +389,7 @@ impl Dash {
                 live: true,
                 chunks: true,
                 realms_ranked: true,
+                portals: true,
                 trend: true,
                 map: true,
                 events: true,
@@ -427,6 +440,7 @@ impl Dash {
         self.apply_pages(snapshot.pages);
         self.apply_events(snapshot.events);
         self.realms = snapshot.realms;
+        self.portals = snapshot.portals;
     }
 
     fn apply_totals(&mut self, current: Vec<f64>, previous: Vec<f64>) {
@@ -658,6 +672,30 @@ async fn fetch_pages(client: &Ga, property: &str, days: u32) -> Result<Vec<(Stri
         .collect())
 }
 
+/// Who sent the sessions, ranked.
+///
+/// `sessionSourceMedium` rather than `sessionSource`: the same site can be both
+/// a link somebody wrote and an ad somebody bought, and a panel that answers
+/// "who is mentioning us" has to keep those apart. Eight rows, the depth the
+/// panel can draw.
+async fn fetch_portals(client: &Ga, property: &str, days: u32) -> Result<Vec<(String, f64)>> {
+    let portals = client
+        .report(
+            property,
+            ReportRequest::new(&["sessions"])
+                .by(&["sessionSourceMedium"])
+                .range(DateRange::last_days(days))
+                .top("sessions", 8),
+        )
+        .await?;
+
+    Ok(portals
+        .rows
+        .iter()
+        .map(|r| (r.dimension(0).to_string(), r.metric(0)))
+        .collect())
+}
+
 /// Event counts per day, for the period and for the period before it — the pair
 /// the chart draws as one comparison.
 ///
@@ -702,11 +740,12 @@ fn day_of_month(date: &str) -> String {
 /// taken over. The parts run concurrently, so this costs one round trip rather
 /// than one per part.
 async fn fetch_report(client: &Ga, property: &str, days: u32) -> Result<Snapshot> {
-    let (totals, daily, pages, realms, events) = tokio::try_join!(
+    let (totals, daily, pages, realms, portals, events) = tokio::try_join!(
         fetch_totals(client, property, days),
         fetch_trend(client, property, days),
         fetch_pages(client, property, days),
         fetch_realms(client, property, days),
+        fetch_portals(client, property, days),
         fetch_events(client, property, days)
     )?;
 
@@ -716,6 +755,7 @@ async fn fetch_report(client: &Ga, property: &str, days: u32) -> Result<Snapshot
         daily,
         pages,
         realms,
+        portals,
         events,
     })
 }
@@ -757,6 +797,7 @@ enum Part {
     Trend,
     Pages,
     Realms,
+    Portals,
     Events,
 }
 
@@ -783,6 +824,9 @@ impl Source {
                             Part::Realms => fetch_realms(&client, &property, days)
                                 .await
                                 .map(Update::Realms),
+                            Part::Portals => fetch_portals(&client, &property, days)
+                                .await
+                                .map(Update::Portals),
                             Part::Events => fetch_events(&client, &property, days)
                                 .await
                                 .map(Update::Events),
@@ -797,8 +841,9 @@ impl Source {
                 spawn(Part::Trend);
                 spawn(Part::Pages);
                 spawn(Part::Realms);
+                spawn(Part::Portals);
                 spawn(Part::Events);
-                5
+                6
             }
             Source::Demo(synthetic) => {
                 let snapshot = synthetic.lock().unwrap().report(&mut rand::thread_rng());
@@ -809,8 +854,9 @@ impl Source {
                 let _ = tx.send(Update::Trend(snapshot.daily));
                 let _ = tx.send(Update::Pages(snapshot.pages));
                 let _ = tx.send(Update::Realms(snapshot.realms));
+                let _ = tx.send(Update::Portals(snapshot.portals));
                 let _ = tx.send(Update::Events(snapshot.events));
-                5
+                6
             }
         }
     }
@@ -1128,6 +1174,11 @@ async fn event_loop(
                     dash.updated = stamp();
                     dash.in_flight = dash.in_flight.saturating_sub(1);
                 }
+                Update::Portals(portals) => {
+                    dash.portals = portals;
+                    dash.updated = stamp();
+                    dash.in_flight = dash.in_flight.saturating_sub(1);
+                }
                 Update::Live { total, realms } => {
                     dash.apply_live(total, realms);
                     dash.live_fetching = false;
@@ -1233,6 +1284,11 @@ async fn event_loop(
                         }
                         KeyCode::Char('7') | KeyCode::Char('d') => {
                             dash.panels.trend = !dash.panels.trend
+                        }
+                        // `o`, not `p`: the chunk list took that one, and a
+                        // portal is a thing you come thrOugh.
+                        KeyCode::Char('8') | KeyCode::Char('o') => {
+                            dash.panels.portals = !dash.panels.portals
                         }
                         // Shift, not a bare `d`: that one toggles the daily
                         // users panel and always has. A key people press to
@@ -1358,6 +1414,26 @@ impl Synthetic {
                 (
                     name.to_string(),
                     (self.current[0] * share * rng.gen_range(0.9..1.1)).round(),
+                )
+            })
+            .collect(),
+            portals: [
+                ("google / organic", 0.31),
+                ("(direct) / (none)", 0.24),
+                ("news.ycombinator.com / referral", 0.14),
+                ("github.com / referral", 0.10),
+                ("reddit.com / referral", 0.07),
+                ("bing / organic", 0.05),
+                ("t.co / referral", 0.04),
+                ("lobste.rs / referral", 0.03),
+            ]
+            .iter()
+            .map(|(name, share)| {
+                // Off sessions, not users: a portal is counted by the visits it
+                // sent, which is what `craft portals` ranks by.
+                (
+                    name.to_string(),
+                    (self.current[1] * share * rng.gen_range(0.9..1.1)).round(),
                 )
             })
             .collect(),
@@ -1966,6 +2042,11 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
     for (on, column, needs) in [
         (dash.panels.live, Column::Live, LIVE_ROWS),
         (dash.panels.chunks, Column::Chunks, CHUNKS_ROWS),
+        // Ahead of the ranked realms deliberately. The map above already says
+        // which countries, so that list is the one panel here with a second
+        // answer to the same question — where this one is the only answer to
+        // "who sent them".
+        (dash.panels.portals, Column::Portals, PORTALS_ROWS),
         (
             dash.panels.realms_ranked,
             Column::RealmsRanked,
@@ -2013,6 +2094,7 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
             Column::Live => live_panel(dash, area.width),
             Column::Chunks => pages_panel(dash, area.width),
             Column::RealmsRanked => realms_ranked_panel(dash, area.width),
+            Column::Portals => portals_panel(dash, area.width),
             Column::Trend => trend_panel(dash, area.width),
         };
         frame.render_widget(widget, *area);
@@ -2115,6 +2197,7 @@ fn help_overlay(frame: &mut Frame, area: Rect, demo: bool) {
         ("^5 / 5", "vitals panel"),
         ("^6 / 6", "top countries"),
         ("^7 / 7", "daily users"),
+        ("^8 / 8", "portals — who sent them"),
         ("t", "next theme"),
         ("tab", "next property"),
         ("? / h", "this list"),
@@ -2808,6 +2891,7 @@ enum Column {
     Live,
     Chunks,
     RealmsRanked,
+    Portals,
     Trend,
 }
 
@@ -3271,6 +3355,90 @@ fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
     }
 
     Paragraph::new(lines).block(framed("TOP COUNTRIES", "6", ore::lapis()))
+}
+
+/// Who is sending the traffic, ranked by sessions.
+///
+/// The one panel that answers a question about somebody else. Every other box
+/// here reports on the site — what it served, where its readers were, how many
+/// were on it — and this one reports on the web around it: who linked, who
+/// searched, who mentioned it.
+///
+/// GA hands back `source / medium` in one string. It is split so the source
+/// leads at full strength and the medium trails dim, because the source is the
+/// name being looked for and the medium is a footnote about it. `(direct)` is
+/// left as GA writes it, parentheses and all — it is not a site, and dressing
+/// it up as one would be the panel telling a small lie in its own vocabulary.
+fn portals_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
+    let phase = dash.phase();
+    let inner = width.saturating_sub(2) as usize;
+    let cells = inner.saturating_sub(3 + 2 + VIEWS_COLUMN).clamp(4, 20);
+    let label_cells = inner.saturating_sub(4 + MOVED_COLUMN);
+
+    let peak = dash.portals.iter().map(|(_, v)| *v).fold(0.0_f64, f64::max);
+
+    let mut sorted: Vec<&(String, f64)> = dash.portals.iter().collect();
+    sorted.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if sorted.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "nobody has sent anyone this way yet",
+            Style::default().fg(ore::stone()),
+        )));
+    }
+
+    for (i, (portal, count)) in sorted.iter().take(8).enumerate() {
+        let color = theme::ramp(i);
+        let (ore_badge, ore_color) = tier(i);
+        let frac = if peak > 0.0 { *count / peak } else { 0.0 };
+
+        // `google / organic` -> a lit source and a dim medium. A row with no
+        // slash in it is all source, which is what GA does with `(direct)`.
+        let (source, medium) = match portal.split_once(" / ") {
+            Some((source, medium)) => (source, Some(medium)),
+            None => (portal.as_str(), None),
+        };
+        let source: String = source.chars().take(label_cells).collect();
+        // What the source did not use is the medium's, and the two together
+        // come to exactly `label_cells` — the width every other panel's label
+        // column is drawn at, so the bars below stay in one line down the box.
+        let room = label_cells.saturating_sub(source.chars().count());
+        let medium: String = match medium {
+            // Two of those characters are spoken for: the space that separates
+            // the pair, and one that keeps the medium off the bar beside it.
+            Some(medium) if room > 3 => {
+                let medium: String = medium.chars().take(room - 2).collect();
+                format!(" {medium}")
+            }
+            _ => String::new(),
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{ore_badge} "),
+                Style::default().fg(ore_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(source, Style::default().fg(color)),
+            Span::styled(
+                format!("{medium:<room$}"),
+                Style::default().fg(ore::stone()),
+            ),
+            Span::raw(" ".repeat(MOVED_COLUMN)),
+        ]));
+
+        let mut spans = bar_spans(frac, cells, glyph::FULL, color, phase, false, 3);
+        spans.push(Span::styled(
+            format!("  {:>width$}", commas(*count), width = VIEWS_COLUMN),
+            Style::default()
+                .fg(theme::fg())
+                .add_modifier(Modifier::BOLD),
+        ));
+        lines.push(Line::from(spans));
+    }
+
+    Paragraph::new(lines).block(framed("PORTALS", "8", ore::emerald()))
 }
 
 fn footer(dash: &Dash) -> Paragraph<'static> {
@@ -3897,6 +4065,41 @@ mod tests {
         let text = render_to_string(supporter_box(&dash));
         assert!(text.contains("ANACRAFTER"), "no status: {text:?}");
         assert!(!text.contains("craft subscribe"), "still asking: {text:?}");
+    }
+
+    #[test]
+    fn the_portals_panel_splits_the_source_from_the_medium() {
+        // GA hands back one string, "source / medium". The panel shows both —
+        // the source is the name somebody would recognise, the medium is the
+        // footnote saying how they arrived — so neither may be dropped.
+        let mut dash = capture_dash();
+        dash.portals = vec![
+            ("news.ycombinator.com / referral".to_string(), 2_403.0),
+            ("(direct) / (none)".to_string(), 4_496.0),
+        ];
+
+        let text = render_to_string(portals_panel(&dash, 56));
+        assert!(text.contains("news.ycombinator.com"), "no source: {text:?}");
+        assert!(text.contains("referral"), "no medium: {text:?}");
+        // Left as GA writes it. It is not a site, and dressing it up as one
+        // would be the panel telling a small lie in its own vocabulary.
+        assert!(text.contains("(direct)"), "direct was rewritten: {text:?}");
+
+        // Ranked by sessions, so the busiest portal leads whatever order the
+        // rows arrived in.
+        let direct = text.find("(direct)").unwrap();
+        let hn = text.find("news.ycombinator.com").unwrap();
+        assert!(direct < hn, "the panel did not rank by sessions");
+    }
+
+    #[test]
+    fn a_site_nobody_links_to_says_so() {
+        // The empty state is a sentence, not a blank box: a new site with no
+        // referrals looks exactly like a panel that failed to load.
+        let mut dash = capture_dash();
+        dash.portals = Vec::new();
+        let text = render_to_string(portals_panel(&dash, 56));
+        assert!(text.contains("nobody has sent anyone"), "silent: {text:?}");
     }
 
     #[test]

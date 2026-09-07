@@ -14,3 +14,6 @@ __pycache__/
 
 # macOS finder droppings
 .DS_Store
+
+# Claude Code, personal to this checkout — permission grants and local overrides
+.claude/settings.local.json
