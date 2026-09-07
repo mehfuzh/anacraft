@@ -1977,7 +1977,7 @@
 
     var W = 36;   // inner columns
     var H = 11;   // inner rows — replaced by rows() before the first frame
-    var INSET = 2;// rows of daylight left above and below, split by centring
+    var INSET = 6;// rows of daylight left above and below, split by centring
 
     // `theme.rs`: the sparkline ramp, low to high, and the live indicator.
     var SPARK = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -2001,10 +2001,11 @@
       // Emptied first, so what gets measured is the column's own content and
       // never the panel that is about to be sized from it.
       pre.textContent = '';
-      // Two rows for the panel's own frame, and two more given back so it sits
-      // a line clear of the top and bottom of the column instead of ending
-      // flush against both. `align-self: center` splits those two between
-      // above and below.
+      // Two rows for the panel's own frame, and INSET more given back so the
+      // panel sits clear of the top and bottom of the column instead of ending
+      // flush against both. `align-self: center` splits those between above
+      // and below, so INSET is the one number to turn to make the graph
+      // shorter or taller against the sentence beside it.
       var fits = Math.floor(col.offsetHeight / line) - 2 - INSET;
       return Math.max(10, Math.min(24, fits));
     }
