@@ -103,6 +103,14 @@ pub struct Status {
     /// loud. Absent from an older service, in which case the status decides.
     #[serde(default)]
     pub subscribed: Option<bool>,
+    /// The Anacrafter's number, in the order the first payment landed.
+    ///
+    /// Assigned once and kept. Somebody who paid early stays early whether or
+    /// not the subscription is live today — it is a founder's number, not a
+    /// seat. Absent from an older service and from an account that has never
+    /// paid, which is why it is an `Option` and not a zero.
+    #[serde(default)]
+    pub founder: Option<u32>,
 }
 
 impl Status {
@@ -504,6 +512,10 @@ pub fn demo_supporter_line() -> &'static str {
     SUPPORTER_LINES[DEMO_LINE]
 }
 
+/// The number worn in the demo and in the site's captures. Low, because what
+/// the preview is previewing is what an early Anacrafter sees.
+pub const DEMO_FOUNDER: u32 = 7;
+
 /// Derive a line from arbitrary bytes.
 ///
 /// A digest rather than `seed[0] % 7`: the low byte of a refresh token is not
@@ -702,6 +714,7 @@ mod tests {
                 status: "active".into(),
                 since: None,
                 subscribed: None,
+                founder: None,
             },
             checked: Some(now - Duration::hours(1)),
         };
@@ -719,6 +732,7 @@ mod tests {
                 status: "active".into(),
                 since: None,
                 subscribed: None,
+                founder: None,
             },
             checked: Some(now),
         };
@@ -733,6 +747,7 @@ mod tests {
             status: "pending".into(),
             since: None,
             subscribed: None,
+            founder: None,
         };
         assert_eq!(verdict(&pending), None, "a hand-set flag was cleared");
         assert_eq!(verdict(&Status::default()), None, "an empty answer decided");
@@ -742,12 +757,14 @@ mod tests {
             status: "active".into(),
             since: None,
             subscribed: None,
+            founder: None,
         };
         assert_eq!(verdict(&active), Some(true));
         let gone = Status {
             status: "canceled".into(),
             since: None,
             subscribed: None,
+            founder: None,
         };
         assert_eq!(verdict(&gone), Some(false));
     }
@@ -795,6 +812,7 @@ mod tests {
                     status: status.into(),
                     since: None,
                     subscribed: None,
+                    founder: None,
                 },
                 checked: Some(now),
             };
@@ -825,6 +843,7 @@ mod tests {
                 status: "active".into(),
                 since: None,
                 subscribed: None,
+                founder: None,
             },
             checked: Some(now - age),
         };
@@ -837,6 +856,7 @@ mod tests {
                 status: "canceled".into(),
                 since: None,
                 subscribed: None,
+                founder: None,
             },
             checked: Some(now),
             ..Record::default()

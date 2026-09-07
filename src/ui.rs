@@ -325,6 +325,10 @@ struct Dash {
     /// dashboard redraws sixty times a second and this must not read the
     /// token that often, nor change while somebody is looking at it.
     supporter_line: &'static str,
+    /// The Anacrafter's number, worn beside the word itself. `None` where the
+    /// service has none to give — an older one, or an account that has never
+    /// paid — and the line simply reads as it always did.
+    founder: Option<u32>,
 }
 
 impl Dash {
@@ -374,6 +378,7 @@ impl Dash {
             demo: false,
             avatar: Avatar::demo(),
             supporter_line: crate::license::demo_supporter_line(),
+            founder: Some(crate::license::DEMO_FOUNDER),
         };
         dash.apply_report(snapshot);
         // The constructor's own report shouldn't set every row flashing.
@@ -956,6 +961,9 @@ async fn drive(
     if !dash.demo {
         dash.avatar = Avatar::for_account();
         dash.supporter_line = crate::license::supporter_line();
+        // Read once, here, rather than per frame: it is a number that is
+        // assigned once and never moves while somebody is looking at it.
+        dash.founder = crate::license::Record::load().status.founder;
     }
 
     let mut terminal = ratatui::init();
@@ -1674,6 +1682,17 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
                 Style::default()
                     .fg(ore::gold())
                     .add_modifier(Modifier::BOLD),
+            ),
+            // The number rides the word, not a corner of its own: it is part
+            // of the name here, the way a jersey number is. Padded to three so
+            // the first hundred line up under each other, and unbold so the
+            // word still leads.
+            Span::styled(
+                match dash.founder {
+                    Some(number) => format!(" #{number:03}"),
+                    None => String::new(),
+                },
+                Style::default().fg(ore::gold()),
             ),
             Span::styled(
                 // Said out loud in the demo: nobody should read a synthetic
@@ -3619,6 +3638,41 @@ mod tests {
         let text = render_to_string(supporter_box(&dash));
         assert!(text.contains("ANACRAFTER"), "no status: {text:?}");
         assert!(!text.contains("craft subscribe"), "still asking: {text:?}");
+    }
+
+    #[test]
+    fn the_anacrafter_wears_their_number() {
+        // The number is part of the name on this line, so it goes beside the
+        // word and nowhere else — and an account the service has no number for
+        // reads exactly as it always did, rather than as a #000.
+        let mut dash = capture_dash();
+        dash.supporter = true;
+
+        dash.founder = Some(41);
+        let text = render_to_string(supporter_box(&dash));
+        assert!(text.contains("#041"), "no number: {text:?}");
+
+        // Three digits, so the first hundred line up under each other.
+        dash.founder = Some(7);
+        assert!(
+            render_to_string(supporter_box(&dash)).contains("#007"),
+            "the number was not padded"
+        );
+
+        // And past the padding it simply keeps counting.
+        dash.founder = Some(1024);
+        assert!(
+            render_to_string(supporter_box(&dash)).contains("#1024"),
+            "the number was clipped"
+        );
+
+        dash.founder = None;
+        let text = render_to_string(supporter_box(&dash));
+        assert!(
+            text.contains("ANACRAFTER"),
+            "the word went with it: {text:?}"
+        );
+        assert!(!text.contains('#'), "a number was invented: {text:?}");
     }
 
     #[test]
