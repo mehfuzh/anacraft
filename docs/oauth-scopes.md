@@ -105,9 +105,21 @@ than merely documenting an intention.
    `signing_in_asks_for_one_read_only_analytics_scope_and_nothing_else` and
    `the_write_scope_is_the_narrowest_one_that_creates_a_property`.)
 2. **It only ever creates.** The client issues no update and no delete against
-   the Admin API — no `PATCH`, no `DELETE`, no method that modifies or removes
-   an existing property, stream or setting. (`src/ga.rs`, pinned by
-   `the_admin_api_surface_is_two_creates_and_nothing_destructive`.)
+   the Admin API — no `PATCH`, no `PUT`, no `DELETE`, no method that modifies or
+   removes an existing property, stream, setting or user. The grant permits all
+   of that; the code declines it. (`src/ga.rs`, pinned by
+   `the_admin_api_surface_is_two_creates_and_nothing_destructive`, which fails
+   the build if such a request appears.)
+
+   This is a decision the product had to make, not an absence of one. `craft`
+   ships a `delete` command, and it deliberately does not call
+   `properties.delete` — which `analytics.edit` would permit. It forgets the
+   property in anacraft's own config, then prints the console's delete path and
+   notes that Google holds a deleted property in its trash for 35 days. The
+   destructive click stays where the account's own permission checks and its
+   undo are. A terminal command is the wrong place to keep a button that
+   removes somebody's analytics history, and no confirmation prompt would make
+   it the right one. (`src/configure.rs`, `delete`.)
 3. **It will not create twice.** Before creating anything, `craft configure`
    looks for a property that already measures the domain and reuses it,
    printing its existing tag. Re-running the command is the supported way to
@@ -143,3 +155,8 @@ For the verification submission, recording the whole flow end to end:
 6. `craft configure example.com` again — show that it finds the existing
    property, creates nothing, prints the same tag, and asks for no permission
    in the process.
+7. `craft delete example.com` — show that the one command whose name implies
+   deletion does not use the grant to delete. It forgets the property locally
+   and prints the console path, leaving the property intact in Analytics. This
+   is the step that shows the grant is bounded by the code rather than by the
+   scope.

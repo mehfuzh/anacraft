@@ -14,6 +14,13 @@
 //! This is the only command in anacraft that writes anything to a Google
 //! account, and it asks for the permission to do so itself — see
 //! `auth::ensure_scope` and `docs/oauth-scopes.md`.
+//!
+//! `craft delete` is the other half, and deliberately the asymmetric one. It
+//! forgets a property locally and then hands the console the destructive click,
+//! because deleting somebody's analytics history is not a thing this binary
+//! should be able to do at all — not behind a confirmation prompt, not behind a
+//! flag. The grant `craft configure` asks for would permit it; the code is what
+//! declines to, which is the whole argument of `docs/oauth-scopes.md`.
 
 use anyhow::{bail, Context, Result};
 
@@ -400,6 +407,151 @@ fn is_iana(tz: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | '+'))
 }
 
+// ------------------------------------------------------------------ delete ---
+
+/// Where the console keeps a property's own settings, `{id}` being the numeric
+/// property id. The `p` prefix is how GA4 addresses a property in the console's
+/// URL fragment.
+const ADMIN_URL: &str = "https://analytics.google.com/analytics/web/#/p{id}/admin";
+
+/// `craft delete <domain|id>` — forget a property here, and say where the
+/// console's own delete lives.
+///
+/// anacraft never deletes a property. It could: `analytics.edit`, which
+/// `craft configure` already asks for, covers `properties.delete`. It does not,
+/// because a wrong argument here would be somebody's analytics history, and no
+/// confirmation prompt makes a binary the right place to keep that button. The
+/// console's version has the account's own permission checks in front of it and
+/// a 35-day trash behind it.
+pub async fn delete(target: &str) -> Result<()> {
+    let mut cfg = Config::load()?;
+    let found = resolve(&cfg, target).await?;
+    let forgotten = cfg.remove(&found.id);
+    if forgotten {
+        cfg.save()?;
+    }
+
+    println!("\n{}\n", panel_top("DELETE A PROPERTY"));
+    // Nothing local or remote could name it, so the id is all there is to say
+    // — and saying it twice reads like a bug.
+    if found.name.is_empty() {
+        println!(
+            "  {}",
+            bold(&paint(&format!("property {}", found.id), ore::diamond()))
+        );
+    } else {
+        println!(
+            "  {} {}",
+            bold(&paint(&found.name, ore::diamond())),
+            dim(&format!("({})", found.id)),
+        );
+    }
+
+    if forgotten {
+        println!(
+            "  {} {}\n",
+            paint("✓", ore::emerald()),
+            dim("forgotten here — craft no longer opens on it"),
+        );
+    } else {
+        println!(
+            "  {}\n",
+            dim("was not configured here, so nothing to forget")
+        );
+    }
+
+    // The distinction that matters. Somebody who reads only the tick above
+    // would walk away believing their data was gone.
+    println!(
+        "  {} {}",
+        paint("!", ore::redstone()),
+        bold("the property and its data are still in Google"),
+    );
+    println!(
+        "  {}\n",
+        dim("anacraft does not delete properties — do it in the console:"),
+    );
+    println!("    {}", ADMIN_URL.replace("{id}", &found.id));
+    println!("    {}", dim("Property column → Property details"));
+    println!("    {}\n", dim("Move to Trash Can"));
+    println!(
+        "  {}",
+        dim("needs Editor or above. It sits in the trash for 35 days — restorable")
+    );
+    println!(
+        "  {}\n",
+        dim("from Admin → Account → Trash — and is permanently deleted after that.")
+    );
+    println!("{}\n", panel_bottom());
+
+    if forgotten {
+        println!(
+            "  {} changed your mind? {}\n",
+            dim("↳"),
+            bold(&format!("craft use {}", found.id)),
+        );
+    }
+    Ok(())
+}
+
+/// A property named by id or by the domain it measures.
+struct Found {
+    id: String,
+    /// Empty when nothing local or remote could name it, which is not a reason
+    /// to refuse — the id is what the console link needs.
+    name: String,
+}
+
+/// Resolve what the user typed, preferring answers that need no network.
+///
+/// A numeric id is already the answer. A domain usually is too: `craft
+/// configure` names the properties it creates after their host, so the local
+/// config can normally answer without asking Google at all — which keeps this
+/// working on a plane, and keeps a command that deletes nothing from needing a
+/// live login.
+async fn resolve(cfg: &Config, target: &str) -> Result<Found> {
+    let raw = target.trim();
+    if raw.is_empty() {
+        bail!("which property? pass a domain or a numeric id");
+    }
+
+    let id = crate::config::normalize(raw);
+    if !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) {
+        return Ok(Found {
+            name: cfg
+                .find(&id)
+                .map(|p| p.display())
+                .filter(|name| name != &format!("property {id}"))
+                .unwrap_or_default(),
+            id,
+        });
+    }
+
+    let host = host_of(raw)?;
+    if let Some(property) = cfg.properties.iter().find(|p| {
+        p.name.as_deref() == Some(host.as_str()) || p.label.as_deref() == Some(host.as_str())
+    }) {
+        return Ok(Found {
+            id: property.id.clone(),
+            name: host,
+        });
+    }
+
+    // Not configured here under that name, so ask which property measures it.
+    let ga = Ga::new()?;
+    match find_existing(&ga, &host).await? {
+        Some(Existing::Measured(property, _)) | Some(Existing::Unfinished(property)) => Ok(Found {
+            id: property.id,
+            name: property.name,
+        }),
+        None => bail!(
+            "nothing here measures {host}.\n  \
+             Run `craft props` for the properties this account can read, then pass \
+             the id."
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,6 +622,83 @@ mod tests {
         ] {
             assert!(snippet.contains(line), "missing {line:?}:\n{snippet}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_numeric_id_resolves_without_asking_google() {
+        let cfg = Config {
+            properties: vec![crate::config::Property {
+                id: "397412345".into(),
+                name: Some("example.com".into()),
+                ..Default::default()
+            }],
+            ..Config::default()
+        };
+
+        for typed in ["397412345", " properties/397412345 "] {
+            let found = resolve(&cfg, typed).await.unwrap();
+            assert_eq!(found.id, "397412345");
+            assert_eq!(found.name, "example.com");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_id_that_is_not_configured_still_resolves_to_itself() {
+        // The console link only needs the id, so an unknown one is not a
+        // reason to refuse — `craft delete` is how somebody cleans up a
+        // property this machine never had.
+        let found = resolve(&Config::default(), "397412345").await.unwrap();
+        assert_eq!(found.id, "397412345");
+        assert!(
+            found.name.is_empty(),
+            "invented a name for a property it knows nothing about: {}",
+            found.name
+        );
+    }
+
+    #[tokio::test]
+    async fn a_domain_resolves_from_the_local_config_before_the_network() {
+        // `craft configure` names what it creates after the host, so the
+        // common case answers offline. Reaching the network here would make a
+        // command that deletes nothing require a live login.
+        let cfg = Config {
+            properties: vec![
+                crate::config::Property {
+                    id: "111".into(),
+                    name: Some("other.com".into()),
+                    ..Default::default()
+                },
+                crate::config::Property {
+                    id: "222".into(),
+                    name: Some("example.com".into()),
+                    ..Default::default()
+                },
+            ],
+            ..Config::default()
+        };
+
+        let found = resolve(&cfg, "https://example.com/pricing").await.unwrap();
+        assert_eq!(found.id, "222");
+        assert_eq!(found.name, "example.com");
+    }
+
+    #[tokio::test]
+    async fn a_domain_matches_a_nickname_too() {
+        let cfg = Config {
+            properties: vec![crate::config::Property {
+                id: "333".into(),
+                name: Some("Marketing site".into()),
+                label: Some("example.com".into()),
+                ..Default::default()
+            }],
+            ..Config::default()
+        };
+        assert_eq!(resolve(&cfg, "example.com").await.unwrap().id, "333");
+    }
+
+    #[tokio::test]
+    async fn an_empty_target_is_a_question_not_a_lookup() {
+        assert!(resolve(&Config::default(), "   ").await.is_err());
     }
 
     #[test]

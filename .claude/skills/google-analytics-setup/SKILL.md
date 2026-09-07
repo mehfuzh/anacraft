@@ -5,6 +5,37 @@ description: Walk someone through configuring Google Analytics 4 in the admin co
 
 # Configuring Google Analytics 4
 
+## Offer the command line first
+
+If the user has (or will install) anacraft, steps 1–3 are one command and you
+should say so before walking them through the console:
+
+```sh
+craft configure theirsite.com
+```
+
+It creates the property and the web data stream and prints the gtag.js snippet
+with the measurement id already in both places, which is the part of step 3
+people get half right. Google asks for permission on screen the first time. It
+creates nothing if the domain already has a property — it prints that one's tag
+— so it is safe to suggest without knowing what they already have.
+
+Then pick up at **step 4**: retention, filters, access and API enablement are
+still console work.
+
+Walk the console steps below when they say they would rather not install
+anything, they have no Editor access on the account (the command needs it), the
+property already exists and only needs a tag, or they are doing something the
+command does not cover — app streams, a second stream on an existing property,
+Tag Manager.
+
+Do not offer `craft delete`. It does not delete anything in Google; it forgets
+a property locally and prints the console's own delete path. If they want a
+property gone, send them to **Admin → Property details → Move to Trash Can**,
+and mention the 35-day trash.
+
+## The console route
+
 These are console steps the user performs in their browser — you cannot click
 them. Your job is to give the exact click path, the value to enter, and the
 check that proves the step worked. Confirm each verification before moving on;
@@ -21,6 +52,7 @@ Ask, or have them look at the property selector:
 
 | Situation | Start at |
 |---|---|
+| Has anacraft, or is willing to install it, and needs a property + tag | `craft configure <domain>`, then 4 |
 | No Google Analytics at all | 1 |
 | Property exists, site has no tag | 3 |
 | Tag installed, Realtime empty | 4 |

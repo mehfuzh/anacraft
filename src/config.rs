@@ -264,6 +264,23 @@ impl Config {
         &mut self.properties[index]
     }
 
+    /// Forget a property, and report whether it was there to forget.
+    ///
+    /// `active` cannot be left pointing at an entry that no longer exists, so
+    /// it falls back to whatever remains — or to nothing, which puts the
+    /// dashboard back on synthetic data rather than on an error.
+    pub fn remove(&mut self, id: &str) -> bool {
+        let id = normalize(id);
+        let before = self.properties.len();
+        self.properties.retain(|p| p.id != id);
+        let removed = self.properties.len() != before;
+
+        if self.active.as_deref() == Some(id.as_str()) {
+            self.active = self.properties.first().map(|p| p.id.clone());
+        }
+        removed
+    }
+
     /// Resolve the property to query: explicit `--property` wins, then
     /// `ANACRAFT_PROPERTY_ID`, then whatever is active on disk.
     pub fn resolve_property(&self, flag: Option<&str>) -> Result<String> {
@@ -317,6 +334,59 @@ pub fn write_private(path: &PathBuf, contents: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forgetting_a_property_moves_active_off_it() {
+        let mut cfg = Config {
+            active: Some("111".into()),
+            properties: vec![
+                Property {
+                    id: "111".into(),
+                    ..Property::default()
+                },
+                Property {
+                    id: "222".into(),
+                    ..Property::default()
+                },
+            ],
+            ..Config::default()
+        };
+
+        assert!(cfg.remove("properties/111"));
+        assert_eq!(cfg.properties.len(), 1);
+        // Left pointing at 111 the dashboard would open on a property that is
+        // no longer configured.
+        assert_eq!(cfg.active.as_deref(), Some("222"));
+
+        // Forgetting the last one is not an error, and leaves nothing active —
+        // which is how the dashboard falls back to synthetic data.
+        assert!(cfg.remove("222"));
+        assert!(cfg.properties.is_empty());
+        assert_eq!(cfg.active, None);
+
+        // Forgetting something that was never there says so.
+        assert!(!cfg.remove("333"));
+    }
+
+    #[test]
+    fn forgetting_a_property_leaves_a_different_active_alone() {
+        let mut cfg = Config {
+            active: Some("222".into()),
+            properties: vec![
+                Property {
+                    id: "111".into(),
+                    ..Property::default()
+                },
+                Property {
+                    id: "222".into(),
+                    ..Property::default()
+                },
+            ],
+            ..Config::default()
+        };
+        assert!(cfg.remove("111"));
+        assert_eq!(cfg.active.as_deref(), Some("222"));
+    }
 
     #[test]
     fn normalize_strips_the_properties_prefix() {

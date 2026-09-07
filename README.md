@@ -417,10 +417,17 @@ people's quota consumption.
 
 ## Setting up GA4
 
-`craft configure <domain>` does the first three steps — property, data stream,
-tag — without the console. The rest of the Google side, including access
-management, retention, key events and API enablement, is documented at
-[anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html).
+`craft configure <domain>` is the preferred route: property, data stream and
+tag in one command, without the console. The rest of the Google side — access
+management, retention, key events, API enablement — is console work, and is
+documented at [anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html)
+along with the by-hand version of what `configure` does.
+
+`craft delete <domain|id>` is the way back out, and does less than it sounds
+like: it forgets the property here so the dashboard stops opening on it, then
+prints the console link and the two clicks that delete it. anacraft never
+deletes a property itself — Google holds a deleted one in the trash for 35
+days, and that undo lives in the console, not in a terminal.
 
 Cloned the repo and use [Claude Code](https://claude.com/claude-code)? The same
 guide ships as a skill in `.claude/skills/google-analytics-setup/`. Ask Claude to

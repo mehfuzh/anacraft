@@ -96,6 +96,10 @@
   .tldr .h { font-family: var(--mono); font-size: 11.5px; letter-spacing: .14em;
              text-transform: uppercase; color: var(--jade); margin-bottom: 10px; }
 
+  /* Marks the console route as the long way round, without hiding it. */
+  .alt { border-left: 2px solid var(--line-2); padding-left: 14px; color: var(--dim);
+         font-size: 13px; }
+
   .tbl { width: 100%; border-collapse: collapse; margin-bottom: 18px;
          font-size: 13.5px; display: block; overflow-x: auto; }
   .tbl th, .tbl td { text-align: left; padding: 9px 12px;
@@ -191,26 +195,33 @@
 <div class="stamp">Google-side configuration · about 20 minutes</div>
 
 <div class="tldr">
+  <div class="h">Do it from the terminal</div>
+  <p>This is the fast path, and the one to take unless you have a reason not to.
+  <a href="/#start">Install anacraft</a>, then:</p>
+  <pre class="code">craft configure <span class="k">yoursite.com</span></pre>
+  <p>That is steps <b>01</b>, <b>02</b> and <b>03</b>. It creates the property and the web data stream,
+  and prints the gtag.js snippet with your measurement id already in both of the places it belongs —
+  which is the half of step 03 that people get wrong. Google asks your permission on screen first, and
+  the command creates nothing if the domain already has a property: it prints that one's tag instead,
+  so running it twice is how you get the tag back rather than how you end up with two properties.</p>
+  <p>Paste the snippet into <code>&lt;head&gt;</code>, run <code>craft live</code> to watch the first
+  visit arrive, and carry on at <a href="#retention">step 04</a> — retention, filters and access are
+  still console work, and still worth reading.</p>
+</div>
+
+<div class="tldr">
   <div class="h">What you end up with</div>
   <p>A measurement id firing on your site, data visible in Realtime, and a
   <b>numeric property id</b> plus read access for anything that reads the property over the API —
-  anacraft included. Every step below happens in Google's console, not in anacraft.</p>
+  anacraft included.</p>
   <p>Working in <a href="https://claude.com/claude-code">Claude Code</a>? The repo ships this guide as a
   skill: clone it and ask to <i>configure Google Analytics</i>, and Claude walks the steps with you.</p>
 </div>
 
-<div class="tldr">
-  <div class="h">Steps 01–03, as one command</div>
-  <p>If you are here to get a tag onto a site, anacraft can do the first three steps for you.
-  <a href="/#start">Install it</a>, then:</p>
-  <pre class="code">craft configure <span class="k">yoursite.com</span></pre>
-  <p>It creates the property and the web data stream, then prints the gtag.js snippet with your
-  measurement id already filled in. Google asks your permission on screen first, and the command
-  creates nothing if the domain already has a property — it prints that one's tag instead. Everything
-  from step 04 on still happens in the console, and is still worth reading.</p>
-</div>
-
 <h2><span class="n">01</span>Create the account and property</h2>
+<p class="alt">Steps 01–03 by hand. <code>craft configure yoursite.com</code> does all three — this is
+the console route, for when you want to see what it touches, or you are setting up something the
+command does not cover.</p>
 <p>Everything starts at <a href="https://analytics.google.com">analytics.google.com</a> under
 <b>Admin</b>, the gear at the bottom left. GA4 nests <b>Account → Property → Data stream</b>; knowing
 which level a setting lives on saves most of the hunting.</p>
@@ -269,7 +280,7 @@ Realtime. <b>This site does exactly that</b>, which is why you are reading it wi
 Do not combine the two: an <code>analytics_storage: 'denied'</code> default downgrades every hit to a
 consent ping that GA4 reports only through modelling, so a small site sees less data, not more.</p>
 
-<h2><span class="n">04</span>Verify data is arriving</h2>
+<h2 id="retention"><span class="n">04</span>Verify data is arriving</h2>
 <p>In this order, because each rules out a different failure.</p>
 <div class="step"><b>Realtime</b> — Reports → Realtime, with the site open in another tab. Users appear
 within about 30 seconds. This proves the tag fires and the id is right.</div>
