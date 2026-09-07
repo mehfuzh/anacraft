@@ -31,7 +31,7 @@ assessment with it.
 asks a person to do across four screens: create a GA4 property, add a web data
 stream for the domain, and read back the measurement id. It then prints the
 gtag.js snippet with that id already in both of the places it belongs. It is
-step 01 of [Configure GA4](setup-ga4.html), which no longer documents the
+step 01 of [Configure your analytics](setup-ga4.html), which no longer documents the
 console route it replaced.
 
 That is the whole feature. It is also the most-read page on the site, which is

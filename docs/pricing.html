@@ -53,7 +53,7 @@
   .brand .pick { width: 14px; height: 14px; display: block; margin-right: 2px; }
   /* Same voice as the footer: mono, lowercase, one rhythm. The casing is
      text-transform rather than typed in, so the markup still says "Quick start"
-     and "Configure GA4" for a screen reader. The brand keeps its own face —
+     and "Configure" for a screen reader. The brand keeps its own face —
      it is a logo, not a link in the row. */
   .nav-links {
     display: flex; align-items: center; gap: 16px; margin-left: auto;
@@ -114,17 +114,22 @@
   .plan.paid li::before { color: var(--gold); }
   .plan .foot { margin-top: auto; font-size: 13px; color: var(--dim); }
 
-  /* The one button on the site that costs money, so it is the one thing here
-     that is filled rather than outlined. Gold rather than jade: it belongs to
-     the ★ the dashboard wears, not to the free half of the page. */
+  /* The one button on the site that costs money. Gold rather than jade — it
+     belongs to the ★ the dashboard wears, not to the free half of the page —
+     but a solid #ffe16b panel on a #060a09 ground is about as far apart as two
+     colours get, and it glared. So the gold is the ink and the edge, over a
+     ground barely lifted off the page. Filling in on hover is what makes it
+     read as a button rather than a bordered link. */
   .buy {
-    display: block; text-align: center; background: var(--gold); color: #241c00;
+    display: block; text-align: center; color: var(--gold);
+    background: rgba(255, 225, 107, .07);
     font-family: var(--mono); font-size: 13.5px; font-weight: 600;
     letter-spacing: .02em; padding: 13px 18px; margin: 0 0 14px;
-    border: 1px solid var(--gold); transition: filter .15s;
+    border: 1px solid rgba(255, 225, 107, .45);
+    transition: background .15s, border-color .15s;
   }
-  .buy:hover { filter: brightness(1.08); }
-  .doc a.buy { border-bottom: 1px solid var(--gold); }
+  .buy:hover { background: rgba(255, 225, 107, .13); border-color: var(--gold); }
+  .doc a.buy { border-bottom: 1px solid rgba(255, 225, 107, .45); }
   .plan .then { font-size: 12.5px; color: var(--dim); margin: 0 0 20px; line-height: 1.55; }
 
   /* The copy-the-command button, same component as the home page's install.
@@ -165,13 +170,24 @@
   .tbl .sub { color: var(--gold); font-family: var(--mono); font-size: 12px;
               text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
 
+  /* The page opened with five lifted panels — two plan cards, the summary, the
+     two copy-a-command buttons — and then ran out of them, so everything past
+     the table sat on bare ground and read as a second, darker page stapled to
+     the first. These carry the card language to the bottom. Ink rather than
+     panel, so a `pre.code` inside one still reads as lifted off it. */
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 8px; }
+  .note { border: 1px solid var(--line); background: var(--ink); padding: 22px 24px; }
+  .note h3 { margin-top: 0; }
+  .note p:last-child { margin-bottom: 0; }
+  .note pre.code { background: var(--panel); font-size: 12px; }
+
   pre.code { font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
              background: var(--panel); border: 1px solid var(--line);
              border-left: 3px solid var(--jade-deep);
              padding: 16px 18px; margin: 0 0 18px; overflow-x: auto; color: var(--fg); }
   pre.code .d { color: var(--dim); }
   pre.code .k { color: var(--jade); }
-  @media (max-width: 760px) { .plans { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) { .plans, .notes { grid-template-columns: 1fr; } }
   /* footer:start */
   footer {
     border-top: 1px solid var(--line); padding: 34px 0;
@@ -234,7 +250,7 @@
       <a href="/#start">Quick start</a>
       <a href="/#mcp">MCP</a>
       <a href="/alerts.html">Alerts</a>
-      <a href="/setup-ga4.html">Configure GA4</a>
+      <a href="/setup-ga4.html">Configure</a>
       <a href="/pricing.html">Pricing</a>
     </div>
   </div>
@@ -339,35 +355,45 @@ signed-in account before it ever opens Stripe. The first line is only for a mach
 <p style="margin-top:22px">It opens the same Stripe page, waits there for the payment to clear, and
 writes the flag itself when it does.</p>
 
-<h2>What the payment knows about you</h2>
+<h2>The rest of it</h2>
 
-<p>One row: the Stripe customer, the subscription, its status, and the email the card was paid with
-— which is the key your Google account is matched against, once and one way. An unowned payment can
-be adopted by an account with the same email; an owned one can never be read by another. After that
-the account id is the only key, so changing your email later changes nothing.</p>
-
-<p>Nothing about your analytics goes anywhere near it. The binary has no telemetry, and the
-subscription lookup knows your site does not exist.</p>
-
-<h2>A second machine</h2>
-
-<pre class="code"><span class="d"># the same Google account is the whole of it</span>
+<div class="notes">
+  <div class="note">
+    <h3>A second machine</h3>
+    <pre class="code"><span class="d"># the same Google account is the whole of it</span>
 <span class="k">craft</span> login
 <span class="k">craft</span> subscribe --check</pre>
+    <p><code>--check</code> only looks up where the account stands. It opens no browser, so it is
+    also the one to run from a script or over SSH.</p>
+  </div>
 
-<p><code>--check</code> only looks up where the account stands. It opens no browser, so it is also the
-one to run from a script or over SSH.</p>
+  <div class="note">
+    <h3>What the payment knows about you</h3>
+    <p>One row: the Stripe customer, the subscription, its status, and the email the card was paid
+    with — the key your Google account is matched against, once and one way. An unowned payment can
+    be adopted by an account with the same email; an owned one can never be read by another. After
+    that the account id is the only key, so changing your email later changes nothing.</p>
+    <p>Nothing about your analytics goes near it. The binary has no telemetry, and the subscription
+    lookup does not know your site exists.</p>
+  </div>
 
-<h2>The gate is a line in your config</h2>
+  <div class="note">
+    <h3>The gate is a line in your config</h3>
+    <p>It is one <code>supporter = true</code> in a TOML file you own, in a binary you can rebuild
+    from Apache-2.0 source. We are not going to pretend otherwise: no phone-home, no licence check
+    on launch beyond the one keeping your own subscription current, and no telemetry anywhere in
+    the binary.</p>
+    <p>So it is an honest ask rather than a lock — $2.99 a month for the two commands that work
+    while you are asleep, from the people who wrote them.</p>
+  </div>
 
-<p>It is one <code>supporter = true</code> in a TOML file you own, in a binary you can rebuild from
-Apache-2.0 source. We are not going to pretend otherwise, and there is no phone-home, no licence
-check on launch beyond the one that keeps your own subscription current, and no telemetry anywhere
-in the binary.</p>
-
-<p>So the subscription is an honest ask rather than a lock: $2.99 a month for the two commands that
-do work while you are asleep, from the people who wrote them. Trouble with a payment, or a refund —
-<a href="mailto:support@anacraft.dev">support@anacraft.dev</a>.</p>
+  <div class="note">
+    <h3>Something went wrong</h3>
+    <p>A payment that has not landed, a card that needs changing, a refund, or an email that does
+    not match the Google account it was meant for —
+    <a href="mailto:support@anacraft.dev">support@anacraft.dev</a>, and a person will answer.</p>
+  </div>
+</div>
 
 </main>
 

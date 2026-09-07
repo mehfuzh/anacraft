@@ -422,7 +422,7 @@ people's quota consumption.
 `craft configure <domain>` is the preferred route: property, data stream and
 tag in one command, without the console. The rest of the Google side — access
 management, retention, key events, API enablement — is console work, and is
-documented in [Configure GA4](https://anacraft.dev/setup-ga4.html).
+documented in [Configure your analytics](https://anacraft.dev/setup-ga4.html).
 
 `craft delete <domain|id>` is the way back out, and does less than it sounds
 like: it forgets the property here so the dashboard stops opening on it, then

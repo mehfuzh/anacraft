@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>anacraft — configure Google Analytics 4 from your terminal</title>
+<title>anacraft — configure your analytics from the terminal</title>
 <meta name="description" content="Create a GA4 property and get its tag with one command — craft configure yoursite.com. Then a free terminal dashboard, one-shot reports and an MCP server over the numbers it collects.">
 <meta name="keywords" content="configure Google Analytics, set up GA4, create GA4 property, GA4 measurement id, gtag snippet, GA4 CLI, GA4 dashboard, GA4 terminal dashboard, Google Analytics 4, Google Analytics CLI, analytics TUI, GA4 MCP server">
 <link rel="canonical" href="https://anacraft.dev/">
@@ -99,7 +99,7 @@
   .brand .pick { width: 14px; height: 14px; display: block; margin-right: 2px; }
   /* Same voice as the footer: mono, lowercase, one rhythm. The casing is
      text-transform rather than typed in, so the markup still says "Quick start"
-     and "Configure GA4" for a screen reader. The brand keeps its own face —
+     and "Configure" for a screen reader. The brand keeps its own face —
      it is a logo, not a link in the row. */
   .nav-links {
     display: flex; align-items: center; gap: 16px; margin-left: auto;
@@ -443,7 +443,7 @@
       <a href="#start">Quick start</a>
       <a href="#mcp">MCP</a>
       <a href="/alerts.html">Alerts</a>
-      <a href="/setup-ga4.html">Configure GA4</a>
+      <a href="/setup-ga4.html">Configure</a>
       <a href="/pricing.html">Pricing</a>
     </div>
   </div>
@@ -452,14 +452,15 @@
 
 <header class="hero">
   <div class="wrap">
-    <div class="eyebrow">GA4 · set it up, then read it · written in Rust</div>
+    <div class="eyebrow">Analytics · set it up, then read it · written in Rust</div>
     <h1>Your website <em>deserves better analytics.</em></h1>
     <p class="lede">
-      <code style="font-family:var(--mono);color:var(--fg)">craft configure yoursite.com</code> creates the GA4
-      property, adds its web stream and prints the tag with the real measurement id
-      already in it. Then anacraft renders what it collects as a full-screen terminal
-      dashboard — seven live panels, ore-textured bars, a realtime event feed, and
-      achievement toasts when the numbers move. <b>No console tour. No dashboard tax.</b>
+      <code style="font-family:var(--mono);color:var(--fg)">craft configure yoursite.com</code> sets your analytics
+      up in one command — the property, its web stream, and the tag with the real
+      measurement id already in it. Then anacraft renders what it collects as a
+      full-screen terminal dashboard — seven live panels, ore-textured bars, a
+      realtime event feed, and achievement toasts when the numbers move.
+      <b>No console tour. No dashboard tax.</b>
     </p>
     <div class="cta">
       <button class="install" onclick="cp(this)">
@@ -1598,7 +1599,7 @@
       the terminal.
     </p>
     <div class="rows">
-      <div class="row"><span class="n">01</span><h3>It sets Google Analytics up too</h3><p><code style="font-family:var(--mono)">craft configure yoursite.com</code> creates the property, adds the web stream and prints the tag with its real measurement id in it — the three console steps between a new domain and its first number. Run it twice and it hands the tag back rather than quietly creating a second property.</p><span class="arw">→</span></div>
+      <div class="row"><span class="n">01</span><h3>It configures your analytics</h3><p><code style="font-family:var(--mono)">craft configure yoursite.com</code> creates the Google Analytics property, adds the web stream and prints the tag with its real measurement id in it — the three console steps between a new domain and its first number. Run it twice and it hands the tag back rather than quietly creating a second property.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">02</span><h3>Seven toggleable panels</h3><p>Events, Right Now, Top Chunks, Daily Villagers, Realms, Vitals and Top Realms — keys <code style="font-family:var(--mono)">1</code>–<code style="font-family:var(--mono)">7</code>, or their letter aliases.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">03</span><h3>Realtime event feed</h3><p>Players online polled every few seconds, with spawn and wander-off events that fade as they age out of the window.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">04</span><h3>Achievement toasts</h3><p>Diamond Streak, Creeper Repelled, Deep Vein — unlocks pop in when a metric crosses a milestone, then get out of the way.</p><span class="arw">→</span></div>
