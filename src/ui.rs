@@ -71,9 +71,16 @@ const SUPPORTER_ROWS: u16 = 3;
 /// column every time an event ages out, which is the kind of motion a dashboard
 /// left open on a second screen should never make.
 const FEED_ROWS: usize = 6;
-/// What the vitals panel needs: a label, a bar and a gap for each headline
+/// What the vitals panel wants: a label, a bar and a gap for each headline
 /// metric, the daily sparkline, and its borders.
 const VITALS_ROWS: u16 = (OVERVIEW.len() as u16) * 3 + 2;
+/// The same panel with the gaps closed up. Denser than it wants to be, and
+/// still whole — every metric keeps its bar.
+const VITALS_TIGHT_ROWS: u16 = (OVERVIEW.len() as u16) * 2 + 2;
+/// The least it can be and still be the vitals: one line of numbers per
+/// metric, the bars given up. This is all the column reserves for it, so the
+/// map is never the panel that pays for a tall table.
+const VITALS_MIN_ROWS: u16 = OVERVIEW.len() as u16 + 2;
 /// The daily chart's box: three rows of bars, a caption, and borders.
 const TREND_ROWS: u16 = 3 + 1 + 2;
 /// What the live panel needs before it is worth drawing: the count, its
@@ -1760,6 +1767,68 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
     )
 }
 
+/// Which of the left column's panels get rows, and how many they are pinned to,
+/// in the order they sit down the column.
+///
+/// Lifted out of `draw` so the rule can be tested as the rule rather than as a
+/// copy of it written out again in a test.
+///
+/// Rows are claimed in priority order — events, then vitals, then the map — and
+/// a panel that cannot get its minimum is left out rather than squeezed into a
+/// few rows, the same rule the right column follows. Events leads and never
+/// gives way: it is the headline chart the dashboard is named for, and a column
+/// that keeps a table of figures by compressing that chart into four rows has
+/// its priorities backwards.
+///
+/// What vitals claims is the least it can be drawn in, not the height it would
+/// like. It sits at the bottom of the column, so every row nobody else takes
+/// comes back to it anyway and it grows through its three densities as they do.
+/// That is the difference between a table that is allowed to shrink and a
+/// picture that has to be dropped: reserving the full twenty rows meant a column
+/// with all three panels up spent them on the gaps between the vitals and had
+/// nothing left for the map — backwards, because the map is the one panel here
+/// you cannot get out of `craft overview`, and the gaps are not information at
+/// all.
+fn left_column(panels: &Panels, height: u16) -> Vec<(Stack, u16)> {
+    let mut budget = height;
+    let mut stack: Vec<(Stack, u16)> = Vec::new();
+
+    // A box costs its own rows plus one for the gutter above it — and the first
+    // box in the column has nothing above it, so it costs only its rows.
+    // Charging the gutter unconditionally is how events came to be rejected at
+    // exactly EVENTS_ROWS while the shorter map box slipped in underneath it,
+    // which inverts the very priority this order sets.
+    let mut cost = |needs: u16, placed: bool| -> bool {
+        let needs = needs + u16::from(placed);
+        let fits = budget >= needs;
+        if fits {
+            budget -= needs;
+        }
+        fits
+    };
+
+    if panels.events && cost(EVENTS_ROWS, false) {
+        stack.push((Stack::Events, EVENTS_ROWS));
+    }
+    if cost(VITALS_MIN_ROWS, !stack.is_empty()) {
+        stack.push((Stack::Vitals, VITALS_MIN_ROWS));
+    }
+    if panels.map && cost(MAP_ROWS, !stack.is_empty()) {
+        stack.push((Stack::Map, MAP_ROWS));
+    }
+
+    // Who gets rows is one question; where they sit is another. Sort back into
+    // column order so changing the priority above never reshuffles the
+    // dashboard — the map stays between the chart and the figures whenever all
+    // three are up.
+    stack.sort_by_key(|(panel, _)| match panel {
+        Stack::Events => 0,
+        Stack::Map => 1,
+        Stack::Vitals => 2,
+    });
+    stack
+}
+
 fn draw(frame: &mut Frame, dash: &Dash) {
     let area = frame.area();
 
@@ -1844,56 +1913,7 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
     };
 
     if let Some(rect) = left {
-        // Rows are handed out in priority order, and a panel that cannot get
-        // its full box is left out rather than squeezed into a few rows — the
-        // same rule the right column follows.
-        //
-        // Events leads and is never the panel that gives way. It is the
-        // headline chart the dashboard is named for, and a column that keeps a
-        // table of vitals by compressing that chart into four rows has its
-        // priorities backwards. Vitals goes last, so it is what a short
-        // terminal loses — also the cheapest thing to lose, since every number
-        // in it is one `craft overview` away.
-        let mut budget = rect.height;
-        let mut stack: Vec<(Stack, u16)> = Vec::new();
-
-        // A box costs its own rows plus one for the gutter above it — and the
-        // first box in the column has nothing above it, so it costs only its
-        // rows. Charging the gutter unconditionally is how events came to be
-        // rejected at exactly EVENTS_ROWS while the shorter map box slipped in
-        // underneath it, which inverts the very priority this order sets.
-        let mut cost = |needs: u16, placed: bool| -> bool {
-            let needs = needs + u16::from(placed);
-            let fits = budget >= needs;
-            if fits {
-                budget -= needs;
-            }
-            fits
-        };
-
-        // Rows are claimed in priority order — events, then vitals, then the
-        // map. The map is the one that goes: it is the decorative panel of the
-        // three, where vitals is the actual numbers, so a column with room for
-        // two spends it on the chart and the figures and drops the picture.
-        if dash.panels.events && cost(EVENTS_ROWS, false) {
-            stack.push((Stack::Events, EVENTS_ROWS));
-        }
-        if cost(VITALS_ROWS, !stack.is_empty()) {
-            stack.push((Stack::Vitals, VITALS_ROWS));
-        }
-        if dash.panels.map && cost(MAP_ROWS, !stack.is_empty()) {
-            stack.push((Stack::Map, MAP_ROWS));
-        }
-
-        // Who gets rows is one question; where they sit is another. Sort back
-        // into column order so changing the priority above never reshuffles the
-        // dashboard — the map stays between the chart and the figures whenever
-        // all three are up.
-        stack.sort_by_key(|(panel, _)| match panel {
-            Stack::Events => 0,
-            Stack::Map => 1,
-            Stack::Vitals => 2,
-        });
+        let stack = left_column(&dash.panels, rect.height);
 
         // Whatever ended up at the bottom takes the rows nobody claimed, so the
         // column never trails off into dead ground while the one beside it is
@@ -1922,7 +1942,7 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
             match panel {
                 Stack::Map => frame.render_widget(map_panel(dash, area.width, area.height), *area),
                 Stack::Events => frame.render_widget(events_panel(dash), *area),
-                Stack::Vitals => frame.render_widget(metrics_panel(dash), *area),
+                Stack::Vitals => frame.render_widget(metrics_panel(dash, area.height), *area),
             }
         }
     }
@@ -2315,7 +2335,16 @@ fn header(dash: &Dash, width: u16) -> Paragraph<'static> {
     )
 }
 
-fn metrics_panel(dash: &Dash) -> Paragraph<'static> {
+/// The vitals, drawn to fit the rows the column handed over.
+///
+/// Three densities rather than one: the panel with its gaps, the same panel
+/// closed up, and — where the chart and the map have taken what they need — a
+/// line of numbers per metric with the bars given up. Every density says the
+/// same six numbers; what goes first is the space around them, then the shape
+/// of them, and never the number itself.
+fn metrics_panel(dash: &Dash, height: u16) -> Paragraph<'static> {
+    let bars = height >= VITALS_TIGHT_ROWS;
+    let gaps = height >= VITALS_ROWS;
     let phase = dash.phase();
     let mut lines: Vec<Line> = Vec::new();
 
@@ -2346,16 +2375,20 @@ fn metrics_panel(dash: &Dash) -> Paragraph<'static> {
             delta_span(row.value.target, row.previous, metric.api == "bounceRate"),
         ]));
 
-        lines.push(Line::from(bar_spans(
-            row.frac.shown,
-            30,
-            metric.glyph,
-            (metric.color)(),
-            phase,
-            row.frac.moving(),
-            2,
-        )));
-        lines.push(Line::from(""));
+        if bars {
+            lines.push(Line::from(bar_spans(
+                row.frac.shown,
+                30,
+                metric.glyph,
+                (metric.color)(),
+                phase,
+                row.frac.moving(),
+                2,
+            )));
+        }
+        if gaps {
+            lines.push(Line::from(""));
+        }
     }
 
     Paragraph::new(lines).block(framed("VITALS", "5", ore::grass()))
@@ -3591,33 +3624,118 @@ mod tests {
         );
     }
 
+    /// The left column with every panel asked for, which is the case the
+    /// allocation is actually interesting in.
+    fn all_three() -> Panels {
+        Panels {
+            events: true,
+            map: true,
+            vitals: true,
+            ..capture_dash().panels
+        }
+    }
+
+    fn placed(stack: &[(Stack, u16)], want: Stack) -> Option<u16> {
+        stack
+            .iter()
+            .find(|(panel, _)| std::mem::discriminant(panel) == std::mem::discriminant(&want))
+            .map(|(_, rows)| *rows)
+    }
+
     #[test]
-    fn events_outranks_vitals_when_the_column_is_short() {
-        // The allocation the left column runs, over every height: events takes
-        // its box first, vitals only gets one from what is left. A column with
-        // room for exactly one of the two must spend it on events.
-        for height in 0..=60u16 {
-            let mut budget = height;
-            let events = budget >= EVENTS_ROWS;
-            if events {
-                budget -= EVENTS_ROWS;
-            }
-            let vitals = budget >= VITALS_ROWS + u16::from(events);
+    fn events_outranks_the_rest_when_the_column_is_short() {
+        // Over every height the dashboard will draw at: events takes its box
+        // first, and nothing else may claim rows it needed.
+        for height in 0..=80u16 {
+            let stack = left_column(&all_three(), height);
+            let events = placed(&stack, Stack::Events).is_some();
 
             if height >= EVENTS_ROWS {
                 assert!(events, "height {height}: events dropped while it fitted");
             }
-            if vitals && events {
-                assert!(
-                    height >= EVENTS_ROWS + 1 + VITALS_ROWS,
-                    "height {height}: both boxes claimed without the rows for both"
+            if (EVENTS_ROWS..EVENTS_ROWS + 1 + VITALS_MIN_ROWS).contains(&height) {
+                assert_eq!(
+                    stack.len(),
+                    1,
+                    "height {height}: something took rows events needed"
                 );
             }
-            // The point of the order: one box's worth of rows goes to events.
-            if (EVENTS_ROWS..EVENTS_ROWS + 1 + VITALS_ROWS).contains(&height) {
-                assert!(!vitals, "height {height}: vitals took rows events needed");
-            }
         }
+    }
+
+    #[test]
+    fn the_map_survives_by_shrinking_the_vitals() {
+        // The regression this order exists for. A 132x52 terminal — the size
+        // the site captures at — leaves the body 38 rows, and reserving the
+        // vitals' full height spent 20 of them on a table with gaps in it and
+        // left the map nothing. All three panels have to be up at that size.
+        const CAPTURE_BODY: u16 = 38;
+        let stack = left_column(&all_three(), CAPTURE_BODY);
+
+        assert_eq!(stack.len(), 3, "a 132x52 dashboard dropped a panel");
+        assert_eq!(
+            placed(&stack, Stack::Vitals),
+            Some(VITALS_MIN_ROWS),
+            "vitals claimed more than the least it can be drawn in"
+        );
+
+        // Being last down the column, the vitals are then handed every row the
+        // others left, so the densities come back as the terminal grows. These
+        // are the two heights that matter: the bars return at 42 rows of body,
+        // and the gaps between them at 48.
+        let granted = |body: u16| body - (EVENTS_ROWS + 1 + 1 + MAP_ROWS);
+        assert_eq!(granted(42), VITALS_TIGHT_ROWS, "the bars came back late");
+        assert_eq!(granted(48), VITALS_ROWS, "the gaps came back late");
+
+        // And the general rule: wherever there is room for the chart, the
+        // vitals at their smallest and the map, the map is drawn.
+        let room = EVENTS_ROWS + 1 + VITALS_MIN_ROWS + 1 + MAP_ROWS;
+        for height in room..=80u16 {
+            assert!(
+                placed(&left_column(&all_three(), height), Stack::Map).is_some(),
+                "height {height}: the map was dropped with the rows to draw it"
+            );
+        }
+    }
+
+    #[test]
+    fn the_vitals_give_up_their_gaps_before_their_bars() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+        use ratatui::widgets::Widget;
+
+        // Interior rows with any ink in them. Two per metric while the bars are
+        // drawn, one per metric once they are given up — and the gaps never
+        // count, being blank by definition.
+        let inked = |height: u16| -> usize {
+            let area = Rect::new(0, 0, 90, height);
+            let mut buf = Buffer::empty(area);
+            metrics_panel(&capture_dash(), height).render(area, &mut buf);
+            (1..height - 1)
+                .filter(|&y| (1..area.width - 1).any(|x| !buf[(x, y)].symbol().trim().is_empty()))
+                .count()
+        };
+
+        let metrics = OVERVIEW.len();
+        assert_eq!(inked(VITALS_ROWS), metrics * 2, "the full panel lost a row");
+        assert_eq!(
+            inked(VITALS_TIGHT_ROWS),
+            metrics * 2,
+            "closing the gaps cost a bar"
+        );
+        assert_eq!(
+            inked(VITALS_MIN_ROWS),
+            metrics,
+            "the smallest panel is one line of numbers per metric"
+        );
+
+        // What separates full from tight is the blank the gaps leave behind:
+        // the tight panel fills every row it was given.
+        assert_eq!(
+            inked(VITALS_TIGHT_ROWS),
+            (VITALS_TIGHT_ROWS - 2) as usize,
+            "the tight panel left dead rows inside its border"
+        );
     }
 
     #[test]
