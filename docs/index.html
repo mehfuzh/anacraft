@@ -135,6 +135,35 @@
     background: radial-gradient(60% 55% at 22% 30%, rgba(45,213,183,.10), transparent 70%);
     pointer-events: none;
   }
+  /* The headline is capped at 15ch, which left the right half of the hero
+     empty on anything wider than a laptop. The globe fills it with the one
+     thing this product is actually about — where in the world the numbers are
+     coming from — drawn the way the rest of it is drawn, in characters. */
+  /* 1180px is where `.wrap` stops growing, so it is also the first width at
+     which giving a column away costs the headline nothing. Below it the globe
+     is not shrunk to fit — it is simply not there, because a hero that has to
+     choose between the sentence and the ornament should keep the sentence. */
+  .hero-in { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 40px; }
+  .hero-art { display: none; justify-self: end; }
+  @media (min-width: 1180px) {
+    .hero-in { grid-template-columns: minmax(0, 1fr) auto; }
+    .hero-art { display: block; }
+  }
+  /* The script draws twice as many columns as rows and assumes the cell is
+     twice as tall as it is wide, so the sphere comes out round: a 12px mono
+     glyph advances 7.2px, and 1.2 line-height is 14.4px. Letter-spacing has to
+     stay at zero or the world turns into an egg. */
+  #globe {
+    font-family: var(--mono); font-size: 11px; line-height: 1.2;
+    letter-spacing: 0; color: var(--jade-deep);
+    white-space: pre; user-select: none;
+    filter: drop-shadow(0 0 22px rgba(45, 213, 183, .16));
+  }
+  #globe .l0 { color: var(--line-2); }
+  #globe .l1 { color: var(--jade-deep); }
+  #globe .l2 { color: var(--jade); }
+  #globe .pg { color: var(--gold); }
+
   .eyebrow {
     font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
     text-transform: uppercase; color: var(--jade); margin-bottom: 22px;
@@ -451,7 +480,8 @@
 <!-- nav:end -->
 
 <header class="hero">
-  <div class="wrap">
+  <div class="wrap hero-in">
+   <div class="hero-say">
     <div class="eyebrow">Analytics · set it up, then read it · written in Rust</div>
     <h1>Your website <em>deserves better analytics.</em></h1>
     <p class="lede">
@@ -469,6 +499,8 @@
         <span class="copy" aria-label="Copy install command"><svg viewBox="0 0 16 16" aria-hidden="true"><g class="sheet"><rect x="5.9" y="5.9" width="8.2" height="8.2"/><path d="M10.4 3.4a1.5 1.5 0 0 0-1.5-1.5H3.4a1.5 1.5 0 0 0-1.5 1.5v5.5a1.5 1.5 0 0 0 1.5 1.5"/></g><path class="tick" d="M3 8.6l3.2 3.2L13 4.8"/></svg></span>
       </button>
     </div>
+   </div>
+   <div class="hero-art" aria-hidden="true"><pre id="globe"></pre></div>
   </div>
 </header>
 
@@ -1899,6 +1931,139 @@
         term.style.background = b.dataset.bg;
       });
     });
+  })();
+  /* The hero's globe: a wireframe world turned in characters.
+   *
+   * The rest of the site is a terminal, so the one decorative thing on it is
+   * drawn the way a terminal would draw it — a grid of characters, no SVG and
+   * no canvas. What it is a picture of is the question the product answers:
+   * where the numbers are coming from.
+   *
+   * Deliberately a graticule rather than continents. A coastline at this
+   * resolution is either a large blob of data or a world that is subtly the
+   * wrong shape, and the second one is worse than no world at all.
+   */
+  (function () {
+    var pre = document.getElementById('globe');
+    if (!pre) return;
+
+    // The cell is assumed twice as tall as it is wide, which is what the CSS
+    // above sets up (12px mono advances 7.2px; line-height 1.2 is 14.4px). So
+    // twice as many columns as rows draws a circle rather than an egg.
+    var ROWS = 25, COLS = 50;
+
+    // Ground stations, near enough. These are the five the demo dashboard
+    // shows in TOP REALMS, so the globe is lit where the screenshots are.
+    var PINGS = [
+      { lat:  38, lon:  -97 },  // US
+      { lat:  21, lon:   78 },  // India
+      { lat:  51, lon:   10 },  // Germany
+      { lat:  54, lon:   -2 },  // UK
+      { lat: -10, lon:  -55 }   // Brazil
+    ];
+
+    var RAD = Math.PI / 180;
+    var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    /* Distance from v to the nearest multiple of step, in the same units. */
+    function toNearest(v, step) {
+      var m = v / step;
+      return Math.abs(m - Math.round(m)) * step;
+    }
+
+    function frame(t) {
+      // One cell per character, filled with a class and a glyph, then run-length
+      // grouped on the way out so a frame is a handful of spans rather than
+      // twelve hundred of them.
+      var cells = new Array(ROWS * COLS);
+
+      for (var r = 0; r < ROWS; r++) {
+        var y = 1 - 2 * (r + 0.5) / ROWS;
+        for (var c = 0; c < COLS; c++) {
+          var x = 2 * (c + 0.5) / COLS - 1;
+          var d = x * x + y * y;
+          var i = r * COLS + c;
+
+          if (d > 1) { cells[i] = null; continue; }
+
+          var z = Math.sqrt(1 - d);
+
+          // Screen point back to a place on the world, undoing the spin.
+          var wx = x * Math.cos(t) - z * Math.sin(t);
+          var wz = x * Math.sin(t) + z * Math.cos(t);
+          var lat = Math.asin(y);
+          var lon = Math.atan2(wx, wz);
+
+          var onParallel = toNearest(lat / RAD, 30) < 1.8;
+          // Meridians converge at the poles, so the threshold is measured
+          // along the surface rather than in degrees of longitude — otherwise
+          // the top and bottom of the globe pack solid.
+          var onMeridian = toNearest(lon / RAD, 30) * Math.cos(lat) < 1.5;
+          var onLimb = d > 0.955;
+
+          if (onLimb) {
+            cells[i] = ['l0', '·'];
+          } else if (onParallel || onMeridian) {
+            // One dot everywhere and depth carried by colour, so the lines stay
+            // hairline; the heavier glyph is spent only where two of them
+            // cross, which is what gives the grid its corners.
+            var ch = (onParallel && onMeridian) ? '+' : '·';
+            cells[i] = z > 0.72 ? ['l2', ch] : (z > 0.38 ? ['l1', ch] : ['l0', ch]);
+          } else {
+            cells[i] = null;
+          }
+        }
+      }
+
+      // The stations, over the top of the wireframe and only while they are on
+      // the near side of the world.
+      for (var p = 0; p < PINGS.length; p++) {
+        var la = PINGS[p].lat * RAD, lo = PINGS[p].lon * RAD;
+        var vy = Math.sin(la);
+        var ax = Math.cos(la) * Math.sin(lo), az = Math.cos(la) * Math.cos(lo);
+        var vx = ax * Math.cos(t) + az * Math.sin(t);
+        var vz = -ax * Math.sin(t) + az * Math.cos(t);
+        if (vz <= 0.06) continue;
+
+        var pc = Math.round((vx + 1) / 2 * COLS - 0.5);
+        var pr = Math.round((1 - vy) / 2 * ROWS - 0.5);
+        if (pc < 0 || pc >= COLS || pr < 0 || pr >= ROWS) continue;
+
+        // Each one breathes on its own offset, so they do not blink in unison
+        // like a string of lights.
+        var lit = still || (Math.sin(t * 6 + p * 1.7) > -0.35);
+        cells[pr * COLS + pc] = ['pg', lit ? '◉' : '○'];
+      }
+
+      var out = '', run = '', cls = null;
+      for (var k = 0; k < ROWS * COLS; k++) {
+        var cell = cells[k];
+        var ccls = cell ? cell[0] : '';
+        var ch = cell ? cell[1] : ' ';
+        if (ccls !== cls) {
+          if (run) out += cls ? '<span class="' + cls + '">' + run + '</span>' : run;
+          run = ''; cls = ccls;
+        }
+        run += ch;
+        if ((k + 1) % COLS === 0) {
+          out += (cls ? '<span class="' + cls + '">' + run + '</span>' : run) + '\n';
+          run = ''; cls = null;
+        }
+      }
+      return out;
+    }
+
+    if (still) { pre.innerHTML = frame(0.6); return; }
+
+    var t = 0;
+    // Twenty frames a second. The thing turns once every sixteen seconds; the
+    // extra forty frames would be spent on a rotation nobody can see happening.
+    setInterval(function () {
+      if (document.hidden) return;
+      t += 0.02;
+      pre.innerHTML = frame(t);
+    }, 50);
+    pre.innerHTML = frame(0);
   })();
 </script>
 </body>
