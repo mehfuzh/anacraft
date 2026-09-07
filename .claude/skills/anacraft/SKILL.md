@@ -9,10 +9,14 @@ description: Install and drive anacraft — the `craft` terminal dashboard for G
 so both work; the crate, the brand, and the paths under `~/.anacraft/` keep the
 long name. Reports print and exit; `craft` on its own opens the dashboard.
 
-This skill is the anacraft side. The Google side — creating the property,
-installing the tag, enabling the APIs, granting access — is the
-`google-analytics-setup` skill; send the user there the moment a problem turns
-out to be in the GA4 console rather than in this tool.
+Setting up the Google side is part of this tool now: `craft configure <domain>`
+creates the GA4 property and its web data stream and prints the tag to paste.
+Reach for it before walking anybody through the Analytics console — the console
+route is four screens with nothing to decide in them. What it will not do is
+create an Analytics *account* (that needs Google's terms accepted in a browser)
+or delete a property. What is left of the console work — retention, filters,
+key events, granting access, enabling the APIs — is documented at
+[anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html).
 
 ## Start here
 
@@ -74,9 +78,11 @@ off that rather than out of a browser tab.
 `tab` cycles them in the dashboard.
 
 Official builds ship an OAuth client, so `login` needs no Google Cloud setup.
-The account still needs at least **Viewer** on the property, and the project
-behind the client needs the **Data API** and **Admin API** enabled — both are
-`google-analytics-setup` territory when they turn out to be the problem.
+The account still needs at least **Viewer** on the property — **Editor** for
+`craft configure`, which creates one — and the project behind the client needs
+the **Data API** and **Admin API** enabled. When one of those turns out to be
+the problem, [anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html) is
+where the console side is written down.
 
 ## 4. One-shot reports
 

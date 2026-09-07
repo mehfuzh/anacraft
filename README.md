@@ -429,13 +429,9 @@ prints the console link and the two clicks that delete it. anacraft never
 deletes a property itself — Google holds a deleted one in the trash for 35
 days, and that undo lives in the console, not in a terminal.
 
-Cloned the repo and use [Claude Code](https://claude.com/claude-code)? The same
-guide ships as a skill in `.claude/skills/google-analytics-setup/`. Ask Claude to
-configure Google Analytics and it walks the console steps with you, including
-tag installs per framework and what to check when nothing arrives.
-
-`.claude/skills/anacraft/` covers this side of the line — installing, connecting
-a property, driving the dashboard, wiring up `craft mcp`, and what each error
+Cloned the repo and use [Claude Code](https://claude.com/claude-code)?
+`.claude/skills/anacraft/` ships as a skill — installing, connecting a
+property, driving the dashboard, wiring up `craft mcp`, and what each error
 message actually means. Ask Claude to set anacraft up, or paste a failing
 command at it.
 
