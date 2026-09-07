@@ -3,8 +3,9 @@
 <p align="center"><b>Google Analytics, mined block by block.</b></p>
 
 <p align="center">
-  A terminal dashboard for Google Analytics 4 — seven live panels, ore-textured
-  bars, a realtime event feed, and achievement toasts when the numbers move.
+  Sets Google Analytics 4 up for a domain in one command, then reads it back as
+  a terminal dashboard — seven live panels, ore-textured bars, a realtime event
+  feed, and achievement toasts when the numbers move.
 </p>
 
 <p align="center">
@@ -52,7 +53,10 @@ property saved it runs on synthetic data, so it works before you sign in.
 # The dashboard, on synthetic data — no Google account needed
 craft
 
-# Connect a real GA4 property
+# No GA4 property yet? One command creates it and prints the tag
+craft configure yoursite.com
+
+# Already have one? Connect it instead
 craft login        # OAuth sign-in
 craft props        # list the properties this account can read
 craft use 1234567  # save it as the default
@@ -61,15 +65,10 @@ craft use 1234567  # save it as the default
 craft
 ```
 
-No GA4 property yet? One command makes one and hands you the tag:
-
-```sh
-craft configure yoursite.com
-```
-
-It creates the property and its web data stream, prints the gtag.js snippet with
-your measurement id already in it, and saves the property as the default. Paste
-the snippet into `<head>`, then `craft live` to watch the first visit arrive.
+`craft configure` creates the property and its web data stream, prints the
+gtag.js snippet with your measurement id already in it, and saves the property
+as the default. Paste the snippet into `<head>`, then `craft live` to watch the
+first visit arrive.
 
 Run it again for the same domain and it creates nothing — it finds the property
 already measuring that site and prints its tag again. This is the only command
@@ -350,7 +349,8 @@ are cached for a minute so a chatty agent does not burn the GA4 quota that the
 dashboard needs.
 
 **Subscription.** `craft mcp` needs an active subscription — `craft subscribe`
-for $2.99/month or `craft subscribe --annual` for $29/year. It opens Stripe,
+for $2.99/month, and [anacraft.dev/pricing](https://anacraft.dev/pricing.html)
+for what is on each side of that line. It opens Stripe,
 waits for the payment to clear, and writes `supporter = true` itself; the
 dashboard and the MCP server re-check on launch and keep that line current. The
 record is keyed to the Google account you signed in with, so a second machine
