@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>You are an Anacrafter — anacraft</title>
+<meta name="description" content="Your Anacrafter subscription is live. Sign in with craft login and craft watch and craft mcp unlock on every machine you use.">
+<link rel="canonical" href="https://anacraft.dev/success.html">
+<meta name="robots" content="noindex, follow">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://anacraft.dev/success.html">
+<meta property="og:title" content="You are an Anacrafter — anacraft">
+<meta property="og:description" content="Your Anacrafter subscription is live. Sign in with craft login and craft watch and craft mcp unlock on every machine you use.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=2dd77504">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  @font-face {
+    font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400;
+    font-display: block; src: url('fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+  :root {
+    --ground: #060a09; --ink: #09100d; --panel: #0d1512;
+    --line: rgba(193,196,151,.11); --line-2: rgba(193,196,151,.20);
+    --fg: #c1c497; --white: #eef1dc; --dim: #6c7f73;
+    --jade: #2dd5b7; --jade-deep: #509475; --gold: #ffe16b; --coral: #ff5345;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--ground); color: var(--fg); line-height: 1.7;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: var(--jade); color: #04120e; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+  /* nav:start */
+  nav {
+    /* Not pinned: the nav is the top of the page, not a bar laid over it, so it
+       scrolls away with everything else and takes the ground it sits on. */
+    position: relative; z-index: 1;
+  }
+  .nav-in { display: flex; align-items: center; gap: 32px; height: 60px; }
+  .brand {
+    font-family: 'Archivo', sans-serif; font-weight: 900;
+    font-size: 20px; letter-spacing: -.03em; color: var(--white);
+    display: flex; align-items: baseline; gap: 0;
+  }
+  .brand .pick { width: 14px; height: 14px; display: block; margin-right: 2px; }
+  /* Same voice as the footer: mono, lowercase, one rhythm. The casing is
+     text-transform rather than typed in, so the markup still says "Quick start"
+     and "Configure" for a screen reader. The brand keeps its own face —
+     it is a logo, not a link in the row. */
+  .nav-links {
+    display: flex; align-items: center; gap: 16px; margin-left: auto;
+    font-family: var(--mono); font-size: 11.5px;
+    text-transform: lowercase; letter-spacing: .01em;
+    color: var(--dim);
+  }
+  .nav-links a { transition: color .15s; }
+  .nav-links a:hover { color: var(--white); }
+  @media (max-width: 720px) { .nav-links a:not(.mode-toggle) { display: none; } }
+  /* nav:end */
+
+  /* ── document ──────────────────────────────────────── */
+  .doc { max-width: 780px; margin: 0 auto; padding: 64px 28px 96px; position: relative; z-index: 1; }
+  .eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
+             text-transform: uppercase; color: var(--jade); margin-bottom: 18px; }
+  h1 { font-family: 'Archivo', sans-serif; font-weight: 900; font-size: clamp(34px, 6vw, 50px);
+       line-height: 1.05; letter-spacing: -.035em; color: var(--white); margin-bottom: 14px; }
+  h2 { font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 21px;
+       letter-spacing: -.02em; color: var(--white); margin: 52px 0 14px; }
+  h3 { font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 15.5px;
+       color: var(--white); margin: 0 0 8px; }
+  p { margin-bottom: 15px; font-size: 15.5px; }
+  b, strong { color: var(--white); font-weight: 600; }
+  code { font-family: var(--mono); font-size: .88em; color: var(--jade);
+         background: var(--panel); border: 1px solid var(--line);
+         padding: 1.5px 5px; white-space: nowrap; }
+  .doc a:not(.brand) { color: var(--jade); border-bottom: 1px solid rgba(45,213,183,.3); }
+  .doc a:not(.brand):hover { border-bottom-color: var(--jade); }
+  .lede { font-size: 17px; color: var(--fg); margin-bottom: 8px; }
+
+  /* ── the toast ─────────────────────────────────────── */
+  /* The dashboard pops one of these when a metric crosses a milestone, so the
+     first thing a new subscriber sees is a thing they are about to keep
+     seeing. Same shape as the TUI's: a gold rule down the left, the unlock
+     line above the name, the flavour line below it. */
+  .toast {
+    border: 1px solid var(--line-2); border-left: 3px solid var(--gold);
+    background: var(--ink); padding: 22px 26px; margin-bottom: 34px;
+    animation: land .5s cubic-bezier(.16, 1, .3, 1) both;
+  }
+  .toast .ach { font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
+                text-transform: uppercase; color: var(--gold); margin-bottom: 8px; }
+  .toast .ttl { font-family: 'Archivo', sans-serif; font-weight: 900; font-size: 30px;
+                letter-spacing: -.03em; color: var(--white); line-height: 1.1; }
+  .toast .det { font-family: var(--mono); font-size: 12.5px; color: var(--dim); margin-top: 8px; }
+  @keyframes land {
+    from { opacity: 0; transform: translateY(-14px) scale(.98); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* The paper. Fixed and behind the text, so it falls past the page rather
+     than pushing it around, and never eats a click on the way down. */
+  #paper {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 0;
+  }
+
+  pre.code { font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+             background: var(--panel); border: 1px solid var(--line);
+             border-left: 3px solid var(--jade-deep);
+             padding: 16px 18px; margin: 0 0 18px; overflow-x: auto; color: var(--fg); }
+  pre.code .d { color: var(--dim); }
+  pre.code .k { color: var(--jade); }
+
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 8px; }
+  .note { border: 1px solid var(--line); background: var(--ink); padding: 22px 24px; }
+  .note p:last-child { margin-bottom: 0; }
+  .note .cmd { font-family: var(--mono); font-size: 12.5px; color: var(--gold);
+               display: block; margin-bottom: 10px; }
+
+  /* Somebody who would rather not have things fly at them gets the same page,
+     landed rather than thrown. The script checks this too and draws nothing. */
+  @media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
+    #paper { display: none; }
+  }
+
+  @media (max-width: 700px) { .notes { grid-template-columns: 1fr; } }
+  /* footer:start */
+  footer {
+    border-top: 1px solid var(--line); padding: 34px 0;
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    color: var(--dim);
+    /* The whole row runs in the terminal voice: mono, lowercase, a little
+       tighter than the page text. The casing is done with text-transform
+       rather than typed in, so the markup still says "Privacy Policy" for a
+       screen reader and for anyone reading the source. Mono sets wider than
+       the sans it replaces, hence the step down in size. */
+    font-family: var(--mono); font-size: 11.5px;
+    text-transform: lowercase; letter-spacing: .01em;
+  }
+  footer .r { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  footer a:hover { color: var(--jade); }
+  footer .by { display: inline-flex; align-items: center; gap: 8px; }
+  /* A chip rather than a word: the rule does the framing the brackets used to,
+     so nothing has to be typed into the markup and a screen reader still reads
+     a clean "crafted in San Francisco". */
+  footer .tag {
+    font-size: 11px; letter-spacing: .04em;
+    color: var(--jade); border: 1px solid var(--line-2);
+    /* A tinted rule so the chip reads as one green object rather than green
+       text in a grey box. Declared after the shorthand: a browser without
+       color-mix drops just this line and keeps the neutral border. */
+    border-color: color-mix(in srgb, var(--jade) 32%, transparent);
+    padding: 2px 8px; line-height: 1.6;
+  }
+  /* The glow rides the same curve as the beat, brightest at the top of each
+     pulse, so the heart reads as lit from within rather than merely resized.
+     It is drawn with var(--jade), which the light theme redefines, so the
+     halo follows the palette instead of pinning one value. */
+  .heart { height: 14px; width: auto; display: block; transform-origin: center;
+           animation: beat 2.4s ease-in-out infinite;
+           filter: drop-shadow(0 0 3px var(--jade)); }
+  @keyframes beat {
+    0%, 40%, 100% { transform: scale(1);    filter: drop-shadow(0 0 2px var(--jade)); }
+    10%           { transform: scale(1.3);  filter: drop-shadow(0 0 7px var(--jade)); }
+    20%           { transform: scale(1);    filter: drop-shadow(0 0 2px var(--jade)); }
+    30%           { transform: scale(1.18); filter: drop-shadow(0 0 5px var(--jade)); }
+  }
+  @media (prefers-reduced-motion: reduce) { .heart { animation: none; } }
+  /* footer:end */
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 18px; }
+    .doc { padding: 48px 18px 72px; }
+    footer .r { margin-left: 0; flex-wrap: wrap; }
+  }
+</style>
+<script src="/analytics.js?v=8fa4ec5f"></script>
+</head>
+<body>
+<canvas id="paper" aria-hidden="true"></canvas>
+
+<!-- nav:start -->
+<nav>
+  <div class="wrap nav-in">
+    <a class="brand" href="/"><img class="pick" src="mark.svg?v=7b310f6e" alt="A" width="14" height="14">nacraft</a>
+    <div class="nav-links">
+      <a href="/#dashboard">Dashboard</a>
+      <a href="/#start">Quick start</a>
+      <a href="/#mcp">MCP</a>
+      <a href="/alerts.html">Alerts</a>
+      <a href="/setup-ga4.html">Configure</a>
+      <a href="/pricing.html">Pricing</a>
+    </div>
+  </div>
+</nav>
+<!-- nav:end -->
+
+<main class="doc">
+
+<div class="toast">
+  <div class="ach">★ Achievement unlocked</div>
+  <div class="ttl">Anacrafter</div>
+  <div class="det">the vein runs deep</div>
+</div>
+
+<div class="eyebrow">Thank you</div>
+<h1>You're in.</h1>
+<p class="lede">
+  The payment cleared. <code>craft watch</code> and <code>craft mcp</code> are yours, on
+  every machine you sign in on, for as long as you keep the subscription.
+</p>
+
+<h2>One command left</h2>
+
+<p>Unless there is not: if you started this with <code>craft subscribe</code>, it has already done
+what follows, and the terminal you left it in is sitting there wearing the star.</p>
+
+<p>Otherwise the payment is held against <b>the email you just paid with</b>, and signing in is what
+hands it to your account. After that it follows you to any machine, and there is nothing to keep
+anywhere.</p>
+
+<pre class="code"><span class="k">craft</span> login</pre>
+
+<p>Already signed in here? <code>craft subscribe --check</code> picks it up without opening a
+browser. If the star still does not appear, the usual reason is a card paid with a different email
+than the Google account — <a href="mailto:support@anacraft.dev">tell us both addresses</a> and we
+will move it across.</p>
+
+<h2>What that just unlocked</h2>
+
+<div class="notes">
+  <div class="note">
+    <h3>Alerts</h3>
+    <code class="cmd">craft watch</code>
+    <p>Compares the last complete day against its own recent normal and says what moved — a drop, a
+    spike, or a number that went silent. <a href="/alerts.html">How they work</a>, and
+    <code>craft slack --install</code> puts them in a channel.</p>
+  </div>
+  <div class="note">
+    <h3>An assistant that can read the site</h3>
+    <code class="cmd">craft mcp</code>
+    <p>Ten read-only tools over the Model Context Protocol. <code>craft mcp --install</code> wires it
+    into Claude Desktop, and then “how did last week go” is a question you can just ask.</p>
+  </div>
+</div>
+
+<p style="margin-top:34px">Anything at all — <a href="mailto:support@anacraft.dev">support@anacraft.dev</a>,
+and a person answers. Now go make the bars go up.</p>
+
+</main>
+
+<div class="wrap">
+<!-- footer:start -->
+<footer>
+  <div class="wrap" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;width:100%">
+    <span class="by"><span class="tag">crafted</span> in San Francisco <svg class="heart" role="img" aria-label="love" viewBox="0 0 9 8" fill="var(--jade)" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="5" y="1" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="1" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/></svg></span>
+    <span class="legal">© 2026 · All rights reserved</span>
+    <span class="r">
+      <a href="/privacy.html">Privacy Policy</a>
+      <a href="/terms.html">Terms of Service</a>
+      <a href="mailto:support@anacraft.dev">support@anacraft.dev</a>
+    </span>
+  </div>
+</footer>
+<!-- footer:end -->
+</div>
+
+<script>
+  /* Paper, thrown once, on a canvas that sits behind the page.
+   *
+   * Written out rather than pulled from a CDN: it is forty lines, and the one
+   * thing this page must never do is fail to load in front of somebody who has
+   * just been charged. Squares rather than circles — the whole site is drawn
+   * out of blocks, and round paper would be the only curve on it.
+   */
+  (function () {
+    var canvas = document.getElementById('paper');
+    if (!canvas || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    var ctx = canvas.getContext('2d');
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var w, h;
+
+    function size() {
+      w = canvas.clientWidth; h = canvas.clientHeight;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    size();
+    window.addEventListener('resize', size);
+
+    // The palette the rest of the page is painted in, so the paper belongs to
+    // it rather than arriving from some other website.
+    var COLORS = ['#2dd5b7', '#ffe16b', '#eef1dc', '#509475', '#ff5345'];
+    var bits = [];
+
+    /* One burst, thrown upward from a point — the shape a party popper makes,
+     * rather than a rectangle of drizzle coming down the screen. */
+    function burst(x, y, count) {
+      for (var i = 0; i < count; i++) {
+        var angle = (-Math.PI / 2) + (Math.random() - 0.5) * 1.9;
+        var speed = 7 + Math.random() * 9;
+        bits.push({
+          x: x, y: y,
+          vx: Math.cos(angle) * speed * (0.6 + Math.random() * 0.8),
+          vy: Math.sin(angle) * speed,
+          size: 5 + Math.random() * 6,
+          color: COLORS[(Math.random() * COLORS.length) | 0],
+          spin: (Math.random() - 0.5) * 0.3,
+          angle: Math.random() * Math.PI,
+          // Each piece falls at its own rate, so the cloud comes apart on the
+          // way down instead of descending like a sheet.
+          drag: 0.985 + Math.random() * 0.01
+        });
+      }
+    }
+
+    burst(w * 0.28, h * 0.34, 70);
+    burst(w * 0.72, h * 0.34, 70);
+    setTimeout(function () { burst(w * 0.5, h * 0.28, 60); }, 220);
+
+    var GRAVITY = 0.32;
+
+    function frame() {
+      ctx.clearRect(0, 0, w, h);
+      for (var i = bits.length - 1; i >= 0; i--) {
+        var b = bits[i];
+        b.vy += GRAVITY;
+        b.vx *= b.drag;
+        b.x += b.vx;
+        b.y += b.vy;
+        b.angle += b.spin;
+
+        // Off the bottom is gone, and nothing is recycled: this is one throw.
+        // A page that keeps snowing turns a moment into wallpaper.
+        if (b.y - b.size > h) { bits.splice(i, 1); continue; }
+
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.angle);
+        ctx.fillStyle = b.color;
+        // Squashing the height by the spin is what reads as a flat piece of
+        // paper turning over, without drawing anything in three dimensions.
+        ctx.fillRect(-b.size / 2, -b.size / 2, b.size, b.size * Math.abs(Math.cos(b.angle)));
+        ctx.restore();
+      }
+      if (bits.length) requestAnimationFrame(frame);
+      else ctx.clearRect(0, 0, w, h);
+    }
+    requestAnimationFrame(frame);
+  })();
+</script>
+</body>
+</html>

@@ -18,7 +18,15 @@ import sys
 
 # `_of.html` is deliberately absent: nothing links to it and its nav still
 # carries the GitHub icon the top bar dropped, so it is not this component.
-PAGES = ["index.html", "alerts.html", "setup-ga4.html", "pricing.html", "privacy.html", "terms.html"]
+PAGES = [
+    "index.html",
+    "alerts.html",
+    "setup-ga4.html",
+    "pricing.html",
+    "success.html",
+    "privacy.html",
+    "terms.html",
+]
 
 # The page served at the site root. Its in-page anchors are written bare, so a
 # click is a scroll rather than a navigation back to the page you are on.
