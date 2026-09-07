@@ -144,21 +144,29 @@
      which giving a column away costs the headline nothing. Below it the panel
      is not shrunk to fit, it is simply not there: a hero that has to choose
      between the sentence and the ornament keeps the sentence. */
-  .hero-in { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 40px; }
+  .hero-in { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 32px; }
   .hero-art { display: none; justify-self: end; }
   @media (min-width: 1180px) {
     .hero-in { grid-template-columns: minmax(0, 1fr) auto; }
     .hero-art { display: block; }
   }
-  /* 44 characters wide including the frame, which at 11px mono is about
-     290px — enough to sit beside the headline without taking a column the
-     sentence needed. Letter-spacing stays at zero or the panel's rules stop
-     meeting its corners. */
+  /* 38 characters at 17px is about 390px — the same footprint the first
+     version had at 44 characters and 11px, but with glyphs half again as big,
+     which is the whole difference between reading as a panel and reading as a
+     footnote beside a poster.
+
+     `.wrap` stops growing at 1180px, so every pixel this takes is one the
+     sentence gives up. That is the ceiling, and it is why the answer was
+     fewer characters rather than a bigger box. The headline wraps to three
+     lines at this width, which is deliberate.
+
+     Letter-spacing stays at zero or the panel's rules stop meeting its
+     corners. */
   #chart {
-    font-family: var(--mono); font-size: 11px; line-height: 1.25;
+    font-family: var(--mono); font-size: 17px; line-height: 1.25;
     letter-spacing: 0; white-space: pre; user-select: none;
     color: var(--fg);
-    filter: drop-shadow(0 0 26px rgba(45, 213, 183, .14));
+    filter: drop-shadow(0 0 34px rgba(45, 213, 183, .16));
   }
   #chart .f  { color: var(--line-2); }
   #chart .ti { color: var(--jade); }
@@ -1956,8 +1964,12 @@
     var pre = document.getElementById('chart');
     if (!pre) return;
 
-    var W = 42;   // inner columns
-    var H = 12;   // inner rows
+    // Fewer columns than the panel first had, on purpose. The width on screen
+    // is columns × font size, and `.wrap` caps at 1180px, so the footprint is
+    // fixed either way — spending it on 36 big characters instead of 42 small
+    // ones is what makes the thing legible next to an 87px headline.
+    var W = 36;   // inner columns
+    var H = 11;   // inner rows
 
     var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -2018,18 +2030,22 @@
       // ── the ship, nose on the head of the curve ──
       if (head < W + 3) {
         var hc = Math.round(head), hr = Math.round(rowAt(Math.min(W - 1, hc)));
+        var drew = false;
         for (var sr = 0; sr < SHIP.length; sr++) {
           for (var sc = 0; sc < SHIP[sr].length; sc++) {
             var ch = SHIP[sr][sc];
             if (ch === ' ') continue;
             var rr = hr - 2 + sr, cc = hc - 1 + sc;
-            if (rr >= 0 && rr < H && cc >= 0 && cc < W) grid[rr][cc] = ['sh', ch];
+            if (rr >= 0 && rr < H && cc >= 0 && cc < W) { grid[rr][cc] = ['sh', ch]; drew = true; }
           }
         }
 
         // Exhaust, trailing back down the curve and flickering on its own beat.
+        // Only ever while some of the ship is still on the panel: the exhaust
+        // columns sit behind the nose, so they survive the clip that takes the
+        // ship away and would otherwise puff on alone in the corner.
         var flick = Math.floor(p * 40) % 3;
-        for (var k = 1; k <= 3; k++) {
+        for (var k = 1; drew && k <= 3; k++) {
           var ec = hc - 1 - k, er = hr + 1 + Math.floor(k / 2);
           if (ec < 0 || ec >= W || er < 0 || er >= H) continue;
           if (grid[er][ec]) continue;
@@ -2043,7 +2059,8 @@
       var users = Math.round(4200 + climbed * 12400);
       var pct = Math.round(6 + climbed * 32);
 
-      var title = ' ■^4 DAILY VILLAGERS ';
+      // The metric's own name, short enough to leave the rule some room.
+      var title = ' ■^4 VILLAGERS ';
       var value = ' ' + users.toLocaleString('en-US') + ' ';
       var delta = '▲' + pct + '% ';
       var rule = W - title.length - value.length - delta.length;
