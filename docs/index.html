@@ -153,7 +153,11 @@
      growing a little more on every resize. Top-aligned, both columns end up
      the same height anyway — that is what the measurement is for. */
   .hero-in { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 0; }
-  .hero-art { display: none; justify-self: end; align-self: start; }
+  /* Centred, not top-aligned: rows() leaves the panel deliberately shorter
+     than the column, and centring is what splits that slack evenly above
+     and below it. `.hero-say` stays `start`, so it is never stretched and
+     the measurement it feeds cannot read the panel back out of itself. */
+  .hero-art { display: none; justify-self: end; align-self: center; }
   @media (min-width: 1180px) {
     .hero-in { grid-template-columns: minmax(0, 1fr) auto; }
     .hero-art { display: block; }
@@ -1978,6 +1982,7 @@
     // ones is what makes the thing legible next to an 87px headline.
     var W = 36;   // inner columns
     var H = 11;   // inner rows — replaced by rows() before the first frame
+    var INSET = 2;// rows of daylight left above and below, split by centring
 
     /* How tall to draw, measured rather than chosen.
      *
@@ -1996,7 +2001,11 @@
       // Emptied first, so what gets measured is the column's own content and
       // never the panel that is about to be sized from it.
       pre.textContent = '';
-      var fits = Math.floor(col.offsetHeight / line) - 2;
+      // Two rows for the panel's own frame, and two more given back so it sits
+      // a line clear of the top and bottom of the column instead of ending
+      // flush against both. `align-self: center` is what splits those two
+      // between above and below.
+      var fits = Math.floor(col.offsetHeight / line) - 2 - INSET;
       // Floor and ceiling: below ten there is no room for a curve to climb,
       // and past twenty-four the trail is steeper than it is legible.
       return Math.max(10, Math.min(24, fits));
