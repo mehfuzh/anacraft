@@ -15,8 +15,8 @@ Reach for it before walking anybody through the Analytics console — the consol
 route is four screens with nothing to decide in them. What it will not do is
 create an Analytics *account* (that needs Google's terms accepted in a browser)
 or delete a property. What is left of the console work — retention, filters,
-key events, granting access, enabling the APIs — is documented at
-[anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html).
+key events, granting access, enabling the APIs — is documented in
+[Configure GA4](https://anacraft.dev/setup-ga4.html).
 
 ## Start here
 
@@ -81,8 +81,8 @@ Official builds ship an OAuth client, so `login` needs no Google Cloud setup.
 The account still needs at least **Viewer** on the property — **Editor** for
 `craft configure`, which creates one — and the project behind the client needs
 the **Data API** and **Admin API** enabled. When one of those turns out to be
-the problem, [anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html) is
-where the console side is written down.
+the problem, [Configure GA4](https://anacraft.dev/setup-ga4.html) is where the
+console side is written down.
 
 ## 4. One-shot reports
 

@@ -12,7 +12,7 @@ went wrong. Almost every message names the command that fixes it.
 | `no property <id> on this account — run craft props` | Wrong id, or the account cannot see that property | Read the id off `craft props`. If the property is missing from that list entirely, it is an access problem — see below |
 | `not logged in — run craft login` | No `~/.anacraft/token.json` | `craft login` |
 | `login expired — run craft login` | The refresh token was revoked, or the password changed | `craft login` again |
-| `access denied — the signed-in account needs at least Viewer on this property` | Real permission gap, in GA4 | Grant the account access: [anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html) |
+| `access denied — the signed-in account needs at least Viewer on this property` | Real permission gap, in GA4 | Grant the account access: [Configure GA4](https://anacraft.dev/setup-ga4.html) |
 | `an API isn't enabled on your Google Cloud project` | Data API or Admin API off | Enable **both**; one being on is the usual half-fix |
 | `Google rate-limited this request; try again shortly` | GA4 quota, shared with anything else reading the property | Wait. If it repeats, lengthen `refresh`, or register your own OAuth client so the quota is yours |
 | `unexpected response shape from Google` | An API returned something unparseable — nearly always an error page behind a proxy or captive portal | Check the network before the tool |
@@ -69,5 +69,5 @@ management, API enablement, key events, retention — this tool can only report
 what Google will hand it. Two of those anacraft can now fix directly:
 `craft configure <domain>` creates a missing property and prints the tag to
 paste, which covers most of "no data arriving". The rest has its click paths
-written down at
-[anacraft.dev/setup-ga4](https://anacraft.dev/setup-ga4.html).
+written down in
+[Configure GA4](https://anacraft.dev/setup-ga4.html).
