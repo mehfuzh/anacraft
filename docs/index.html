@@ -136,33 +136,41 @@
     pointer-events: none;
   }
   /* The headline is capped at 15ch, which left the right half of the hero
-     empty on anything wider than a laptop. The globe fills it with the one
-     thing this product is actually about — where in the world the numbers are
-     coming from — drawn the way the rest of it is drawn, in characters. */
-  /* 1180px is where `.wrap` stops growing, so it is also the first width at
-     which giving a column away costs the headline nothing. Below it the globe
-     is not shrunk to fit — it is simply not there, because a hero that has to
-     choose between the sentence and the ornament should keep the sentence. */
+     empty on anything wider than a laptop. The panel fills it with the thing
+     the product is for — a number going up — drawn the way the rest of the
+     site is drawn, in characters.
+
+     1180px is where `.wrap` stops growing, so it is also the first width at
+     which giving a column away costs the headline nothing. Below it the panel
+     is not shrunk to fit, it is simply not there: a hero that has to choose
+     between the sentence and the ornament keeps the sentence. */
   .hero-in { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 40px; }
   .hero-art { display: none; justify-self: end; }
   @media (min-width: 1180px) {
     .hero-in { grid-template-columns: minmax(0, 1fr) auto; }
     .hero-art { display: block; }
   }
-  /* The script draws twice as many columns as rows and assumes the cell is
-     twice as tall as it is wide, so the sphere comes out round: a 12px mono
-     glyph advances 7.2px, and 1.2 line-height is 14.4px. Letter-spacing has to
-     stay at zero or the world turns into an egg. */
-  #globe {
-    font-family: var(--mono); font-size: 11px; line-height: 1.2;
-    letter-spacing: 0; color: var(--jade-deep);
-    white-space: pre; user-select: none;
-    filter: drop-shadow(0 0 22px rgba(45, 213, 183, .16));
+  /* 44 characters wide including the frame, which at 11px mono is about
+     290px — enough to sit beside the headline without taking a column the
+     sentence needed. Letter-spacing stays at zero or the panel's rules stop
+     meeting its corners. */
+  #chart {
+    font-family: var(--mono); font-size: 11px; line-height: 1.25;
+    letter-spacing: 0; white-space: pre; user-select: none;
+    color: var(--fg);
+    filter: drop-shadow(0 0 26px rgba(45, 213, 183, .14));
   }
-  #globe .l0 { color: var(--line-2); }
-  #globe .l1 { color: var(--jade-deep); }
-  #globe .l2 { color: var(--jade); }
-  #globe .pg { color: var(--gold); }
+  #chart .f  { color: var(--line-2); }
+  #chart .ti { color: var(--jade); }
+  #chart .v  { color: var(--white); font-weight: 700; }
+  #chart .up { color: var(--jade); }
+  /* The trail, dim at the tail and bright at the head. */
+  #chart .t0 { color: var(--line-2); }
+  #chart .t1 { color: var(--jade-deep); }
+  #chart .t2 { color: var(--jade); }
+  #chart .sh { color: var(--white); }
+  #chart .x1 { color: var(--gold); }
+  #chart .x0 { color: var(--coral); opacity: .55; }
 
   .eyebrow {
     font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
@@ -500,7 +508,7 @@
       </button>
     </div>
    </div>
-   <div class="hero-art" aria-hidden="true"><pre id="globe"></pre></div>
+   <div class="hero-art" aria-hidden="true"><pre id="chart"></pre></div>
   </div>
 </header>
 
@@ -1932,138 +1940,144 @@
       });
     });
   })();
-  /* The hero's globe: a wireframe world turned in characters.
+  /* The hero's panel: a rocket riding its own trend line.
    *
-   * The rest of the site is a terminal, so the one decorative thing on it is
-   * drawn the way a terminal would draw it — a grid of characters, no SVG and
-   * no canvas. What it is a picture of is the question the product answers:
-   * where the numbers are coming from.
+   * The headline is capped at 15ch, so on anything wide the right half of the
+   * hero was empty. What fills it is drawn the way the rest of the site is
+   * drawn — a grid of characters in the panel chrome the TUI uses, with the
+   * same ▲ on the delta and the same ■^n panel tag. A screenshot would say the
+   * same thing and say it dead.
    *
-   * Deliberately a graticule rather than continents. A coastline at this
-   * resolution is either a large blob of data or a world that is subtly the
-   * wrong shape, and the second one is worse than no world at all.
+   * The numbers are a function of the animation, not a feed, which is why the
+   * panel carries DEMO in its own footer the way `craft dash --demo` does.
+   * Nobody's real traffic is being implied.
    */
   (function () {
-    var pre = document.getElementById('globe');
+    var pre = document.getElementById('chart');
     if (!pre) return;
 
-    // The cell is assumed twice as tall as it is wide, which is what the CSS
-    // above sets up (12px mono advances 7.2px; line-height 1.2 is 14.4px). So
-    // twice as many columns as rows draws a circle rather than an egg.
-    var ROWS = 25, COLS = 50;
+    var W = 42;   // inner columns
+    var H = 12;   // inner rows
 
-    // Ground stations, near enough. These are the five the demo dashboard
-    // shows in TOP REALMS, so the globe is lit where the screenshots are.
-    var PINGS = [
-      { lat:  38, lon:  -97 },  // US
-      { lat:  21, lon:   78 },  // India
-      { lat:  51, lon:   10 },  // Germany
-      { lat:  54, lon:   -2 },  // UK
-      { lat: -10, lon:  -55 }   // Brazil
-    ];
-
-    var RAD = Math.PI / 180;
     var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    /* Distance from v to the nearest multiple of step, in the same units. */
-    function toNearest(v, step) {
-      var m = v / step;
-      return Math.abs(m - Math.round(m)) * step;
+    // Three rows of rocket, anchored by its nose. Drawn in the half-block
+    // glyphs `render.rs` already builds bars out of, so it belongs to the same
+    // alphabet as everything else on the page.
+    var SHIP = ['  ▲ ', ' ▟█▙', '▝▀▀▘'];
+
+    /* The curve being climbed: flat-ish early, steepening — the shape a chart
+     * has when something is working. Exponent rather than a straight line
+     * because a straight line does not look like growth, it looks like a ramp. */
+    function rowAt(c) {
+      var f = Math.pow(c / (W - 1), 1.75);
+      return (H - 1) - f * (H - 2);
     }
 
-    function frame(t) {
-      // One cell per character, filled with a class and a glyph, then run-length
-      // grouped on the way out so a frame is a handful of spans rather than
-      // twelve hundred of them.
-      var cells = new Array(ROWS * COLS);
+    function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+    function span(cls, s) { return cls ? '<span class="' + cls + '">' + esc(s) + '</span>' : esc(s); }
 
-      for (var r = 0; r < ROWS; r++) {
-        var y = 1 - 2 * (r + 0.5) / ROWS;
-        for (var c = 0; c < COLS; c++) {
-          var x = 2 * (c + 0.5) / COLS - 1;
-          var d = x * x + y * y;
-          var i = r * COLS + c;
+    /* One row of cells to HTML, run-length grouped so a frame is a handful of
+     * spans rather than five hundred of them. */
+    function join(cells) {
+      var out = '', run = '', cls = null;
+      for (var i = 0; i < cells.length; i++) {
+        var cell = cells[i];
+        var c = cell ? cell[0] : '';
+        var ch = cell ? cell[1] : ' ';
+        if (c !== cls) { if (run) out += span(cls, run); run = ''; cls = c; }
+        run += ch;
+      }
+      return out + span(cls, run);
+    }
 
-          if (d > 1) { cells[i] = null; continue; }
+    function frame(p) {
+      // p runs 0 → 1.32. The climb is the first 0.78 of it; then the ship is
+      // gone off the corner and the trail empties from the left, which is what
+      // turns a restart into a loop instead of a cut.
+      // Starts at column 1, not 0: the ship is drawn from one column left of
+      // its nose, and launching it at the very edge shears that column off.
+      var head = Math.min(W + 3, 1 + p / 0.78 * (W + 2));
+      var eaten = p > 1.0 ? (p - 1.0) / 0.32 * W : 0;
 
-          var z = Math.sqrt(1 - d);
+      var grid = [];
+      for (var r = 0; r < H; r++) grid.push(new Array(W).fill(null));
 
-          // Screen point back to a place on the world, undoing the spin.
-          var wx = x * Math.cos(t) - z * Math.sin(t);
-          var wz = x * Math.sin(t) + z * Math.cos(t);
-          var lat = Math.asin(y);
-          var lon = Math.atan2(wx, wz);
+      // ── the trail ──
+      for (var c = 0; c < W; c++) {
+        if (c > head || c < eaten) continue;
+        var r0 = Math.round(rowAt(c));
+        if (r0 < 0 || r0 >= H) continue;
+        // Brighter for the stretch just behind the ship, dimmer further back,
+        // so the line reads as something being drawn rather than a static path.
+        var near = head - c;
+        var cls = near < 3 ? 't2' : (near < 9 ? 't1' : 't0');
+        grid[r0][c] = [cls, c % 2 ? '·' : '∙'];
+      }
 
-          var onParallel = toNearest(lat / RAD, 30) < 1.8;
-          // Meridians converge at the poles, so the threshold is measured
-          // along the surface rather than in degrees of longitude — otherwise
-          // the top and bottom of the globe pack solid.
-          var onMeridian = toNearest(lon / RAD, 30) * Math.cos(lat) < 1.5;
-          var onLimb = d > 0.955;
-
-          if (onLimb) {
-            cells[i] = ['l0', '·'];
-          } else if (onParallel || onMeridian) {
-            // One dot everywhere and depth carried by colour, so the lines stay
-            // hairline; the heavier glyph is spent only where two of them
-            // cross, which is what gives the grid its corners.
-            var ch = (onParallel && onMeridian) ? '+' : '·';
-            cells[i] = z > 0.72 ? ['l2', ch] : (z > 0.38 ? ['l1', ch] : ['l0', ch]);
-          } else {
-            cells[i] = null;
+      // ── the ship, nose on the head of the curve ──
+      if (head < W + 3) {
+        var hc = Math.round(head), hr = Math.round(rowAt(Math.min(W - 1, hc)));
+        for (var sr = 0; sr < SHIP.length; sr++) {
+          for (var sc = 0; sc < SHIP[sr].length; sc++) {
+            var ch = SHIP[sr][sc];
+            if (ch === ' ') continue;
+            var rr = hr - 2 + sr, cc = hc - 1 + sc;
+            if (rr >= 0 && rr < H && cc >= 0 && cc < W) grid[rr][cc] = ['sh', ch];
           }
         }
-      }
 
-      // The stations, over the top of the wireframe and only while they are on
-      // the near side of the world.
-      for (var p = 0; p < PINGS.length; p++) {
-        var la = PINGS[p].lat * RAD, lo = PINGS[p].lon * RAD;
-        var vy = Math.sin(la);
-        var ax = Math.cos(la) * Math.sin(lo), az = Math.cos(la) * Math.cos(lo);
-        var vx = ax * Math.cos(t) + az * Math.sin(t);
-        var vz = -ax * Math.sin(t) + az * Math.cos(t);
-        if (vz <= 0.06) continue;
-
-        var pc = Math.round((vx + 1) / 2 * COLS - 0.5);
-        var pr = Math.round((1 - vy) / 2 * ROWS - 0.5);
-        if (pc < 0 || pc >= COLS || pr < 0 || pr >= ROWS) continue;
-
-        // Each one breathes on its own offset, so they do not blink in unison
-        // like a string of lights.
-        var lit = still || (Math.sin(t * 6 + p * 1.7) > -0.35);
-        cells[pr * COLS + pc] = ['pg', lit ? '◉' : '○'];
-      }
-
-      var out = '', run = '', cls = null;
-      for (var k = 0; k < ROWS * COLS; k++) {
-        var cell = cells[k];
-        var ccls = cell ? cell[0] : '';
-        var ch = cell ? cell[1] : ' ';
-        if (ccls !== cls) {
-          if (run) out += cls ? '<span class="' + cls + '">' + run + '</span>' : run;
-          run = ''; cls = ccls;
-        }
-        run += ch;
-        if ((k + 1) % COLS === 0) {
-          out += (cls ? '<span class="' + cls + '">' + run + '</span>' : run) + '\n';
-          run = ''; cls = null;
+        // Exhaust, trailing back down the curve and flickering on its own beat.
+        var flick = Math.floor(p * 40) % 3;
+        for (var k = 1; k <= 3; k++) {
+          var ec = hc - 1 - k, er = hr + 1 + Math.floor(k / 2);
+          if (ec < 0 || ec >= W || er < 0 || er >= H) continue;
+          if (grid[er][ec]) continue;
+          var glyph = (k + flick) % 3 === 0 ? '▒' : '░';
+          grid[er][ec] = [k === 1 ? 'x1' : 'x0', glyph];
         }
       }
-      return out;
+
+      // ── the numbers, read off how far up the curve the ship is ──
+      var climbed = Math.min(1, Math.max(0, head / (W + 3)));
+      var users = Math.round(4200 + climbed * 12400);
+      var pct = Math.round(6 + climbed * 32);
+
+      var title = ' ■^4 DAILY VILLAGERS ';
+      var value = ' ' + users.toLocaleString('en-US') + ' ';
+      var delta = '▲' + pct + '% ';
+      var rule = W - title.length - value.length - delta.length;
+
+      var lines = [];
+      lines.push(
+        span('f', '┌') + span('ti', title) +
+        span('f', new Array(Math.max(1, rule) + 1).join('─')) +
+        span('v', value) + span('up', delta) + span('f', '┐')
+      );
+      for (var lr = 0; lr < H; lr++) {
+        lines.push(span('f', '│') + join(grid[lr]) + span('f', '│'));
+      }
+      var tag = ' DEMO ';
+      lines.push(
+        span('f', '└') +
+        span('f', new Array(W - tag.length - 2 + 1).join('─')) +
+        span('ti', tag) + span('f', '──') + span('f', '┘')
+      );
+      return lines.join('\n');
     }
 
-    if (still) { pre.innerHTML = frame(0.6); return; }
+    // A still frame gets the ship most of the way up, which is the one moment
+    // of the loop that says everything the animation says.
+    if (still) { pre.innerHTML = frame(0.62); return; }
 
-    var t = 0;
-    // Twenty frames a second. The thing turns once every sixteen seconds; the
-    // extra forty frames would be spent on a rotation nobody can see happening.
+    var p = 0;
+    pre.innerHTML = frame(0);
     setInterval(function () {
       if (document.hidden) return;
-      t += 0.02;
-      pre.innerHTML = frame(t);
-    }, 50);
-    pre.innerHTML = frame(0);
+      p += 0.008;
+      if (p > 1.32) p = 0;
+      pre.innerHTML = frame(p);
+    }, 60);
   })();
 </script>
 </body>
