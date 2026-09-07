@@ -7,5 +7,10 @@ client.json
 *.secret.json
 .env
 
+# Byte-compiled helpers. The scripts/ tools are run with python3 directly,
+# so these are a side effect of running them and are version-specific noise.
+__pycache__/
+*.pyc
+
 # macOS finder droppings
 .DS_Store
