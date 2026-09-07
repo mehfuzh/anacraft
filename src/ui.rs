@@ -1780,22 +1780,23 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
 /// Lifted out of `draw` so the rule can be tested as the rule rather than as a
 /// copy of it written out again in a test.
 ///
-/// Rows are claimed in priority order — events, then vitals, then the map — and
+/// Rows are claimed in priority order — events, then the map, then vitals — and
 /// a panel that cannot get its minimum is left out rather than squeezed into a
 /// few rows, the same rule the right column follows. Events leads and never
 /// gives way: it is the headline chart the dashboard is named for, and a column
 /// that keeps a table of figures by compressing that chart into four rows has
 /// its priorities backwards.
 ///
-/// What vitals claims is the least it can be drawn in, not the height it would
-/// like. It sits at the bottom of the column, so every row nobody else takes
-/// comes back to it anyway and it grows through its three densities as they do.
-/// That is the difference between a table that is allowed to shrink and a
-/// picture that has to be dropped: reserving the full twenty rows meant a column
-/// with all three panels up spent them on the gaps between the vitals and had
-/// nothing left for the map — backwards, because the map is the one panel here
-/// you cannot get out of `craft overview`, and the gaps are not information at
-/// all.
+/// The map comes next, ahead of the figures, because it is the one panel here
+/// you cannot get out of `craft overview`. Every number in the vitals is a
+/// one-shot report away; the world is only ever drawn here. So on a column too
+/// short for both, the map is what stays.
+///
+/// It rarely comes to that, because what vitals claims is the least it can be
+/// drawn in rather than the height it would like. Sitting at the bottom, it is
+/// handed every row the others leave and grows back through its three densities
+/// as they do — which is why all three fit at 50 rows where reserving the full
+/// twenty for the vitals needed 62.
 fn left_column(panels: &Panels, height: u16) -> Vec<(Stack, u16)> {
     let mut budget = height;
     let mut stack: Vec<(Stack, u16)> = Vec::new();
@@ -1817,11 +1818,11 @@ fn left_column(panels: &Panels, height: u16) -> Vec<(Stack, u16)> {
     if panels.events && cost(EVENTS_ROWS, false) {
         stack.push((Stack::Events, EVENTS_ROWS));
     }
-    if cost(VITALS_MIN_ROWS, !stack.is_empty()) {
-        stack.push((Stack::Vitals, VITALS_MIN_ROWS));
-    }
     if panels.map && cost(MAP_ROWS, !stack.is_empty()) {
         stack.push((Stack::Map, MAP_ROWS));
+    }
+    if cost(VITALS_MIN_ROWS, !stack.is_empty()) {
+        stack.push((Stack::Vitals, VITALS_MIN_ROWS));
     }
 
     // Who gets rows is one question; where they sit is another. Sort back into
@@ -3773,6 +3774,34 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_column_with_room_for_one_of_them_draws_the_map() {
+        // The order between the two: every number in the vitals is a
+        // `craft overview` away, and the world is only ever drawn here. So a
+        // column too short for both keeps the map — the panel that cannot be
+        // had any other way — and not the table.
+        let only_one = EVENTS_ROWS + 1 + MAP_ROWS;
+        let room_for_both = only_one + 1 + VITALS_MIN_ROWS;
+
+        for height in only_one..room_for_both {
+            let stack = left_column(&all_three(), height);
+            assert!(
+                placed(&stack, Stack::Map).is_some(),
+                "height {height}: the map lost to the figures"
+            );
+            assert!(
+                placed(&stack, Stack::Vitals).is_none(),
+                "height {height}: both claimed rows only one of them had"
+            );
+        }
+
+        // Below that the map cannot be drawn at all, and the vitals are not
+        // starved on behalf of a panel that was never going to fit.
+        let stack = left_column(&all_three(), only_one - 1);
+        assert!(placed(&stack, Stack::Map).is_none());
+        assert!(placed(&stack, Stack::Vitals).is_some());
     }
 
     #[test]
