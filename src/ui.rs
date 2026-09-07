@@ -86,6 +86,13 @@ const TREND_ROWS: u16 = 3 + 1 + 2;
 /// What the live panel needs before it is worth drawing: the count, its
 /// caption, the meter, the graph and the feed's full field, plus borders.
 const LIVE_ROWS: u16 = 8 + FEED_ROWS as u16;
+/// Rows the realtime graph gets inside the live panel.
+///
+/// Three, because that is the slack `LIVE_ROWS` already carried: two header
+/// lines, the graph, a blank, `FEED_ROWS` of feed and two borders comes to
+/// exactly the budget. Taking more would take it off another panel, and on a
+/// short terminal the layout drops whole panels rather than squeezing them.
+const LIVE_GRAPH_ROWS: usize = 3;
 /// Two chunks and borders. It takes the column's spare rows on top of this.
 const CHUNKS_ROWS: u16 = 6;
 /// Ranked realms: eight country rows with bars, plus borders.
@@ -2911,6 +2918,106 @@ fn axis_counts(peak: f64) -> Vec<Line<'static>> {
 
 /// The realtime panel: the count, an htop-style meter, the scrolling trace,
 /// and the arrivals behind the last few changes.
+/// The realtime graph: one column per poll, newest at the right.
+///
+/// This is the panel the product is known for, and the site's hero has been
+/// drawing it — animated, in this exact ramp — while the dashboard itself drew
+/// no graph at all. `dash.history` had been collecting the samples for one
+/// since the field was added; nothing read them. The hero was promising a
+/// chart the binary did not have.
+///
+/// Ported from that hero rather than reinvented, down to the cell rules: body
+/// dim with only each column's cap lit, because a chart this dense drawn solid
+/// and evenly coloured stops being a chart and becomes a wall with a ragged
+/// top. The newest column is lit whole — it is the one arriving.
+fn live_graph(history: &VecDeque<f64>, width: u16, rows: usize) -> Vec<Line<'static>> {
+    let columns = (width as usize).saturating_sub(5);
+    if columns == 0 || rows == 0 {
+        return Vec::new();
+    }
+
+    // The newest samples, oldest first. Fewer than fit means the chart fills in
+    // from the right as polls arrive, rather than stretching a short history
+    // across the whole panel and implying samples nobody took.
+    let recent: Vec<f64> = history.iter().rev().take(columns).rev().copied().collect();
+    let pad = columns - recent.len();
+
+    // Bars from zero, scaled so the busiest poll in view reaches the top. A
+    // flat stretch therefore draws as a solid block with one lit line across
+    // it, which is what flat looks like.
+    let peak = recent.iter().copied().fold(0.0_f64, f64::max);
+    if peak <= 0.0 {
+        return Vec::new();
+    }
+
+    let body = theme::fade(theme::accent_deep(), 0.45);
+    let cap = theme::accent();
+    let newest = ore::gold();
+
+    let mut lines = Vec::with_capacity(rows);
+    for r in 0..rows {
+        // Row 0 is the top, so the height a column must reach to put anything
+        // here counts down from the top.
+        let from_bottom = rows - r;
+        let mut cells: Vec<(char, Option<Color>)> = Vec::with_capacity(columns);
+        for _ in 0..pad {
+            cells.push((' ', None));
+        }
+        for (c, value) in recent.iter().enumerate() {
+            let filled = (value / peak).clamp(0.0, 1.0) * rows as f64;
+            let full = filled.floor() as usize;
+            let rest = filled - full as f64;
+
+            let (ch, mut color) = if from_bottom <= full {
+                (
+                    glyph::FULL,
+                    Some(if from_bottom == full { cap } else { body }),
+                )
+            } else if from_bottom == full + 1 && rest > 0.12 {
+                // The top of a column lands between two rows, and the ramp is
+                // what gets it to the right height instead of rounding there.
+                let step = ((rest * 8.0) as usize).min(glyph::SPARK.len() - 1);
+                (glyph::SPARK[step], Some(cap))
+            } else {
+                (' ', None)
+            };
+            if color.is_some() && c + 1 == recent.len() {
+                color = Some(newest);
+            }
+            cells.push((ch, color));
+        }
+
+        // One span per run of like-coloured cells, not one per cell.
+        let mut spans = vec![Span::raw("  ")];
+        let mut run = String::new();
+        let mut current: Option<Color> = cells.first().and_then(|(_, color)| *color);
+        for (ch, color) in cells {
+            if color != current {
+                if !run.is_empty() {
+                    spans.push(styled_run(&run, current));
+                }
+                run.clear();
+                current = color;
+            }
+            run.push(ch);
+        }
+        if !run.is_empty() {
+            spans.push(styled_run(&run, current));
+        }
+        lines.push(Line::from(spans));
+    }
+    lines
+}
+
+/// A run of graph cells sharing one colour. Uncoloured runs are the empty
+/// space above a column and carry no style at all.
+fn styled_run(run: &str, color: Option<Color>) -> Span<'static> {
+    match color {
+        Some(color) => Span::styled(run.to_string(), Style::default().fg(color)),
+        None => Span::raw(run.to_string()),
+    }
+}
+
 fn live_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
     let phase = dash.phase();
     let breath = (phase * 2.2).sin() * 0.5 + 0.5;
@@ -2939,8 +3046,13 @@ fn live_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
             ),
             Style::default().fg(theme::fade(theme::sage(), 0.3)),
         )),
-        Line::from(""),
     ];
+
+    // The graph goes in the three rows `LIVE_ROWS` already budgeted and the
+    // content never used, so nothing else on the column gives up height for
+    // it. It also does the separating that the blank line used to.
+    lines.extend(live_graph(&dash.history, width, LIVE_GRAPH_ROWS));
+    lines.push(Line::from(""));
 
     // Event feed — recent arrivals and departures.
     //
@@ -4045,5 +4157,131 @@ mod forget_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod live_graph_tests {
+    use super::*;
+
+    fn plain(lines: &[Line<'static>]) -> String {
+        lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|s| s.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The hero's own sample function, so the shapes are comparable.
+    fn wave(n: usize) -> f64 {
+        let n = n as f64;
+        let v = 0.54
+            + 0.26 * (n * 0.21).sin()
+            + 0.13 * (n * 0.53 + 2.1).sin()
+            + 0.07 * (n * 1.30 + 0.7).sin();
+        v.clamp(0.06, 1.0) * 240.0
+    }
+
+    fn history(len: usize) -> VecDeque<f64> {
+        (0..len).map(wave).collect()
+    }
+
+    #[test]
+    fn the_graph_never_draws_past_its_panel() {
+        // A row wider than the panel is a graph that corrupts every box to its
+        // right, which is how a TUI layout breaks visibly.
+        for width in 10..=80u16 {
+            let columns = (width as usize).saturating_sub(5);
+            for lines in [live_graph(&history(60), width, 3)] {
+                for line in &lines {
+                    let drawn: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+                    assert_eq!(drawn, columns + 2, "width {width} drew {drawn}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_newest_sample_is_the_rightmost_column() {
+        // A realtime graph that scrolls the wrong way is worse than no graph:
+        // it reads as history rather than as arrival.
+        let mut h: VecDeque<f64> = VecDeque::new();
+        for _ in 0..30 {
+            h.push_back(1.0);
+        }
+        h.push_back(100.0); // the newest, and by far the tallest
+        let drawn = plain(&live_graph(&h, 40, 3));
+        let top = drawn.lines().next().unwrap();
+        assert_eq!(
+            top.trim_end().chars().last(),
+            Some(glyph::FULL),
+            "the tall newest column is not at the right edge:\n{drawn}"
+        );
+    }
+
+    #[test]
+    fn a_short_history_fills_in_from_the_right() {
+        // Stretching four polls across the panel would draw samples nobody
+        // took. The chart grows into the space instead.
+        let h: VecDeque<f64> = VecDeque::from(vec![10.0, 20.0, 30.0, 40.0]);
+        let drawn = plain(&live_graph(&h, 40, 3));
+        let bottom = drawn.lines().last().unwrap();
+        assert!(
+            bottom.starts_with("  ") && bottom[2..].starts_with(' '),
+            "a four-sample history should sit at the right edge:\n{drawn}"
+        );
+        assert_eq!(bottom.trim_end().chars().count(), 37);
+    }
+
+    #[test]
+    fn nothing_is_drawn_before_any_traffic() {
+        // An all-zero history has no peak to scale against; drawing it would
+        // divide by zero or paint a floor that means nothing.
+        assert!(live_graph(&VecDeque::new(), 40, 3).is_empty());
+        assert!(live_graph(&VecDeque::from(vec![0.0; 20]), 40, 3).is_empty());
+        // And a panel too narrow to hold anything is not a panic.
+        assert!(live_graph(&history(60), 4, 3).is_empty());
+        assert!(live_graph(&history(60), 40, 0).is_empty());
+    }
+
+    #[test]
+    fn only_the_cap_of_each_column_is_lit() {
+        // The hero's rule, and the reason the chart reads as a chart: a dense
+        // graph drawn solid and evenly coloured is a wall with a ragged top.
+        // Exactly as many samples as columns, so there is no left padding to
+        // index into by mistake.
+        let h: VecDeque<f64> = VecDeque::from(vec![100.0; 15]);
+        let lines = live_graph(&h, 20, 3);
+        let colors: Vec<Vec<Option<Color>>> = lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .flat_map(|s| {
+                        let color = s.style.fg;
+                        s.content.chars().map(move |_| color)
+                    })
+                    .collect()
+            })
+            .collect();
+        // Column 0 (flattened index 2, past the two-space indent) is a
+        // full-height column that is not the newest: lit on top, dim below.
+        assert_ne!(colors[0][2], colors[1][2], "the cap is not distinguished");
+        assert_eq!(colors[1][2], colors[2][2], "the body is not one colour");
+        // The newest column is the one arriving, and is lit whole.
+        let last = colors[0].len() - 1;
+        assert_eq!(
+            colors[0][last], colors[1][last],
+            "the newest column is not lit whole"
+        );
+        assert_ne!(
+            colors[1][last], colors[1][2],
+            "the newest column is not distinguished"
+        );
     }
 }
