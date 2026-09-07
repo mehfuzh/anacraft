@@ -183,15 +183,19 @@
   #chart .f  { color: var(--line-2); }
   #chart .ti { color: var(--jade); }
   #chart .v  { color: var(--white); font-weight: 700; }
-  #chart .up { color: var(--jade); }
-  /* The trail, dim at the tail and bright at the head. */
-  #chart .t0 { color: var(--line-2); }
-  #chart .t1 { color: var(--jade-deep); }
-  #chart .t2 { color: var(--jade); }
-  #chart .sh { color: var(--white); }
-  #chart .x1 { color: var(--gold); }
-  #chart .x0 { color: var(--coral); opacity: .55; }
-
+  #chart .lv { color: var(--jade); }
+  /* The graph is a filled area, so the body has to recede or the panel is a
+     wall: dim fill, and the lit cell is the one at the top of each column,
+     which is the line the eye actually follows. The newest column arrives in
+     gold — it is the one thing on the page that is happening now. */
+  #chart .b  { color: var(--jade-deep); opacity: .34; }
+  #chart .bc { color: var(--jade); }
+  #chart .nb { color: var(--gold); }
+  /* the feed */
+  #chart .ok   { color: var(--jade); }
+  #chart .gone { color: var(--dim); }
+  #chart .pa   { color: var(--fg); }
+  #chart .dim  { color: var(--dim); }
   .eyebrow {
     font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
     text-transform: uppercase; color: var(--jade); margin-bottom: 22px;
@@ -1960,38 +1964,39 @@
       });
     });
   })();
-  /* The hero's panel: a rocket riding its own trend line.
+  /* The hero's panel: RIGHT NOW, running.
    *
    * The headline is capped at 15ch, so on anything wide the right half of the
-   * hero was empty. What fills it is drawn the way the rest of the site is
-   * drawn — a grid of characters in the panel chrome the TUI uses, with the
-   * same ▲ on the delta and the same ■^n panel tag. A screenshot would say the
-   * same thing and say it dead.
+   * hero was empty. What fills it is the panel this product is known for — a
+   * realtime graph that scrolls, with the event feed underneath it — drawn in
+   * the same chrome, the same ■^n tag and the same block ramp `render.rs`
+   * builds bars out of. A screenshot would say the same thing and say it dead.
    *
-   * The numbers are a function of the animation, not a feed, which is why the
-   * panel carries DEMO in its own footer the way `craft dash --demo` does.
-   * Nobody's real traffic is being implied.
+   * The numbers are a function of time, not a feed, which is why the panel
+   * carries DEMO in its footer the way `craft dash --demo` does. Nobody's real
+   * traffic is being implied.
    */
   (function () {
     var pre = document.getElementById('chart');
     if (!pre) return;
 
-    // Fewer columns than the panel first had, on purpose. The width on screen
-    // is columns × font size, and `.wrap` caps at 1180px, so the footprint is
-    // fixed either way — spending it on 36 big characters instead of 42 small
-    // ones is what makes the thing legible next to an 87px headline.
     var W = 36;   // inner columns
     var H = 11;   // inner rows — replaced by rows() before the first frame
     var INSET = 2;// rows of daylight left above and below, split by centring
+
+    // `theme.rs`: the sparkline ramp, low to high, and the live indicator.
+    var SPARK = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    var FULL = '█';
+    var PULSE = ['○', '◉', '●'];
+
+    var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     /* How tall to draw, measured rather than chosen.
      *
      * A fixed row count is a guess about how tall the headline and the lede
      * happen to be, and the guess is wrong at every width where the headline
-     * wraps differently — which is what left the panel floating short in the
-     * middle of a much taller column. So: ask the column how tall it is, ask
-     * the browser how tall a line of this text is, and take the difference,
-     * less the two rows the panel's own frame costs.
+     * wraps differently. So: ask the column how tall it is, ask the browser how
+     * tall a line of this text is, and take the difference.
      */
     function rows() {
       var col = document.querySelector('.hero-say');
@@ -2003,117 +2008,120 @@
       pre.textContent = '';
       // Two rows for the panel's own frame, and two more given back so it sits
       // a line clear of the top and bottom of the column instead of ending
-      // flush against both. `align-self: center` is what splits those two
-      // between above and below.
+      // flush against both. `align-self: center` splits those two between
+      // above and below.
       var fits = Math.floor(col.offsetHeight / line) - 2 - INSET;
-      // Floor and ceiling: below ten there is no room for a curve to climb,
-      // and past twenty-four the trail is steeper than it is legible.
       return Math.max(10, Math.min(24, fits));
     }
 
-    var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-    // Three rows of rocket, anchored by its nose. Drawn in the half-block
-    // glyphs `render.rs` already builds bars out of, so it belongs to the same
-    // alphabet as everything else on the page.
-    var SHIP = ['  ▲ ', ' ▟█▙', '▝▀▀▘'];
-
-    /* The curve being climbed: flat-ish early, steepening — the shape a chart
-     * has when something is working. Exponent rather than a straight line
-     * because a straight line does not look like growth, it looks like a ramp. */
-    function rowAt(c) {
-      var f = Math.pow(c / (W - 1), 1.75);
-      return (H - 1) - f * (H - 2);
+    /* The traffic. A sum of slow sines rather than random noise: noise
+     * reshuffles every sample and reads as static, where this drifts and has
+     * quiet stretches and busy ones, which is what a real minute looks like. */
+    function sampleAt(n) {
+      var v = 0.54
+            + 0.26 * Math.sin(n * 0.21)
+            + 0.13 * Math.sin(n * 0.53 + 2.1)
+            + 0.07 * Math.sin(n * 1.30 + 0.7);
+      return Math.max(0.06, Math.min(1, v));
     }
+
+    // What the feed says. Real paths from this site, so the panel is showing
+    // the site it is sitting on.
+    var PAGES = ['/', '/pricing.html', '/setup-ga4.html', '/alerts.html', '/#mcp', '/#start'];
+    var KINDS = ['spawn', 'spawn', 'spawn', 'wander off'];
+
+    var seq = 0;            // how many samples have ever been taken
+    var buf = [];           // the last W of them
+    for (var i = 0; i < W; i++) { buf.push(sampleAt(i)); seq = i + 1; }
+
+    var feed = [];
+    for (i = 0; i < 4; i++) feed.push({ kind: KINDS[i % KINDS.length], page: PAGES[i % PAGES.length], age: 3 + i * 5 });
 
     function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
     function span(cls, s) { return cls ? '<span class="' + cls + '">' + esc(s) + '</span>' : esc(s); }
-
-    /* One row of cells to HTML, run-length grouped so a frame is a handful of
-     * spans rather than five hundred of them. */
-    function join(cells) {
-      var out = '', run = '', cls = null;
-      for (var i = 0; i < cells.length; i++) {
-        var cell = cells[i];
-        var c = cell ? cell[0] : '';
-        var ch = cell ? cell[1] : ' ';
-        if (c !== cls) { if (run) out += span(cls, run); run = ''; cls = c; }
-        run += ch;
-      }
-      return out + span(cls, run);
+    function pad(s, n) {
+      var len = [].concat(Array.from(s)).length;
+      return len >= n ? Array.from(s).slice(0, n).join('') : s + new Array(n - len + 1).join(' ');
     }
 
-    function frame(p) {
-      // p runs 0 → 1.32. The climb is the first 0.78 of it; then the ship is
-      // gone off the corner and the trail empties from the left, which is what
-      // turns a restart into a loop instead of a cut.
-      // Starts at column 1, not 0: the ship is drawn from one column left of
-      // its nose, and launching it at the very edge shears that column off.
-      var head = Math.min(W + 3, 1 + p / 0.78 * (W + 2));
-      var eaten = p > 1.0 ? (p - 1.0) / 0.32 * W : 0;
-
-      var grid = [];
-      for (var r = 0; r < H; r++) grid.push(new Array(W).fill(null));
-
-      // ── the trail ──
-      for (var c = 0; c < W; c++) {
-        if (c > head || c < eaten) continue;
-        var r0 = Math.round(rowAt(c));
-        if (r0 < 0 || r0 >= H) continue;
-        // Brighter for the stretch just behind the ship, dimmer further back,
-        // so the line reads as something being drawn rather than a static path.
-        var near = head - c;
-        var cls = near < 3 ? 't2' : (near < 9 ? 't1' : 't0');
-        grid[r0][c] = [cls, c % 2 ? '·' : '∙'];
-      }
-
-      // ── the ship, nose on the head of the curve ──
-      if (head < W + 3) {
-        var hc = Math.round(head), hr = Math.round(rowAt(Math.min(W - 1, hc)));
-        var drew = false;
-        for (var sr = 0; sr < SHIP.length; sr++) {
-          for (var sc = 0; sc < SHIP[sr].length; sc++) {
-            var ch = SHIP[sr][sc];
-            if (ch === ' ') continue;
-            var rr = hr - 2 + sr, cc = hc - 1 + sc;
-            if (rr >= 0 && rr < H && cc >= 0 && cc < W) { grid[rr][cc] = ['sh', ch]; drew = true; }
-          }
-        }
-
-        // Exhaust, trailing back down the curve and flickering on its own beat.
-        // Only ever while some of the ship is still on the panel: the exhaust
-        // columns sit behind the nose, so they survive the clip that takes the
-        // ship away and would otherwise puff on alone in the corner.
-        var flick = Math.floor(p * 40) % 3;
-        for (var k = 1; drew && k <= 3; k++) {
-          var ec = hc - 1 - k, er = hr + 1 + Math.floor(k / 2);
-          if (ec < 0 || ec >= W || er < 0 || er >= H) continue;
-          if (grid[er][ec]) continue;
-          var glyph = (k + flick) % 3 === 0 ? '▒' : '░';
-          grid[er][ec] = [k === 1 ? 'x1' : 'x0', glyph];
-        }
-      }
-
-      // ── the numbers, read off how far up the curve the ship is ──
-      var climbed = Math.min(1, Math.max(0, head / (W + 3)));
-      var users = Math.round(4200 + climbed * 12400);
-      var pct = Math.round(6 + climbed * 32);
-
-      // The metric's own name, short enough to leave the rule some room.
-      var title = ' ■^4 VILLAGERS ';
-      var value = ' ' + users.toLocaleString('en-US') + ' ';
-      var delta = '▲' + pct + '% ';
-      var rule = W - title.length - value.length - delta.length;
-
+    function frame(tick) {
       var lines = [];
+      // Three feed rows and the rule above them, when there is room for them.
+      var feedRows = H >= 12 ? 4 : 0;
+      var CH = H - feedRows;
+
+      // ── header: the live count, off the newest sample ──
+      var online = Math.round(40 + buf[buf.length - 1] * 190);
+      var pulse = PULSE[Math.floor(tick / 6) % PULSE.length];
+      var title = ' ■^2 RIGHT NOW ';
+      var right = ' ' + pulse + ' ' + online + ' online ';
+      var rule = W - title.length - right.length;
       lines.push(
         span('f', '┌') + span('ti', title) +
         span('f', new Array(Math.max(1, rule) + 1).join('─')) +
-        span('v', value) + span('up', delta) + span('f', '┐')
+        span('lv', ' ' + pulse + ' ') + span('v', online + '') + span('ti', ' online ') +
+        span('f', '┐')
       );
-      for (var lr = 0; lr < H; lr++) {
-        lines.push(span('f', '│') + join(grid[lr]) + span('f', '│'));
+
+      // ── the graph, newest column at the right ──
+      for (var r = 0; r < CH; r++) {
+        // Row 0 is the top of the chart, so the height a column must reach to
+        // put anything here counts down from the top.
+        var cells = [];
+        for (var c = 0; c < W; c++) {
+          var filled = buf[c] * CH;          // in rows, fractional
+          var full = Math.floor(filled);
+          var rest = filled - full;
+          var fromBottom = CH - r;           // this row's index from the floor
+
+          var ch = ' ', cls = null;
+          if (fromBottom <= full) {
+            // Body dim, and only the cell at the very top of the column lit.
+            // Filled solid and evenly coloured, a chart this dense stops being
+            // a chart and becomes a wall with a ragged top.
+            ch = FULL; cls = (fromBottom === full) ? 'bc' : 'b';
+          } else if (fromBottom === full + 1 && rest > 0.12) {
+            // The top of a column lands between two rows, and the ramp is what
+            // gets it to the right height instead of rounding it there.
+            ch = SPARK[Math.max(0, Math.min(7, Math.floor(rest * 8)))];
+            cls = 'bc';
+          }
+          // The newest column is the one arriving, and it is lit whole.
+          if (ch !== ' ' && c === W - 1) cls = 'nb';
+          cells.push(ch === ' ' ? null : [cls, ch]);
+        }
+
+        var out = '', run = '', cur = null;
+        for (c = 0; c < W; c++) {
+          var cell = cells[c];
+          var cc = cell ? cell[0] : '';
+          var chh = cell ? cell[1] : ' ';
+          if (cc !== cur) { if (run) out += span(cur, run); run = ''; cur = cc; }
+          run += chh;
+        }
+        out += span(cur, run);
+        lines.push(span('f', '│') + out + span('f', '│'));
       }
+
+      // ── the feed ──
+      if (feedRows) {
+        lines.push(span('f', '│') + span('f', new Array(W + 1).join('─')) + span('f', '│'));
+        // The three fields have to add up to exactly W or the panel's right
+        // edge walks off: 12 for the kind, 4 for the age and its trailing
+        // space, and whatever is left for the page.
+        var KINDW = 12, AGEW = 4, PAGEW = W - KINDW - AGEW;
+        for (var k = 0; k < feedRows - 1; k++) {
+          var e = feed[k];
+          lines.push(
+            span('f', '│') +
+            span(e.kind === 'spawn' ? 'ok' : 'gone', pad(' ' + e.kind, KINDW)) +
+            span('pa', pad(e.page, PAGEW)) +
+            span('dim', pad(e.age + 's', AGEW)) +
+            span('f', '│')
+          );
+        }
+      }
+
       var tag = ' DEMO ';
       lines.push(
         span('f', '└') +
@@ -2123,11 +2131,26 @@
       return lines.join('\n');
     }
 
-    // A still frame gets the ship most of the way up, which is the one moment
-    // of the loop that says everything the animation says.
-    if (still) { H = rows(); pre.innerHTML = frame(0.62); return; }
+    /* One poll: the graph shifts left by a column and the feed ages. The real
+     * dashboard polls every few seconds, so this does too — a graph that
+     * redraws sixty times a second is not a realtime graph, it is a waveform. */
+    function poll() {
+      buf.shift();
+      buf.push(sampleAt(seq++));
+      for (var k = 0; k < feed.length; k++) feed[k].age += 3;
+      if (feed[0].age > 6) {
+        feed.pop();
+        feed.unshift({
+          kind: KINDS[seq % KINDS.length],
+          page: PAGES[seq % PAGES.length],
+          age: 1
+        });
+      }
+    }
 
-    var p = 0;
+    if (still) { H = rows(); pre.innerHTML = frame(6); return; }
+
+    var tick = 0;
     H = rows();
     pre.innerHTML = frame(0);
 
@@ -2136,15 +2159,15 @@
     var settle;
     window.addEventListener('resize', function () {
       clearTimeout(settle);
-      settle = setTimeout(function () { H = rows(); pre.innerHTML = frame(p); }, 150);
+      settle = setTimeout(function () { H = rows(); pre.innerHTML = frame(tick); }, 150);
     });
 
     setInterval(function () {
       if (document.hidden) return;
-      p += 0.008;
-      if (p > 1.32) p = 0;
-      pre.innerHTML = frame(p);
-    }, 60);
+      tick++;
+      if (tick % 12 === 0) poll();   // a new column roughly every 1.4s
+      pre.innerHTML = frame(tick);
+    }, 120);
   })();
 </script>
 </body>
