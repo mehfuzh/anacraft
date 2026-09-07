@@ -166,15 +166,34 @@ Deno.serve(async (request) => {
   return json({ received: true });
 });
 
-/// The payment landed. Fill in the row the CLI claimed.
+/// A token for a checkout that arrived without one — one started on the
+/// pricing page rather than by `craft subscribe`.
+///
+/// Every later event finds its row through this column, so a row without one
+/// cannot be updated when the subscription renews or lapses. Nobody ever types
+/// it: the payment reaches its owner through `link_account`, which hands an
+/// unowned row to the first Google account that signs in with the same email.
+/// Random rather than derived from the session id, because `subscription_status`
+/// answers about any token it is handed, and a token somebody else could guess
+/// is a token that answers to somebody else.
+function webToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return `web_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/// The payment landed. Fill in the row the CLI claimed — or open one for a
+/// checkout that had no CLI behind it.
 async function onCheckout(session: Stripe.Checkout.Session) {
-  const token = session.client_reference_id;
-  if (!token) {
-    // A checkout started from the website rather than from `craft subscribe`.
-    // Nothing to key it to; the customer still exists in Stripe, and a later
-    // `subscription.updated` has nowhere to land either. Log and move on.
-    console.warn("checkout with no client_reference_id:", session.id);
-    return;
+  // A checkout started on the website carries no `client_reference_id`: there
+  // is no row waiting for it and no account to key one to. It still gets a
+  // row, with `user_id` left null, and `link_account` adopts it on the first
+  // `craft login` from an account with the same email — the case the users
+  // migration was written for. Dropping the event instead, which is what this
+  // did until the pricing page grew a Subscribe button, takes somebody's money
+  // and grants them nothing.
+  const token = session.client_reference_id ?? webToken();
+  if (!session.client_reference_id) {
+    console.info("checkout from the website:", session.id, "→", token);
   }
 
   const paid = session.payment_status === "paid" || session.status === "complete";

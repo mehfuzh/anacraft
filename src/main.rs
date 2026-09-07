@@ -462,6 +462,11 @@ async fn run() -> Result<()> {
 /// A Payment Link, not a checkout session built here: a session needs a secret
 /// key, and a key shipped inside a binary anybody can download is a key that
 /// has leaked. The link is public by design and safe to hardcode.
+///
+/// `docs/pricing.html` has the same URL on its Subscribe button, so a new one
+/// has to land in both. The difference is what rides along: this one carries a
+/// token and lands on an account immediately, while a checkout from the page
+/// arrives anonymous and is adopted by email on the next `craft login`.
 const SUBSCRIBE_URL: &str = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02";
 
 /// The same, for the $29/year plan — empty until that Payment Link exists.
@@ -499,6 +504,17 @@ const CHECKOUT_POLL: std::time::Duration = std::time::Duration::from_secs(3);
 async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
     let account = auth::Auth::account()?;
     let record = license::Record::load();
+
+    // Register the account before asking about it, so a payment made on the
+    // pricing page — which reaches Supabase with no account attached to it — is
+    // adopted by the email it was paid with. `craft login` does this too; doing
+    // it here as well is what lets somebody already signed in pay in a browser
+    // and pick it up with `craft subscribe --check`, rather than having to sign
+    // in again to trigger the adoption. Best-effort either way: a failure here
+    // only means the lookup below finds what it would have found anyway.
+    if let (Some(account), Some(_)) = (&account, license::project()) {
+        let _ = license::link(account).await;
+    }
 
     // Nothing to ask when this build has no service, or when there is neither
     // an account nor a past checkout to ask about.

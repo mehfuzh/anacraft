@@ -22,6 +22,35 @@ The row is keyed on the Google account id (`sub`), which is why a new machine
 only has to `craft login` with the same account. The token is kept as a second
 key so a checkout that completed before the identity landed still resolves.
 
+## The other way in
+
+`pricing.html` has a Subscribe button that goes straight to the same Payment
+Link, with nothing in front of it. Those checkouts arrive with no
+`client_reference_id` and no account:
+
+```
+pricing.html ──► Stripe ──► checkout.session.completed
+                                    │
+                                    ├─ no client_reference_id, so the webhook
+                                    │  mints a `web_…` token and writes the row
+                                    │  with user_id null
+                                    ▼
+                             craft login ──► link_account(sub, email)
+                                    │        adopts any unowned row whose
+                                    ▼        email matches, once and one way
+                             supporter = true
+```
+
+Adoption is `link_account` in the users migration, which only ever takes a row
+with `user_id is null` — an email is a key to an unclaimed payment, never a way
+to read somebody else's. `craft subscribe` calls it too, before its own lookup,
+so a machine that was already signed in when the payment happened picks it up
+on `craft subscribe --check` without signing in again.
+
+Somebody who pays with an email that is not on their Google account is the one
+case with no automatic path. The row is there with its Stripe customer on it;
+setting its `user_id` by hand is the fix.
+
 ## What the binary carries
 
 The publishable key, which is public by design. The table has RLS on and no
