@@ -13,9 +13,12 @@ Setting up the Google side is part of this tool now: `craft configure <domain>`
 creates the GA4 property and its web data stream and prints the tag to paste.
 Reach for it before walking anybody through the Analytics console — the console
 route is four screens with nothing to decide in them. What it will not do is
-create an Analytics *account* (that needs Google's terms accepted in a browser)
-or delete a property. What is left of the console work — retention, filters,
-key events, granting access, enabling the APIs — is documented in
+create an Analytics *account* (that needs Google's terms accepted in a
+browser). It will delete a property, but only when asked twice: `craft delete
+<domain|id>` just forgets it locally, and `craft delete <domain|id> --all` moves
+it to the Analytics trash, where Google keeps it restorable for 35 days. What is
+left of the console work — retention, filters, key events, granting access,
+enabling the APIs — is documented in
 [Configure GA4](https://anacraft.dev/setup-ga4.html).
 
 ## Start here

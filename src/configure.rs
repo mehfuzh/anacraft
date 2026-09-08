@@ -21,12 +21,15 @@
 //! is the whole of that, and the shape of it is that the ask arrives on the
 //! page the sign-in already ends on rather than in a tab of its own.
 //!
-//! `craft delete` is the other half, and deliberately the asymmetric one. It
-//! forgets a property locally and then hands the console the destructive click,
-//! because deleting somebody's analytics history is not a thing this binary
-//! should be able to do at all — not behind a confirmation prompt, not behind a
-//! flag. The grant `craft configure` asks for would permit it; the code is what
-//! declines to, which is the whole argument of `docs/oauth-scopes.md`.
+//! `craft delete` is the other half, and deliberately the asymmetric one. On
+//! its own it only forgets a property locally and hands the console the
+//! destructive click. `--all` is the second half of that asymmetry rather than
+//! the end of it: a property this command created in one line should not need
+//! four console screens to take back, so the flag exists — but it has to be
+//! typed, it is never what a bare `craft delete` does, and what it reaches for
+//! is Google's soft delete, which leaves the property restorable from the
+//! account's own trash for 35 days. The grant is one scope wide and the code
+//! keeps using less of it than the scope allows; see `docs/oauth-scopes.md`.
 
 use anyhow::{bail, Context, Result};
 
@@ -632,18 +635,44 @@ fn is_iana(tz: &str) -> bool {
 /// URL fragment.
 const ADMIN_URL: &str = "https://analytics.google.com/analytics/web/#/p{id}/admin";
 
-/// `craft delete <domain|id>` — forget a property here, and say where the
-/// console's own delete lives.
+/// `craft delete <domain|id>` — forget a property here, and either say where
+/// the console's own delete lives or, with `--all`, use it.
 ///
-/// anacraft never deletes a property. It could: `analytics.edit`, which
-/// `craft configure` already asks for, covers `properties.delete`. It does not,
-/// because a wrong argument here would be somebody's analytics history, and no
-/// confirmation prompt makes a binary the right place to keep that button. The
-/// console's version has the account's own permission checks in front of it and
-/// a 35-day trash behind it.
-pub async fn delete(target: &str) -> Result<()> {
+/// The default stays the harmless one. A bare `craft delete` touches nothing in
+/// Google: it drops the property from this machine's config so the dashboard
+/// stops opening on it, then prints the console path and what that path costs.
+/// A mistyped domain there is a config edit, not somebody's analytics history.
+///
+/// `--all` is the answer to the obvious complaint about that — `craft
+/// configure` makes a property in one line and it was strange for the way back
+/// out to be four console screens. It calls `properties.delete`, which
+/// `analytics.edit` has always covered and this binary has until now declined
+/// to use. There is no confirmation prompt, because the flag is the
+/// confirmation and a prompt that follows an explicit `--all` only teaches
+/// people to hit `y`; what actually makes it safe is on Google's side, where
+/// the delete is a soft one and the property waits in the account's trash for
+/// 35 days.
+pub async fn delete(target: &str, all: bool) -> Result<()> {
     let mut cfg = Config::load()?;
     let found = resolve(&cfg, target).await?;
+
+    // Google first, and only then the config. Forgetting is local and
+    // reversible; a failed API call is not a reason to have already pointed
+    // the dashboard away from a property that is still sitting there.
+    if all {
+        let ga = Ga::new()?;
+        let why = format!(
+            "deleting {} needs permission to change your Analytics account",
+            found.label(),
+        );
+        ga.auth()
+            .ensure_scope(SCOPE_EDIT, &why, &crate::auth::GRANTED)
+            .await?;
+        ga.delete_property(&found.id)
+            .await
+            .with_context(|| format!("deleting property {}", found.id))?;
+    }
+
     let forgotten = cfg.remove(&found.id);
     if forgotten {
         cfg.save()?;
@@ -665,6 +694,14 @@ pub async fn delete(target: &str) -> Result<()> {
         );
     }
 
+    if all {
+        println!(
+            "  {} {}",
+            paint("✓", ore::emerald()),
+            dim("moved to Google's trash — it has stopped collecting"),
+        );
+    }
+
     if forgotten {
         println!(
             "  {} {}\n",
@@ -678,37 +715,62 @@ pub async fn delete(target: &str) -> Result<()> {
         );
     }
 
-    // The distinction that matters. Somebody who reads only the tick above
-    // would walk away believing their data was gone.
-    println!(
-        "  {} {}",
-        paint("!", ore::redstone()),
-        bold("the property and its data are still in Google"),
-    );
-    println!(
-        "  {}\n",
-        dim("anacraft does not delete properties — do it in the console:"),
-    );
-    println!("    {}", ADMIN_URL.replace("{id}", &found.id));
-    println!("    {}", dim("Property column → Property details"));
-    println!("    {}\n", dim("Move to Trash Can"));
-    println!(
-        "  {}",
-        dim("needs Editor or above. It sits in the trash for 35 days — restorable")
-    );
-    println!(
-        "  {}\n",
-        dim("from Admin → Account → Trash — and is permanently deleted after that.")
-    );
+    if all {
+        // The undo, said before it expires rather than after. 35 days is
+        // generous and easy to assume is forever.
+        println!(
+            "  {} {}",
+            paint("!", ore::redstone()),
+            bold("35 days in the trash, then it and its data are gone for good"),
+        );
+        println!("  {}\n", dim("restore it before then from the console:"));
+        println!("    {}", ADMIN_URL.replace("{id}", &found.id));
+        println!("    {}\n", dim("Account column → Trash Can → Restore"));
+    } else {
+        // The distinction that matters. Somebody who reads only the tick above
+        // would walk away believing their data was gone.
+        println!(
+            "  {} {}",
+            paint("!", ore::redstone()),
+            bold("the property and its data are still in Google"),
+        );
+        println!(
+            "  {}\n",
+            dim("nothing was deleted there — the console's delete is here:"),
+        );
+        println!("    {}", ADMIN_URL.replace("{id}", &found.id));
+        println!("    {}", dim("Property column → Property details"));
+        println!("    {}\n", dim("Move to Trash Can"));
+        println!(
+            "  {}",
+            dim("needs Editor or above. It sits in the trash for 35 days — restorable")
+        );
+        println!(
+            "  {}\n",
+            dim("from Admin → Account → Trash — and is permanently deleted after that.")
+        );
+    }
     println!("{}\n", panel_bottom());
 
+    if all {
+        return Ok(());
+    }
+
+    // Both ways on from here, because the run that only forgot a property is
+    // the run where somebody has not decided yet.
+    println!(
+        "  {} or delete it in Google too: {}",
+        dim("↳"),
+        bold(&format!("craft delete {target} --all")),
+    );
     if forgotten {
         println!(
-            "  {} changed your mind? {}\n",
+            "  {} changed your mind? {}",
             dim("↳"),
             bold(&format!("craft use {}", found.id)),
         );
     }
+    println!();
     Ok(())
 }
 
@@ -718,6 +780,17 @@ struct Found {
     /// Empty when nothing local or remote could name it, which is not a reason
     /// to refuse — the id is what the console link needs.
     name: String,
+}
+
+impl Found {
+    /// How to refer to it on the consent screen's reason line.
+    fn label(&self) -> String {
+        if self.name.is_empty() {
+            format!("property {}", self.id)
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 /// Resolve what the user typed, preferring answers that need no network.

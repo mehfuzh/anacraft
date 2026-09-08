@@ -66,15 +66,22 @@ enum Command {
         /// Numeric property id, e.g. 397412345
         id: String,
     },
-    /// Forget a property here, and say where the console's delete lives.
+    /// Forget a property here, or with --all delete it in Google too.
     ///
-    /// anacraft does not delete properties. It forgets the one you name, so
-    /// the dashboard stops opening on it, then prints the console link and the
-    /// two clicks that do the deletion — which is where an account's own
-    /// permission checks and its 35-day trash are.
+    /// On its own this changes nothing in Analytics: it forgets the property
+    /// you name, so the dashboard stops opening on it, then prints the console
+    /// link and the two clicks that do the deletion.
+    ///
+    /// Pass --all to do those two clicks for you. The property goes to your
+    /// Analytics account's trash, where Google keeps it restorable for 35 days
+    /// before deleting it and its data for good.
     Delete {
         /// The property to let go of: a domain, or a numeric property id.
         target: String,
+        /// Delete it in Google too, not just here. Moves the property to the
+        /// Analytics trash — restorable from the console for 35 days.
+        #[arg(long, visible_alias = "remove")]
+        all: bool,
     },
     /// Set a website up in GA4 and print the tag to paste on it.
     ///
@@ -353,7 +360,7 @@ async fn run() -> Result<()> {
         Command::Logout => cmd_logout().await,
         Command::Props => cmd_props().await,
         Command::Use { id } => cmd_use(&id).await,
-        Command::Delete { target } => configure::delete(&target).await,
+        Command::Delete { target, all } => configure::delete(&target, all).await,
         Command::Configure {
             domain,
             account,

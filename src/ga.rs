@@ -514,6 +514,42 @@ impl Ga {
             default_uri: web.default_uri,
         })
     }
+
+    /// Move a property to the Analytics trash. Requires `analytics.edit`.
+    ///
+    /// The one destructive call in this client, and it is here because people
+    /// asked for it by name: a property `craft configure` created in one
+    /// command should not need four console screens to take back. It is only
+    /// ever reached from `craft delete --all`, which is opt-in twice over —
+    /// the command, and then the flag.
+    ///
+    /// What keeps that defensible is that Google's delete is a soft one. The
+    /// property goes to the account's trash and sits there for 35 days, fully
+    /// restorable from the console, before anything is actually gone. The undo
+    /// is Google's, it is where a person would look for it, and no code here
+    /// can shorten it.
+    ///
+    /// `docs/oauth-scopes.md` is the submission this app is verified against
+    /// and has to keep describing what the code does — see the test below,
+    /// which fails the build if a second destructive verb appears.
+    pub async fn delete_property(&self, property: &str) -> Result<()> {
+        let url = format!("{ADMIN_API}/properties/{property}");
+        let token = self.auth.access_token().await?;
+        let res = self
+            .http
+            .delete(&url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .context("calling the Google Analytics API")?;
+
+        let status = res.status();
+        if !status.is_success() {
+            let text = res.text().await.unwrap_or_default();
+            bail!("{}", explain(status.as_u16(), &text));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -644,13 +680,13 @@ mod tests {
     }
 
     #[test]
-    fn the_admin_api_surface_is_two_creates_and_nothing_destructive() {
+    fn the_admin_api_surface_is_two_creates_and_one_named_delete() {
         let source = client_source();
 
-        // Every request goes through the `get`/`post` helpers, so a verb that
-        // could change or remove an existing resource can only appear as a new
-        // request builder.
-        for verb in [".delete(", ".patch(", ".put("] {
+        // Nothing here modifies a resource somebody else made. A property's
+        // settings, its streams, its user links: anacraft reads them and never
+        // writes over them.
+        for verb in [".patch(", ".put("] {
             assert!(
                 !source.contains(verb),
                 "a `{verb}` request appeared in the Analytics client. If that is \
@@ -660,16 +696,30 @@ mod tests {
             );
         }
 
-        // And the write path is the two documented creates, not a third thing
-        // that grew in beside them.
-        let creates: Vec<&str> = source
+        // One destructive call, and one only: `properties.delete`, behind
+        // `craft delete --all`. The same warning applies to a second one.
+        assert_eq!(
+            source.matches(".delete(").count(),
+            1,
+            "the Analytics client should issue exactly one DELETE — \
+             properties.delete, from `delete_property`. Anything else is a \
+             widening of what docs/oauth-scopes.md told Google this app does."
+        );
+
+        // And the write path is the documented three, not a fourth thing that
+        // grew in beside them.
+        let writes: Vec<&str> = source
             .lines()
-            .filter(|line| line.trim_start().starts_with("pub async fn create_"))
+            .map(|line| line.trim_start())
+            .filter(|line| {
+                line.starts_with("pub async fn create_") || line.starts_with("pub async fn delete_")
+            })
             .collect();
         assert_eq!(
-            creates.len(),
-            2,
-            "expected exactly properties.create and dataStreams.create, got: {creates:?}"
+            writes.len(),
+            3,
+            "expected exactly properties.create, dataStreams.create and \
+             properties.delete, got: {writes:?}"
         );
     }
 

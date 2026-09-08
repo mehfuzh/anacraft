@@ -430,11 +430,17 @@ the payment clears. The rest of the Google side — access management, retention
 key events, API enablement — is console work, and is documented in
 [Configure your analytics](https://anacraft.dev/setup-ga4.html).
 
-`craft delete <domain|id>` is the way back out, and does less than it sounds
-like: it forgets the property here so the dashboard stops opening on it, then
-prints the console link and the two clicks that delete it. anacraft never
-deletes a property itself — Google holds a deleted one in the trash for 35
-days, and that undo lives in the console, not in a terminal.
+`craft delete <domain|id>` is the way back out, and on its own it does less
+than it sounds like: it forgets the property here so the dashboard stops
+opening on it, then prints the console link and the two clicks that delete it.
+Nothing in Analytics changes.
+
+`craft delete <domain|id> --all` does those two clicks for you. It is the only
+command that deletes anything in Google, it only ever touches the property you
+named, and it has to be typed — a bare `craft delete` will never do it. What it
+reaches for is Google's own soft delete, so the property lands in your
+Analytics account's trash and stays restorable from the console for 35 days
+before it and its data are gone for good.
 
 Cloned the repo and use [Claude Code](https://claude.com/claude-code)?
 `.claude/skills/anacraft/` ships as a skill — installing, connecting a

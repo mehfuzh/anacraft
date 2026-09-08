@@ -11,7 +11,7 @@ is written to be pasted into the Cloud Console verification form.
 | `openid` | Non-sensitive | `craft login` | Keying a subscription to an account so it survives a new laptop |
 | `email` | Non-sensitive | `craft login` | Naming the account in support questions |
 | `.../auth/analytics.readonly` | Sensitive | `craft login` | Every report, the dashboard, `craft watch`, `craft mcp`, and the `accounts.list` / `properties.list` / `dataStreams.list` reads `craft configure` does before it creates anything |
-| `.../auth/analytics.edit` | Sensitive | **`craft configure` only** | `properties.create` and `dataStreams.create`, and nothing else |
+| `.../auth/analytics.edit` | Sensitive | **`craft configure`, and `craft delete --all`** | `properties.create`, `dataStreams.create`, and `properties.delete` on the property the user names — nothing else |
 
 Only one scope is being added: `analytics.edit`. The reads `craft configure`
 performs — finding the account, and checking whether the domain already has a
@@ -105,22 +105,31 @@ than merely documenting an intention.
    `ensure_scope`; `src/configure.rs`, `run`; pinned by the tests
    `signing_in_asks_for_one_read_only_analytics_scope_and_nothing_else` and
    `the_write_scope_is_the_narrowest_one_that_creates_a_property`.)
-2. **It only ever creates.** The client issues no update and no delete against
-   the Admin API — no `PATCH`, no `PUT`, no `DELETE`, no method that modifies or
-   removes an existing property, stream, setting or user. The grant permits all
-   of that; the code declines it. (`src/ga.rs`, pinned by
-   `the_admin_api_surface_is_two_creates_and_nothing_destructive`, which fails
-   the build if such a request appears.)
+2. **It never modifies, and it deletes only what the user names.** The client
+   issues no update against the Admin API at all — no `PATCH`, no `PUT`, no
+   method that changes an existing property, stream, setting or user. The grant
+   permits all of that; the code declines it.
 
-   This is a decision the product had to make, not an absence of one. `craft`
-   ships a `delete` command, and it deliberately does not call
-   `properties.delete` — which `analytics.edit` would permit. It forgets the
-   property in anacraft's own config, then prints the console's delete path and
-   notes that Google holds a deleted property in its trash for 35 days. The
-   destructive click stays where the account's own permission checks and its
-   undo are. A terminal command is the wrong place to keep a button that
-   removes somebody's analytics history, and no confirmation prompt would make
-   it the right one. (`src/configure.rs`, `delete`.)
+   It issues exactly one `DELETE`: `properties.delete`, against the single
+   property named on the command line, reached only from `craft delete --all`.
+   Nothing calls it in a loop, nothing infers a target, and the bare `craft
+   delete` — the command without the flag — still changes nothing in Analytics
+   at all. It forgets the property in anacraft's own config so the dashboard
+   stops opening on it, then prints the console's delete path. Deleting in
+   Google is a second, explicit thing to type.
+
+   The flag exists because the asymmetry was the strange part: `craft configure`
+   creates a property in one line, and undoing that took four console screens.
+   What keeps it safe is not a confirmation prompt — `--all` *is* the
+   confirmation, and a prompt behind an explicit flag only trains people to
+   press `y`. It is that Google's delete is a soft one. The property goes to
+   the Analytics account's trash and stays restorable there for 35 days, the
+   account's own permission checks still apply, and the command prints that
+   window before it prints anything else. The undo is Google's and no code here
+   can shorten it. (`src/configure.rs`, `delete`; `src/ga.rs`,
+   `delete_property`; pinned by
+   `the_admin_api_surface_is_two_creates_and_one_named_delete`, which fails the
+   build if a second destructive request appears.)
 3. **It will not create twice.** Before creating anything, `craft configure`
    looks for a property that already measures the domain and reuses it,
    printing its existing tag. Re-running the command is the supported way to
@@ -133,9 +142,10 @@ than merely documenting an intention.
    no Analytics account, `craft configure` stops and links the user to the
    console instead, because creating an account means accepting Google's terms
    and that is a decision to make in Google's own words, on Google's own page.
-   Together with the delete in point 2, this is the pattern: the grant is one
-   scope wide, and what the app does with it is narrower than what the scope
-   allows. (`src/configure.rs`, `pick_account`.)
+   This is the pattern: the grant is one scope wide, and what the app does with
+   it is narrower than what the scope allows — the writes are three named
+   methods against resources the user typed, and the one destructive method is
+   behind a flag. (`src/configure.rs`, `pick_account`.)
 
 **Where the data goes.** Nowhere. Tokens are written to `~/.anacraft/token.json`
 at mode `0600` on the user's own machine, alongside no copy of any report.
@@ -161,8 +171,12 @@ For the verification submission, recording the whole flow end to end:
 6. `craft configure example.com` again — show that it finds the existing
    property, creates nothing, prints the same tag, and asks for no permission
    in the process.
-7. `craft delete example.com` — show that the one command whose name implies
-   deletion does not use the grant to delete. It forgets the property locally
-   and prints the console path, leaving the property intact in Analytics. This
-   is the step that shows the grant is bounded by the code rather than by the
-   scope.
+7. `craft delete example.com` — show that the command whose name implies
+   deletion does not, on its own, use the grant to delete. It forgets the
+   property locally and prints the console path, leaving the property intact in
+   Analytics. This is the step that shows the grant is bounded by the code
+   rather than by the scope.
+8. `craft delete example.com --all` — the opt-in. Show the property moving to
+   the Analytics trash, the terminal naming the 35-day restore window, and then
+   the console with the property sitting in Admin → Account → Trash, restorable.
+   One property, the one named on the command line.
