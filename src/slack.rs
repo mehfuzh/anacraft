@@ -244,18 +244,21 @@ pub async fn install() -> Result<()> {
     println!("  {}\n\n  {url}\n", dim("if it doesn't open, paste this:"));
     let _ = open::that(&url);
 
-    let code = auth::wait_for_code(
-        &listener,
-        &state,
-        &auth::Landing::plain(
-            "Installed",
-            "anacraft can post to the channel you picked. \
-             You can close this tab and return to the terminal.",
-        ),
-    )?;
+    let (code, tab) = auth::wait_for_code(&listener, &state)?;
 
     let record = exchange(ACCESS_URL, client_id, &code, &verifier, &redirect_uri).await?;
     record.save()?;
+
+    // Said once the install is actually saved rather than on the way past it:
+    // the tab is held open for the exchange, and a page claiming "Installed"
+    // before the token came back would have been a page that lied on the one
+    // occasion it mattered. A failure between here and the redirect leaves the
+    // neutral page `Tab`'s own `Drop` writes.
+    tab.show(&auth::Landing::plain(
+        "Installed",
+        "anacraft can post to the channel you picked. \
+         You can close this tab and return to the terminal.",
+    ));
 
     println!(
         "  {} {}  ·  {}\n",

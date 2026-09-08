@@ -289,16 +289,14 @@ impl Auth {
 
     /// Full interactive login: PKCE + loopback redirect + browser handoff.
     pub async fn login(&self) -> Result<()> {
-        self.consent(
-            SCOPE,
-            Grant::Fresh,
-            &Landing::plain(
+        self.consent(SCOPE, Grant::Fresh)
+            .await?
+            .show(&Landing::plain(
                 "Logged in",
                 "anacraft is connected to your Google Analytics account. \
                  You can close this tab and return to the terminal.",
-            ),
-        )
-        .await
+            ));
+        Ok(())
     }
 
     /// Ask for one scope more than the stored credentials carry, at the moment
@@ -316,24 +314,33 @@ impl Auth {
     /// `include_granted_scopes=true` means the token that comes back covers
     /// both rather than replacing the old grant.
     ///
-    /// `landing` is what the browser is left looking at. It is the caller's to
-    /// choose because the trip is the caller's: `craft configure` folds its
-    /// subscription ask into this page rather than opening a second tab for
-    /// it, and [`GRANTED`] is the plain version for everybody else.
-    pub async fn ensure_scope(&self, scope: &str, why: &str, landing: &Landing<'_>) -> Result<()> {
+    /// What the browser is left looking at is the caller's to choose, and is
+    /// chosen *after* this returns rather than before it is called: `craft
+    /// configure` folds its subscription ask into this page, and whether it has
+    /// anything to ask depends on who turned out to be signing in. So the tab
+    /// is handed back still waiting, and [`Consented::show`] is what answers
+    /// it — with [`GRANTED`] for every caller that knew all along.
+    pub async fn ensure_scope(&self, scope: &str, why: &str) -> Result<Consented> {
         if Tokens::load()?.is_some_and(|t| t.granted(scope)) {
-            return Ok(());
+            return Ok(Consented::AlreadyHeld);
         }
         self.consent(
             &format!("{SCOPE} {scope}"),
             Grant::Additional { scope, why },
-            landing,
         )
         .await
+        .map(Consented::Granted)
     }
 
     /// One trip through the browser, for either kind of grant.
-    async fn consent(&self, scope: &str, grant: Grant<'_>, landing: &Landing<'_>) -> Result<()> {
+    ///
+    /// Comes back with the tab still open. Everything the caller might want to
+    /// decide the page on — who signed in, and so whether they are already a
+    /// subscriber — is only knowable once the code below has been exchanged,
+    /// which is after the browser is already sitting on the redirect. Telling
+    /// it something before then is how a subscriber came to be shown a button
+    /// asking them to subscribe.
+    async fn consent(&self, scope: &str, grant: Grant<'_>) -> Result<Tab> {
         let Pkce {
             verifier,
             challenge,
@@ -372,7 +379,7 @@ impl Auth {
         println!("  if it doesn't open, paste this:\n\n  {auth_url}\n");
         let _ = open::that(&auth_url);
 
-        let code = wait_for_code(&listener, &state, landing)?;
+        let (code, tab) = wait_for_code(&listener, &state)?;
 
         let res = self
             .http
@@ -435,7 +442,7 @@ impl Auth {
         }
         .save()?;
 
-        Ok(())
+        Ok(tab)
     }
 
     /// Best-effort revoke, then drop local tokens regardless.
@@ -529,12 +536,75 @@ pub const GRANTED: Landing<'static> = Landing::plain(
      You can close this tab and return to the terminal.",
 );
 
+/// The browser tab, arrived on the redirect and not yet told how it went.
+///
+/// Held rather than answered on the spot so the page can depend on what the
+/// sign-in turned out to be. The tab spins for the length of one token
+/// exchange and one subscription lookup, which is the price of never showing
+/// somebody an ask they have already paid.
+///
+/// Answering is not optional, and `Drop` is why: a caller that bails between
+/// the redirect and the page — Google rejecting the exchange, a scope left
+/// unticked — would otherwise leave the tab hanging on a request nobody ever
+/// completes. It gets a plain page pointing back at the terminal, which is
+/// true whichever way the run went.
+#[derive(Debug)]
+pub struct Tab {
+    stream: Option<TcpStream>,
+}
+
+impl Tab {
+    /// Answer the tab, and close it out.
+    pub fn show(mut self, landing: &Landing<'_>) {
+        if let Some(mut stream) = self.stream.take() {
+            respond(&mut stream, &page(landing, Tone::Good));
+        }
+    }
+}
+
+impl Drop for Tab {
+    fn drop(&mut self) {
+        if let Some(mut stream) = self.stream.take() {
+            respond(
+                &mut stream,
+                &page(
+                    &Landing::plain(
+                        "Back to the terminal",
+                        "The terminal has the rest of it — you can close this tab.",
+                    ),
+                    Tone::Good,
+                ),
+            );
+        }
+    }
+}
+
+/// The outcome of asking for a scope: either the credentials already carried
+/// it, or a trip through the browser just granted it and there is a tab
+/// waiting to be told what happened.
+///
+/// An enum rather than an `Option<Tab>` so the two cases read as what they are
+/// at the call sites, all of which end in the same `show`.
+pub enum Consented {
+    /// Nothing was asked, because nothing needed asking. No tab, no page.
+    AlreadyHeld,
+    Granted(Tab),
+}
+
+impl Consented {
+    /// Leave the browser looking at `landing`, if there is a browser to leave.
+    pub fn show(self, landing: &Landing<'_>) {
+        if let Consented::Granted(tab) = self {
+            tab.show(landing);
+        }
+    }
+}
+
 /// Serve the loopback redirect until the provider hands over a code.
-pub(crate) fn wait_for_code(
-    listener: &TcpListener,
-    expected_state: &str,
-    landing: &Landing<'_>,
-) -> Result<String> {
+///
+/// Hands back the tab alongside the code. What to say on it is the caller's
+/// decision and, for `craft configure`, one it cannot make yet — see [`Tab`].
+pub(crate) fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<(String, Tab)> {
     for stream in listener.incoming() {
         let mut stream = stream?;
         let request_line = {
@@ -601,8 +671,12 @@ pub(crate) fn wait_for_code(
             .map(|(_, v)| v.clone())
             .context("no authorization code in redirect")?;
 
-        respond(&mut stream, &page(landing, Tone::Good));
-        return Ok(code);
+        return Ok((
+            code,
+            Tab {
+                stream: Some(stream),
+            },
+        ));
     }
     bail!("browser never completed the login")
 }
@@ -857,6 +931,35 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_is_answered_even_when_nobody_chooses_a_page() {
+        use std::io::Read as _;
+
+        // The bail-out path: `consent` holds the tab open across the token
+        // exchange, so every way out of that stretch — Google rejecting the
+        // code, a scope left unticked, a subscription lookup that panics —
+        // has to still leave the browser with a page. `Drop` is that promise,
+        // and this is the test that it is kept.
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let browser = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            let mut body = String::new();
+            let _ = stream.read_to_string(&mut body);
+            body
+        });
+
+        let (server, _) = listener.accept().unwrap();
+        drop(Tab {
+            stream: Some(server),
+        });
+
+        let body = browser.join().unwrap();
+        assert!(body.starts_with("HTTP/1.1 200 OK"), "got: {body}");
+        assert!(body.contains("terminal"), "no way back named: {body}");
+    }
+
+    #[test]
     fn a_landing_with_nothing_to_ask_has_nothing_to_click() {
         // The ordinary login page must stay a dead end. A stray button on it
         // would be the one clickable thing in front of somebody who has just
@@ -1076,8 +1179,9 @@ mod tests {
 
         thread::spawn(move || hit(port, "/?code=4%2FabcXYZ&state=secret"));
 
-        let code = wait_for_code(&listener, "secret", &DONE).unwrap();
+        let (code, tab) = wait_for_code(&listener, "secret").unwrap();
         assert_eq!(code, "4/abcXYZ");
+        tab.show(&DONE);
     }
 
     #[test]
@@ -1093,10 +1197,9 @@ mod tests {
             hit(port, "/?code=realcode&state=secret");
         });
 
-        assert_eq!(
-            wait_for_code(&listener, "secret", &DONE).unwrap(),
-            "realcode"
-        );
+        let (code, tab) = wait_for_code(&listener, "secret").unwrap();
+        assert_eq!(code, "realcode");
+        tab.show(&DONE);
     }
 
     #[test]
@@ -1106,9 +1209,7 @@ mod tests {
 
         thread::spawn(move || hit(port, "/?code=abc&state=attacker"));
 
-        let err = wait_for_code(&listener, "secret", &DONE)
-            .unwrap_err()
-            .to_string();
+        let err = wait_for_code(&listener, "secret").unwrap_err().to_string();
         assert!(err.contains("state mismatch"), "got: {err}");
     }
 
@@ -1119,9 +1220,7 @@ mod tests {
 
         thread::spawn(move || hit(port, "/?error=access_denied&state=secret"));
 
-        let err = wait_for_code(&listener, "secret", &DONE)
-            .unwrap_err()
-            .to_string();
+        let err = wait_for_code(&listener, "secret").unwrap_err().to_string();
         assert!(err.contains("access_denied"), "got: {err}");
     }
 }

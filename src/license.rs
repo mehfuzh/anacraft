@@ -420,13 +420,52 @@ pub async fn link(account: &Account) -> Result<()> {
     .map(|_| ())
 }
 
-/// Ask Supabase where an account (or, failing that, a token) stands.
+/// Ask Supabase where an account stands — by account id, by the email on it,
+/// or, failing both, by a token this machine minted.
+///
+/// The email is the third key and the newest, and it is here because the first
+/// one is not as stable as it looks. `user_id` is Google's `sub`, which is
+/// per-account and not per-person: pay from the browser and sign in with the
+/// same address under a different Google account, or have a workspace account
+/// re-created, and the payment is attached to an id nothing will ever ask
+/// about again. The address is what the human has, and what they typed into
+/// Stripe. The service decides what an email may answer for — see the
+/// `email_answers_too` migration — and this only stops leaving it out.
+///
+/// A service that predates that migration has a two-argument function and
+/// PostgREST will not match a call carrying a third, so a failure is retried
+/// without it. That keeps a new binary working against an old project instead
+/// of reading "could not reach the check" and sending a subscriber to pay.
 pub async fn fetch(account: Option<&Account>, token: Option<&str>) -> Result<Status> {
-    let body = json!({
+    let email = account
+        .and_then(|a| a.email.as_deref())
+        .filter(|e| !e.is_empty());
+    let by_account_and_email = json!({
         "p_user_id": account.map(|a| a.sub.as_str()),
         "p_token": token,
+        "p_email": email,
     });
-    parse(&rpc("subscription_status", body).await?)
+
+    if email.is_some() {
+        match rpc("subscription_status", by_account_and_email).await {
+            Ok(body) => return parse(&body),
+            Err(err) => {
+                let by_account = json!({
+                    "p_user_id": account.map(|a| a.sub.as_str()),
+                    "p_token": token,
+                });
+                return match rpc("subscription_status", by_account).await {
+                    Ok(body) => parse(&body),
+                    // The first error is the one worth reporting: the second
+                    // call is a guess about an older service, and its failure
+                    // says nothing the first has not already said.
+                    Err(_) => Err(err),
+                };
+            }
+        }
+    }
+
+    parse(&rpc("subscription_status", by_account_and_email).await?)
 }
 
 /// Split out from `fetch` so every shape PostgREST can answer with is testable

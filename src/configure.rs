@@ -64,15 +64,22 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
     // Everything above this line is local, so somebody who stops at either of
     // the two screens below — Google's, or Stripe's — has changed nothing.
     let cold = Tokens::load()?.is_none();
-    let paywall = Paywall::open(cold).await?;
+    let mut paywall = Paywall::open(cold).await?;
 
     // A machine that has never signed in needs one browser trip, not two, so
     // the cold start asks for both scopes at once — and carries the
     // subscription ask, when one is owed, on the page that trip ends on.
+    //
+    // The order is the fix for a subscriber being asked to subscribe. Before
+    // the trip there is no account, so the page could only be chosen on what
+    // the machine happened to say about itself; after it there is one, and
+    // `reconsider` asks the service about it while the tab is still waiting.
+    // So an Anacrafter on a new laptop is told they are in, and never sees a
+    // button offering them a second subscription.
     if cold {
-        ga.auth()
-            .ensure_scope(SCOPE_EDIT, &why, &paywall.landing())
-            .await?;
+        let consented = ga.auth().ensure_scope(SCOPE_EDIT, &why).await?;
+        paywall = paywall.reconsider().await?;
+        consented.show(&paywall.landing());
     }
 
     if !paywall.settle(&host).await? {
@@ -108,8 +115,9 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
         // and was never shown a consent screen.
         Some(Existing::Unfinished(property)) => {
             ga.auth()
-                .ensure_scope(SCOPE_EDIT, &why, &crate::auth::GRANTED)
-                .await?;
+                .ensure_scope(SCOPE_EDIT, &why)
+                .await?
+                .show(&crate::auth::GRANTED);
             println!(
                 "  {} finishing {} {}",
                 glyph::PICKAXE,
@@ -124,8 +132,9 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
 
         None => {
             ga.auth()
-                .ensure_scope(SCOPE_EDIT, &why, &crate::auth::GRANTED)
-                .await?;
+                .ensure_scope(SCOPE_EDIT, &why)
+                .await?
+                .show(&crate::auth::GRANTED);
             let account = pick_account(&ga, opts.account.as_deref()).await?;
             let timezone = match opts.timezone {
                 Some(tz) => tz,
@@ -207,6 +216,11 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
 /// back is the same `supporter = true` every other machine gets, written by
 /// the same code path `craft subscribe` ends in.
 ///
+/// And the page is chosen last. The tab is held open across the token exchange
+/// so that `reconsider` can ask the service about the account that just signed
+/// in — which is the only way an ask can be withheld from somebody who has
+/// already paid, since before the trip there is nobody to ask about.
+///
 /// It is a paywall in the honest sense and not in the other one. Nothing is
 /// created in Analytics before the payment clears, nothing is charged if it
 /// never does, and the flag it ends in is a line of TOML in a config anybody
@@ -216,11 +230,11 @@ enum Paywall {
     Paid,
     /// Not yet.
     Owed {
-        /// Minted before the browser opens, because on a cold start the page
-        /// carrying the checkout is drawn before the token exchange has said
-        /// who is signing in. The tie to the Google account is made after the
-        /// fact by `claim`, and the webhook writes the row from this token
-        /// either way, so neither order loses the payment.
+        /// Minted before the browser opens, because the page carrying the
+        /// checkout has to have a URL to put on the button and a cold start
+        /// has no account yet to key one to. The tie to the Google account is
+        /// made after the fact by `claim`, and the webhook writes the row from
+        /// this token either way, so neither order loses the payment.
         token: String,
         checkout: String,
         /// The line under the button. Held here so the price is quoted from
@@ -270,13 +284,9 @@ impl Paywall {
         // A cold start has nobody to ask about yet. Whatever the flag says
         // here is about the machine and not about the person — the machine
         // could be a laptop that was handed on, or one where somebody else's
-        // sign-in came and went — so the question is deferred to `settle`,
-        // which asks it again once the account is known.
-        //
-        // `settle` already ran that re-check in the other direction, so that
-        // an Anacrafter on a second laptop is not sold a second subscription.
-        // It is the same fact either way round: the account is the key, and
-        // before the sign-in there is no account.
+        // sign-in came and went — so the question is deferred to
+        // [`Paywall::reconsider`], which asks it once the account is known and
+        // while the browser tab is still open to be told the answer.
         if !cold && already_an_anacrafter().await? {
             return Ok(Paywall::Paid);
         }
@@ -302,10 +312,39 @@ impl Paywall {
         })
     }
 
+    /// Ask again, now that there is somebody to ask about.
+    ///
+    /// The cold start's `open` ran before the sign-in, so its answer was about
+    /// the machine. This is the same question put once the OAuth trip has come
+    /// back with an account — and it is asked before the browser has been told
+    /// anything, which is the whole point: an Anacrafter on a second laptop
+    /// gets the plain "you're in" page and the property they came for, not a
+    /// button inviting them to pay twice.
+    ///
+    /// A `Paid` cannot become `Owed` here. Nothing about a subscription that
+    /// exists is re-litigated by a command that only wants to create a
+    /// property; the one direction this moves in is towards asking for less.
+    async fn reconsider(self) -> Result<Paywall> {
+        if matches!(self, Paywall::Paid) || already_an_anacrafter().await? {
+            return Ok(Paywall::Paid);
+        }
+        Ok(self)
+    }
+
     /// What to leave the browser looking at once consent comes back.
     fn landing(&self) -> Landing<'_> {
         match self {
-            Paywall::Paid => crate::auth::GRANTED,
+            // Deliberately the same shape of page `craft login` ends on: a
+            // sentence, nothing to click, and the work already moving in the
+            // terminal behind it. It names the subscription because that is
+            // the thing somebody was braced to be asked about — being told it
+            // is already handled is the reassuring half of the same fact.
+            Paywall::Paid => Landing::plain(
+                "You're in",
+                "anacraft has the permission it needs, and this account is already an \
+                 Anacrafter — nothing to pay for and nothing to paste. The terminal is \
+                 setting the property up now; you can close this tab and watch it.",
+            ),
             Paywall::Owed { checkout, note, .. } => Landing {
                 title: "One thing left",
                 body: "anacraft has the permission it needs. Creating the property is part of \
@@ -337,24 +376,11 @@ impl Paywall {
             return Ok(true);
         };
 
-        // A cold start had nobody to ask about: the flag was read before the
-        // sign-in, so the answer it gave was about the machine and not about
-        // the person. Now there is an account, which is the key everything is
-        // really on — so ask again before sending anybody to a checkout. An
-        // Anacrafter on a second laptop is exactly the person who must not be
-        // sold a second subscription, and `sync` also picks up a payment made
-        // on the website under the same email.
-        //
-        // The button on the landing page is out already and cannot be recalled,
-        // which is why it says so on it.
-        if on_consent && already_an_anacrafter().await? {
-            println!(
-                "\n  {} {}",
-                paint(glyph::STAR, ore::gold()),
-                dim("subscription found on this account"),
-            );
-            return Ok(true);
-        }
+        // No re-check here any more. `reconsider` asked once the account was
+        // known and before the page went out, which is both earlier and the
+        // only moment at which the answer could still change what the browser
+        // was shown. Asking a third time would only cost a request and risk
+        // saying "subscription found" underneath a button that says otherwise.
 
         println!(
             "\n  {} {} is part of the Anacrafter subscription  ·  {}\n",
@@ -697,8 +723,9 @@ pub async fn delete(target: &str, all: bool) -> Result<()> {
             found.label(),
         );
         ga.auth()
-            .ensure_scope(SCOPE_EDIT, &why, &crate::auth::GRANTED)
-            .await?;
+            .ensure_scope(SCOPE_EDIT, &why)
+            .await?
+            .show(&crate::auth::GRANTED);
         ga.delete_property(&found.id)
             .await
             .with_context(|| format!("deleting property {}", found.id))?;
@@ -882,7 +909,16 @@ mod tests {
     fn a_paid_up_machine_is_asked_for_nothing() {
         // The landing page a subscriber lands on is the plain one. A button
         // there would be an offer to pay twice.
-        assert!(Paywall::Paid.landing().cta.is_none());
+        let landing = Paywall::Paid.landing();
+        assert!(landing.cta.is_none());
+        // And it has to say so out loud. This is the page that used to greet a
+        // subscriber on a new laptop with "Become an Anacrafter", so silence
+        // about the subscription is the bug rather than the absence of it.
+        assert!(
+            landing.body.contains("already an"),
+            "nothing said about the subscription: {}",
+            landing.body
+        );
     }
 
     #[test]

@@ -598,11 +598,36 @@ async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
                 Ok(())
             }
             _ => {
-                println!(
-                    "\n  {} nothing recorded for this account — {} to start\n",
-                    paint("○", ore::stone()),
-                    bold("craft subscribe"),
-                );
+                // Names the address it asked about, because the commonest
+                // reason a subscriber reads this line is that the payment is
+                // sitting under a different one — a personal address typed
+                // into Stripe, a work account signed into Google. An opaque
+                // "nothing recorded" leaves them staring at a service that is
+                // wrong; naming the address turns it into something they can
+                // see at a glance and act on.
+                match account.as_ref().and_then(|a| a.email.as_deref()) {
+                    Some(email) => println!(
+                        "\n  {} nothing recorded for {} — {} to start\n",
+                        paint("○", ore::stone()),
+                        bold(email),
+                        bold("craft subscribe"),
+                    ),
+                    None => println!(
+                        "\n  {} nothing recorded for this account — {} to start\n",
+                        paint("○", ore::stone()),
+                        bold("craft subscribe"),
+                    ),
+                }
+                if let Some(email) = account.as_ref().and_then(|a| a.email.as_deref()) {
+                    println!(
+                        "  {}\n",
+                        dim(&format!(
+                            "already paid, but with another address? that payment is \
+                             attached to the address Stripe collected, not to {email} — \
+                             mail support@anacraft.dev with both and we will move it across"
+                        ))
+                    );
+                }
                 // The one case where "nothing recorded" is probably wrong: an
                 // existing subscriber whose credentials predate the identity
                 // scopes, so the lookup has no account to search on.

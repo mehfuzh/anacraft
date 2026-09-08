@@ -43,20 +43,37 @@ pricing.html ──► Stripe ──► checkout.session.completed
 
 Adoption is `link_account` in the users migration, which only ever takes a row
 with `user_id is null` — an email is a key to an unclaimed payment, never a way
-to read somebody else's. `craft subscribe` calls it too, before its own lookup,
+to *move* somebody else's. `craft subscribe` calls it too, before its own lookup,
 so a machine that was already signed in when the payment happened picks it up
 on `craft subscribe --check` without signing in again.
 
-Somebody who pays with an email that is not on their Google account is the one
-case with no automatic path. The row is there with its Stripe customer on it;
-setting its `user_id` by hand is the fix.
+Reading is the other half of that key, and since the `email_answers_too`
+migration `subscription_status` takes the address as a third argument. It has to:
+`user_id` is Google's `sub`, which is per account rather than per person, so a
+payment made under one Google account and a sign-in under another leaves the
+subscription attached to an id nothing ever asks about again — and the person
+holding an active subscription gets asked to buy a second one. The address
+answers where the id cannot. It still moves nothing: the payment stays on
+whatever row it was on, and the only thing an address can turn is a no into a
+yes.
+
+Somebody who pays with an email that is not on their Google account is still
+the one case with no automatic path — neither key matches, by design. The row
+is there with its Stripe customer on it; setting its `user_id` by hand is the
+fix, and `craft subscribe --check` now names the address it asked about so that
+case is recognisable rather than mysterious.
 
 ## What the binary carries
 
 The publishable key, which is public by design. The table has RLS on and no
 policies, so that key reaches nothing directly — only `claim_checkout` and
 `subscription_status`, both `security definer`, both answering about a single
-token or account. No listing, no customer ids, no email.
+token, account or address. No listing, no customer ids, no email *out*: an
+address has to be supplied to be asked about, and what comes back is a
+yes/no, a status word, a date and a founder number for an address the caller
+already had. Weighed against the alternative, which was subscribers being
+asked to pay twice, that is the trade the `email_answers_too` migration makes
+and argues for at length.
 
 ## Deploy
 
@@ -146,6 +163,18 @@ curl -s "$URL/rest/v1/rpc/subscription_status" \
   -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
   -H 'content-type: application/json' \
   -d '{"p_user_id":null,"p_token":"<token from ~/.anacraft/license.json>"}'
+```
+
+Any of the three keys will do, and the address is the one to reach for when
+somebody says they have paid and the binary disagrees. An empty answer (`[]`)
+means no row is attached to any of them; a row with `"subscribed": true` and a
+`user_id` that is not theirs is the account-id mismatch this all exists for.
+
+```bash
+curl -s "$URL/rest/v1/rpc/subscription_status" \
+  -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+  -H 'content-type: application/json' \
+  -d '{"p_user_id":null,"p_token":null,"p_email":"them@example.com"}'
 ```
 
 ## The Slack relay
