@@ -346,7 +346,52 @@ impl Paywall {
         if matches!(self, Paywall::Paid) || already_an_anacrafter().await? {
             return Ok(Paywall::Paid);
         }
-        Ok(self)
+
+        // The button's URL was built before the trip, when a cold start had no
+        // account to read an address off. It has one now — that is what the
+        // trip just returned — and this is the last moment before the page
+        // goes out, so the URL is rebuilt carrying it.
+        //
+        // Prefilling is what makes the Stripe customer match the Google
+        // account without anybody typing an address twice, which is the whole
+        // of how a payment finds its way back to the right subscription. A
+        // cold start used to give that up and rely on `link_account` adopting
+        // the row afterwards by whatever was typed into Stripe; it does not
+        // have to any more.
+        let Paywall::Owed {
+            token,
+            checkout,
+            note,
+            on_consent,
+        } = self
+        else {
+            return Ok(self);
+        };
+
+        let email = crate::auth::Auth::account()
+            .ok()
+            .flatten()
+            .and_then(|a| a.email)
+            .filter(|email| !email.is_empty());
+
+        Ok(Paywall::Owed {
+            checkout: match &email {
+                Some(_) => crate::license::checkout_url(
+                    if on_consent {
+                        crate::SUBSCRIBE_URL
+                    } else {
+                        crate::PRICING_URL
+                    },
+                    &token,
+                    email.as_deref(),
+                ),
+                // Nothing learned, nothing to rebuild.
+                None => checkout,
+            },
+            token,
+            note,
+            on_consent,
+        })
     }
 
     /// What to leave the browser looking at once consent comes back.

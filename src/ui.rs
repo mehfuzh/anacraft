@@ -101,6 +101,12 @@ const REALMS_RANKED_ROWS: u16 = 10;
 const PORTALS_ROWS: u16 = 10;
 /// The map's box: nine rows of world, a caption, and borders.
 const MAP_ROWS: u16 = 12;
+/// The most rows the map can put to use: the template is `WORLD.len()` rows
+/// tall and `map_panel` clamps to it, so every row past this one is drawn as
+/// nothing. Worth naming because the column hands its slack to whoever is at
+/// the bottom, and for a while that was a box that could not spend it — the
+/// dead ground under the caption in a tall terminal was exactly this.
+const MAP_MAX_ROWS: u16 = WORLD.len() as u16 + 3;
 /// The events chart: enough rows that the two lines are told apart, plus the
 /// axis labels, the legend and the borders.
 const EVENTS_ROWS: u16 = 14;
@@ -1999,20 +2005,39 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
     if let Some(rect) = left {
         let stack = left_column(&dash.panels, rect.height);
 
-        // Whatever ended up at the bottom takes the rows nobody claimed, so the
-        // column never trails off into dead ground while the one beside it is
-        // full. Everything above it is pinned to the height it asked for —
-        // sharing the slack out would stretch every box a little instead.
-        let last = stack.len().saturating_sub(1);
+        // One box takes the rows nobody claimed, so the column does not trail
+        // off into dead ground while the one beside it is full. Everything
+        // else is pinned to the height it asked for — sharing the slack out
+        // would stretch every box a little instead.
+        //
+        // Which box gets it is the question. It used to be whichever sat at
+        // the bottom, which is the vitals when they fit and the *map* when
+        // they do not — and the map cannot spend a row past `MAP_MAX_ROWS`,
+        // so on a terminal too short for the vitals the slack went to the one
+        // box guaranteed to draw nothing with it. So it goes to a panel that
+        // grows: the vitals first, which turn spare rows into bars and then
+        // into gaps between them, and the chart second, which just gets
+        // taller. The map takes it only when it is the whole column, and even
+        // then no further than it can draw.
+        let stretch = stack
+            .iter()
+            .position(|(panel, _)| matches!(panel, Stack::Vitals))
+            .or_else(|| {
+                stack
+                    .iter()
+                    .position(|(panel, _)| matches!(panel, Stack::Events))
+            });
         let constraints: Vec<Constraint> = stack
             .iter()
             .enumerate()
-            .map(|(i, (_, needs))| {
-                if i == last {
-                    Constraint::Min(*needs)
-                } else {
-                    Constraint::Length(*needs)
-                }
+            .map(|(i, (panel, needs))| match (stretch, panel) {
+                (Some(at), _) if at == i => Constraint::Min(*needs),
+                // Nothing else to hand it to. The box stops where the map
+                // does and the ground shows below it, which reads as a panel
+                // that ended rather than one that was left half empty.
+                (None, Stack::Map) => Constraint::Max(MAP_MAX_ROWS),
+                (None, _) if i == stack.len().saturating_sub(1) => Constraint::Min(*needs),
+                _ => Constraint::Length(*needs),
             })
             .collect();
 
@@ -2092,9 +2117,9 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
     for (panel, area) in panels.into_iter().zip(rows.iter()) {
         let widget = match panel {
             Column::Live => live_panel(dash, area.width),
-            Column::Chunks => pages_panel(dash, area.width),
-            Column::RealmsRanked => realms_ranked_panel(dash, area.width),
-            Column::Portals => portals_panel(dash, area.width),
+            Column::Chunks => pages_panel(dash, area.width, area.height),
+            Column::RealmsRanked => realms_ranked_panel(dash, area.width, area.height),
+            Column::Portals => portals_panel(dash, area.width, area.height),
             Column::Trend => trend_panel(dash, area.width),
         };
         frame.render_widget(widget, *area);
@@ -3227,7 +3252,18 @@ fn live_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
     Paragraph::new(lines).block(framed("RIGHT NOW", "2", ore::xp()))
 }
 
-fn pages_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
+/// How many two-line rows a list panel can *finish* inside `height`.
+///
+/// A panel that starts a row it cannot finish leaves a label with nothing
+/// under it — no bar, no number — which reads as a rendering fault rather
+/// than as a list that ran out of room. The column hands its spare rows out
+/// one at a time and these panels spend them two at a time, so an odd row is
+/// ordinary rather than exceptional: the last one stays empty on purpose.
+fn whole_rows(height: u16) -> usize {
+    (height.saturating_sub(2) / 2) as usize
+}
+
+fn pages_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
     let phase = dash.phase();
     let mut lines: Vec<Line> = Vec::new();
 
@@ -3257,7 +3293,7 @@ fn pages_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         )));
     }
 
-    for (i, row) in dash.pages.iter().enumerate() {
+    for (i, row) in dash.pages.iter().take(whole_rows(height)).enumerate() {
         let color = theme::ramp(i);
         let label: String = row.path.chars().take(label_cells).collect();
         let (ore, ore_color) = tier(i);
@@ -3309,7 +3345,7 @@ fn pages_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
     Paragraph::new(lines).block(framed("TOP PAGES", "4", ore::copper()))
 }
 
-fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
+fn realms_ranked_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
     let phase = dash.phase();
     let inner = width.saturating_sub(2) as usize;
     let cells = inner.saturating_sub(3 + 2 + VIEWS_COLUMN).clamp(4, 20);
@@ -3329,7 +3365,7 @@ fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         )));
     }
 
-    for (i, (country, count)) in sorted.iter().take(8).enumerate() {
+    for (i, (country, count)) in sorted.iter().take(whole_rows(height).min(8)).enumerate() {
         let color = theme::ramp(i);
         let label: String = country.chars().take(label_cells).collect();
         let (ore_badge, ore_color) = tier(i);
@@ -3369,7 +3405,7 @@ fn realms_ranked_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
 /// name being looked for and the medium is a footnote about it. `(direct)` is
 /// left as GA writes it, parentheses and all — it is not a site, and dressing
 /// it up as one would be the panel telling a small lie in its own vocabulary.
-fn portals_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
+fn portals_panel(dash: &Dash, width: u16, height: u16) -> Paragraph<'static> {
     let phase = dash.phase();
     let inner = width.saturating_sub(2) as usize;
     let cells = inner.saturating_sub(3 + 2 + VIEWS_COLUMN).clamp(4, 20);
@@ -3389,7 +3425,7 @@ fn portals_panel(dash: &Dash, width: u16) -> Paragraph<'static> {
         )));
     }
 
-    for (i, (portal, count)) in sorted.iter().take(8).enumerate() {
+    for (i, (portal, count)) in sorted.iter().take(whole_rows(height).min(8)).enumerate() {
         let color = theme::ramp(i);
         let (ore_badge, ore_color) = tier(i);
         let frac = if peak > 0.0 { *count / peak } else { 0.0 };
@@ -4068,6 +4104,128 @@ mod tests {
     }
 
     #[test]
+    fn a_list_panel_never_leaves_a_label_with_nothing_under_it() {
+        // The column hands out spare rows one at a time and these panels spend
+        // them two at a time — a heading and the bar beneath it — so an odd
+        // row is the ordinary case rather than a rare one. Rendering into it
+        // used to start a fourth entry and clip it, leaving a path with no bar
+        // and no number under it, which reads as a panel that broke rather
+        // than one that ran out of room.
+        let mut dash = capture_dash();
+        dash.apply_pages(vec![
+            ("/".to_string(), 252.0),
+            ("/setup-ga4.html".to_string(), 72.0),
+            ("/pricing.html".to_string(), 55.0),
+            ("/alerts.html".to_string(), 21.0),
+        ]);
+
+        // Nine rows: two borders and seven to draw in — three whole entries
+        // and one row left over.
+        let text = rendered(56, 9, pages_panel(&dash, 56, 9)).join("\n");
+        assert!(
+            text.contains("/pricing.html"),
+            "third entry missing: {text}"
+        );
+        assert!(
+            !text.contains("/alerts.html"),
+            "started a row it could not finish: {text}"
+        );
+
+        // One row more is one whole entry more, and nothing is held back that
+        // there was room for.
+        let text = rendered(56, 11, pages_panel(&dash, 56, 11)).join("\n");
+        assert!(text.contains("/alerts.html"), "row withheld: {text}");
+    }
+
+    #[test]
+    fn a_column_too_short_for_the_vitals_still_spends_every_row() {
+        // The reported symptom, from the bottom of the left column: on a
+        // terminal one row too short for the vitals, the map inherited the
+        // slack and drew nothing with it, so the box trailed off into ground
+        // while the column beside it was full. The chart takes it now.
+        use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+
+        let dash = capture_dash();
+        let column = |height: u16| -> Vec<String> {
+            let mut terminal = Terminal::new(TestBackend::new(120, height)).unwrap();
+            terminal
+                .draw(|frame| body(frame, &dash, Rect::new(0, 0, 120, height), false))
+                .unwrap();
+            let buffer = terminal.backend().buffer().clone();
+            (0..height)
+                .map(|y| {
+                    (0..120)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .collect()
+        };
+
+        // Events, a gutter, the map, a gutter, and one row fewer than the
+        // vitals can open in — the shape that used to waste them.
+        let height = EVENTS_ROWS + 1 + MAP_ROWS + 1 + VITALS_MIN_ROWS - 1;
+        let rows = column(height);
+        let at = |needle: &str| {
+            rows.iter()
+                .position(|row| row.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} was not drawn:\n{}", rows.join("\n")))
+        };
+
+        // The chart is taller than it asked for, which is where the rows the
+        // vitals could not use went.
+        // Strictly more than the box plus its gutter: at exactly that, the
+        // chart is the height it asked for and the rows went somewhere else —
+        // which was the bug.
+        assert!(
+            at("COUNTRIES") - at("EVENTS") > (EVENTS_ROWS + 1) as usize,
+            "the slack did not reach the chart:\n{}",
+            rows.join("\n")
+        );
+
+        // And the map still ends where the column does, so nothing trails off.
+        let last = rows.len() - 1;
+        assert!(
+            rows[last].contains('\u{2570}') || rows[last].contains('\u{2514}'),
+            "the column stops short of its own bottom:\n{}",
+            rows.join("\n")
+        );
+    }
+
+    #[test]
+    fn the_map_is_never_handed_rows_it_cannot_draw() {
+        // `map_panel` samples the template down to the box and clamps at
+        // `WORLD.len()`, so a taller box is a box with dead ground under the
+        // caption — which is what the left column used to hand it whenever the
+        // vitals did not fit. The slack goes to a panel that can spend it now,
+        // and this is the number that decision is pinned to.
+        assert_eq!(MAP_MAX_ROWS, WORLD.len() as u16 + 3);
+
+        let dash = capture_dash();
+        let world = |rows: Vec<String>| {
+            rows.iter()
+                .filter(|row| row.contains(LAND) || row.contains(glyph::FULL))
+                .count()
+        };
+
+        let at_cap = world(rendered(
+            74,
+            MAP_MAX_ROWS,
+            map_panel(&dash, 74, MAP_MAX_ROWS),
+        ));
+        let taller = world(rendered(
+            74,
+            MAP_MAX_ROWS + 6,
+            map_panel(&dash, 74, MAP_MAX_ROWS + 6),
+        ));
+
+        assert_eq!(at_cap, WORLD.len(), "the map did not fill its own box");
+        assert_eq!(
+            taller, at_cap,
+            "six more rows bought six more rows of nothing"
+        );
+    }
+
+    #[test]
     fn the_portals_panel_splits_the_source_from_the_medium() {
         // GA hands back one string, "source / medium". The panel shows both —
         // the source is the name somebody would recognise, the medium is the
@@ -4078,7 +4236,7 @@ mod tests {
             ("(direct) / (none)".to_string(), 4_496.0),
         ];
 
-        let text = render_to_string(portals_panel(&dash, 56));
+        let text = render_to_string(portals_panel(&dash, 56, PORTALS_ROWS));
         assert!(text.contains("news.ycombinator.com"), "no source: {text:?}");
         assert!(text.contains("referral"), "no medium: {text:?}");
         // Left as GA writes it. It is not a site, and dressing it up as one
@@ -4098,7 +4256,7 @@ mod tests {
         // referrals looks exactly like a panel that failed to load.
         let mut dash = capture_dash();
         dash.portals = Vec::new();
-        let text = render_to_string(portals_panel(&dash, 56));
+        let text = render_to_string(portals_panel(&dash, 56, PORTALS_ROWS));
         assert!(text.contains("nobody has sent anyone"), "silent: {text:?}");
     }
 
