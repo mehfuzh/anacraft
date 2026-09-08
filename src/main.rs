@@ -523,10 +523,20 @@ async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
         let _ = license::link(account).await;
     }
 
+    // Only ever a token this account minted. The saved one outlives the
+    // sign-in that wrote it, so on a machine a different account has signed
+    // in on since, it is somebody else's — and asking the lookup about it
+    // would answer about their subscription and then write that answer down
+    // here as this account's. See `license::Record::speaks_for`.
+    let token = record
+        .token
+        .as_deref()
+        .filter(|_| record.speaks_for(account.as_ref()));
+
     // Nothing to ask when this build has no service, or when there is neither
     // an account nor a past checkout to ask about.
-    let known = if license::project().is_some() && (account.is_some() || record.token.is_some()) {
-        match license::fetch(account.as_ref(), record.token.as_deref()).await {
+    let known = if license::project().is_some() && (account.is_some() || token.is_some()) {
+        match license::fetch(account.as_ref(), token).await {
             Ok(status) => {
                 // Remember every answer, not just the good ones: a cancellation
                 // that is not written down is a cancellation the next launch
@@ -827,6 +837,10 @@ async fn cmd_login() -> Result<()> {
 async fn cmd_logout() -> Result<()> {
     let http = reqwest::Client::new();
     auth::Auth::new(http)?.logout().await?;
+    // The subscription record names the account that just left, and the
+    // `supporter` flag beside it speaks for that account. Best-effort: the
+    // sign-out has already happened and is the part that matters.
+    let _ = license::forget();
     println!("  {} signed out.\n", paint("✓", ore::emerald()));
     Ok(())
 }

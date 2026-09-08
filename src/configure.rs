@@ -233,7 +233,17 @@ enum Paywall {
 impl Paywall {
     /// Ask where this machine stands, before anything opens.
     async fn open(cold: bool) -> Result<Paywall> {
-        if crate::license::sync(Config::load()?.supporter).await {
+        // A cold start has nobody to ask about yet. Whatever the flag says
+        // here is about the machine and not about the person — the machine
+        // could be a laptop that was handed on, or one where somebody else's
+        // sign-in came and went — so the question is deferred to `settle`,
+        // which asks it again once the account is known.
+        //
+        // `settle` already ran that re-check in the other direction, so that
+        // an Anacrafter on a second laptop is not sold a second subscription.
+        // It is the same fact either way round: the account is the key, and
+        // before the sign-in there is no account.
+        if !cold && crate::license::sync(Config::load()?.supporter).await {
             return Ok(Paywall::Paid);
         }
 

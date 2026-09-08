@@ -237,10 +237,52 @@ impl Record {
         now - checked < TTL
     }
 
+    /// Whether the local evidence — the saved token, and the `supporter` flag
+    /// beside it — is this account's to use.
+    ///
+    /// Both are per-machine and a subscription is per-account, which is the
+    /// whole of what this guards. A record naming somebody else says nothing
+    /// about the login in front of it: their flag must not vouch for this
+    /// account, their token must not be offered to the lookup on its behalf,
+    /// and their row must not be claimed for it. Signing back in as the
+    /// account that owns them puts all three back.
+    ///
+    /// No account signed in is not a mismatch — there is no identity to
+    /// contradict, and a flag set by hand on a build with no lookup behind it
+    /// is the case `verdict` exists to protect. Neither is a record that names
+    /// nobody: that is the anonymous checkout, waiting to be adopted by the
+    /// first account that asks.
+    pub fn speaks_for(&self, account: Option<&Account>) -> bool {
+        match (self.user_id.as_deref(), account) {
+            (Some(owner), Some(account)) => owner == account.sub,
+            _ => true,
+        }
+    }
+
     /// Whether an unreachable check should keep the subscription up.
     fn within_grace(&self, now: DateTime<Utc>) -> bool {
         self.status.is_active() && matches!(self.checked, Some(at) if now - at < GRACE)
     }
+}
+
+/// Drop everything this machine remembers about the subscription.
+///
+/// `craft logout` means forget me, and this is the half of that which is not
+/// the OAuth token: a record naming an account, and a flag in the config
+/// standing for it. Neither can be left behind for the next person to sign in
+/// on this machine — which is a laptop handed over, or a shared box, and the
+/// case `Record::speaks_for` and the migration behind it are the deeper
+/// answers to.
+///
+/// Nothing is lost by it. The record is a cache of an answer the service still
+/// has, and the next `craft login` asks again and writes both back.
+pub fn forget() -> Result<()> {
+    let path = Record::path()?;
+    if path.exists() {
+        std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+    }
+    set_supporter(false)?;
+    Ok(())
 }
 
 /// A random token, handed to Stripe as the checkout's `client_reference_id` so
@@ -378,6 +420,29 @@ pub async fn sync(cfg_supporter: bool) -> bool {
     let record = Record::load();
     let now = Utc::now();
 
+    // Whose evidence this machine is holding. Everything below that could
+    // answer "subscribed" without a lookup saying so — the flag, the grace
+    // window, the saved token — is gated on this; see `Record::speaks_for`.
+    let mine = record.speaks_for(account.as_ref());
+
+    // A flag left behind by another account comes down on the way past. It is
+    // the one piece of local state that outlives a sign-out, and every gate in
+    // the binary reads it, so leaving it standing while answering `false` would
+    // hand the next command the answer this one just refused.
+    let cfg_supporter = if mine {
+        cfg_supporter
+    } else {
+        if cfg_supporter {
+            let _ = set_supporter(false);
+        }
+        false
+    };
+
+    // A token belongs to the checkout that minted it. Offering somebody
+    // else's to the lookup asks it about their subscription and writes the
+    // answer down as this account's.
+    let token = if mine { record.token.clone() } else { None };
+
     if record.is_fresh(account.as_ref(), now) {
         let active = record.status.is_active();
         // The cache is the answer, so the config has to agree with it — a
@@ -388,26 +453,31 @@ pub async fn sync(cfg_supporter: bool) -> bool {
         return active;
     }
     // Nothing to ask about: no account signed in and no checkout ever started.
-    if account.is_none() && record.token.is_none() {
+    if account.is_none() && token.is_none() {
         return cfg_supporter;
     }
 
     // An account this machine has not linked yet: register it, and let it pick
     // up a payment that arrived with nobody attached. Quiet and best-effort —
     // the lookup right below is what actually decides anything.
+    //
+    // Only ever this account's own checkout. `claim_checkout` points a token's
+    // row at the caller, so claiming one held over from another sign-in is how
+    // a subscription would change hands — the thing `link_account` refuses to
+    // do by email and this must refuse to do by token.
     if let Some(account) = &account {
         if record.user_id.as_deref() != Some(account.sub.as_str()) {
             let _ = link(account).await;
-            if let Some(token) = record.token.as_deref() {
+            if let Some(token) = token.as_deref() {
                 let _ = claim(token, account).await;
             }
         }
     }
 
-    match fetch(account.as_ref(), record.token.as_deref()).await {
+    match fetch(account.as_ref(), token.as_deref()).await {
         Ok(status) => {
             let updated = Record {
-                token: record.token,
+                token,
                 user_id: account.map(|a| a.sub),
                 status: status.clone(),
                 checked: Some(now),
@@ -425,8 +495,9 @@ pub async fn sync(cfg_supporter: bool) -> bool {
             }
         }
         // Unreachable. Ride on the last good answer rather than demoting
-        // somebody mid-flight.
-        Err(_) => record.within_grace(now) || cfg_supporter,
+        // somebody mid-flight — but only where that answer was about this
+        // account.
+        Err(_) => (mine && record.within_grace(now)) || cfg_supporter,
     }
 }
 
@@ -436,11 +507,31 @@ pub async fn sync(cfg_supporter: bool) -> bool {
 /// "No row" is not "not subscribed". Somebody who paid before any of this
 /// existed has a hand-set flag and nothing in the table, and taking their star
 /// away on the strength of an empty result would be the lookup overruling the
-/// only evidence there is. Only a real status — cancelled, past due — clears
-/// the flag.
+/// only evidence there is.
+///
+/// An empty result is the only thing that earns that silence, though, and the
+/// distinction is the whole of this function. A row that came back saying
+/// `pending` is not an absence — it is a checkout somebody started and did not
+/// finish, and reading it as "say nothing" left the flag standing where the
+/// service had in fact answered. That is how `craft configure` came to hand a
+/// measurement id to an account that had never paid: the account's own
+/// abandoned checkout was mistaken for having no evidence at all, and the
+/// fallback behind it was a flag left in the config by a different account.
+///
+/// So the account flag is read as the answer it is. `subscribed` is kept by the
+/// service across every payment attached to the account and recomputed
+/// whenever one lands, renews, lapses or is adopted; `Some(false)` from it is
+/// not silence but a no. Only a lookup that matched nothing at all — no row, so
+/// no flag either — leaves the config alone.
 fn verdict(status: &Status) -> Option<bool> {
     match status {
-        // Nothing recorded, so nothing to say: leave the flag as it is.
+        s if s.is_active() => Some(true),
+        // The account is known and its flag is down. An answer, and the one
+        // the pending arm below used to swallow.
+        s if s.subscribed == Some(false) => Some(false),
+        // Nothing matched, so nothing to say: leave the flag as it is. An
+        // older service that predates the account flag also lands here for a
+        // checkout still in flight, which is the case the silence was for.
         s if s.is_pending() => None,
         s => Some(s.is_active()),
     }
@@ -767,6 +858,108 @@ mod tests {
             founder: None,
         };
         assert_eq!(verdict(&gone), Some(false));
+    }
+
+    #[test]
+    fn an_account_that_never_paid_does_not_inherit_the_flag_beside_it() {
+        // The bug this is here for: `craft configure` created a property and
+        // printed a measurement id for an account that had never subscribed.
+        //
+        // The account's own abandoned checkout was sitting in the table as
+        // `pending`, and `subscribed` was down. The lookup had answered, and
+        // answered no — but `pending` was read as "nothing recorded", so the
+        // fallback behind it decided instead, and the fallback was
+        // `supporter = true` left in the config by a different account that had
+        // signed in on that machine earlier.
+        let their_own_pending = parse("[{\"status\":\"pending\",\"subscribed\":false}]").unwrap();
+        assert!(!their_own_pending.is_active());
+        assert_eq!(
+            verdict(&their_own_pending),
+            Some(false),
+            "a pending checkout on a known account let the flag stand"
+        );
+
+        // Same for the expired one it becomes about a day later.
+        let expired = parse("[{\"status\":\"expired\",\"subscribed\":false}]").unwrap();
+        assert_eq!(verdict(&expired), Some(false));
+
+        // And the flag still wins where it is up: an in-flight second checkout
+        // says nothing about the subscription already running.
+        let second = parse("[{\"status\":\"pending\",\"subscribed\":true}]").unwrap();
+        assert_eq!(verdict(&second), Some(true));
+
+        // The protection this had to leave standing. A supporter from before
+        // the lookup existed matches no row at all, so there is no account flag
+        // either — and that silence is the only evidence there is.
+        assert_eq!(
+            verdict(&Status::default()),
+            None,
+            "an empty answer decided against somebody who paid"
+        );
+        assert_eq!(verdict(&parse("[]").unwrap()), None);
+    }
+
+    #[test]
+    fn one_accounts_evidence_never_speaks_for_another() {
+        // A token is 40 random characters and is not tied to the account that
+        // minted it, and the record holding it outlives the sign-in that wrote
+        // it. So a record naming somebody else must not be usable: not its
+        // token, and not the config flag standing beside it.
+        let paid = Record {
+            token: Some("a".repeat(40)),
+            user_id: Some("111".into()),
+            status: Status {
+                status: "active".into(),
+                since: None,
+                subscribed: Some(true),
+                founder: Some(41),
+            },
+            checked: Some(Utc::now()),
+        };
+
+        assert!(paid.speaks_for(Some(&account("111"))), "its own account");
+        assert!(
+            !paid.speaks_for(Some(&account("222"))),
+            "another account inherited a subscription"
+        );
+
+        // No account signed in is not a mismatch — there is nothing to
+        // contradict, and a hand-set flag on a build with no lookup behind it
+        // is exactly this case.
+        assert!(paid.speaks_for(None));
+
+        // Nor is a record that names nobody: that is the anonymous checkout,
+        // waiting for the first account that asks to adopt it.
+        let anonymous = Record {
+            user_id: None,
+            ..paid.clone()
+        };
+        assert!(anonymous.speaks_for(Some(&account("222"))));
+    }
+
+    #[test]
+    fn a_foreign_record_carries_no_grace_either() {
+        // The offline path is the same question asked while the service is
+        // unreachable, so it needs the same answer. Riding on "the last good
+        // answer" is only right where that answer was about this account.
+        let now = Utc::now();
+        let paid = Record {
+            token: Some("a".repeat(40)),
+            user_id: Some("111".into()),
+            status: Status {
+                status: "active".into(),
+                since: None,
+                subscribed: Some(true),
+                founder: None,
+            },
+            checked: Some(now - Duration::days(1)),
+        };
+
+        // Still inside GRACE, which is the point: it is a live subscription
+        // that simply cannot be re-checked right now.
+        assert!(paid.within_grace(now));
+        // And still not this account's.
+        assert!(!paid.speaks_for(Some(&account("222"))));
     }
 
     #[test]
