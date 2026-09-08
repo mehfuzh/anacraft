@@ -301,8 +301,26 @@ impl Paywall {
             .flatten()
             .and_then(|a| a.email);
 
+        // Where the button goes depends on whether the ask has been made yet.
+        //
+        // On a cold start it has: the page Google hands back carries a button
+        // captioned "Become an Anacrafter" with the price and "cancel any
+        // time" on the line under it, and pressing it *is* the answer — so it
+        // goes straight to the card field. Putting a page of plans in between
+        // re-asks a question somebody just answered.
+        //
+        // A warm start has no such page. The tab opens out of nowhere, from a
+        // command typed to create a property, and a tab that opens onto a card
+        // field is a decision nobody was asked for. That one gets the pricing
+        // page, which explains itself before it asks for anything.
+        let link = if cold {
+            crate::SUBSCRIBE_URL
+        } else {
+            crate::PRICING_URL
+        };
+
         Ok(Paywall::Owed {
-            checkout: crate::license::checkout_url(crate::PRICING_URL, &token, email.as_deref()),
+            checkout: crate::license::checkout_url(link, &token, email.as_deref()),
             token,
             note: format!(
                 "{} · cancel any time · the terminal is already waiting",
@@ -941,14 +959,25 @@ mod tests {
     }
 
     #[test]
-    fn the_ask_lands_on_the_plans_and_not_on_a_card_field() {
-        // Nobody is dropped straight onto a checkout by a command they ran to
-        // create a property. The page comes first — the plans, the table, the
-        // note about which email to pay with — and the token rides along so the
+    fn a_tab_opening_out_of_nowhere_lands_on_the_plans() {
+        // Nobody is dropped straight onto a card field by a command they ran
+        // to create a property. Where there was no consent page to carry the
+        // ask, the pricing page carries it — and the token rides along, so the
         // click after it still lands on this account.
         let url = crate::license::checkout_url(crate::PRICING_URL, "tok", Some("me@x.io"));
         assert!(url.starts_with(crate::PRICING_URL), "got: {url}");
         assert!(!url.contains("buy.stripe.com"), "got: {url}");
+        assert!(url.contains("client_reference_id=tok"), "got: {url}");
+        assert!(url.contains("prefilled_email=me%40x.io"), "got: {url}");
+    }
+
+    #[test]
+    fn the_button_on_the_consent_page_is_the_ask_and_goes_straight_there() {
+        // The other half of the same rule. This button has already said what
+        // it costs, so it does not re-ask: it is the one place in the CLI that
+        // opens Stripe directly, and it still carries the token.
+        let url = crate::license::checkout_url(crate::SUBSCRIBE_URL, "tok", Some("me@x.io"));
+        assert!(url.starts_with("https://buy.stripe.com/"), "got: {url}");
         assert!(url.contains("client_reference_id=tok"), "got: {url}");
         assert!(url.contains("prefilled_email=me%40x.io"), "got: {url}");
     }

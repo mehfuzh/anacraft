@@ -491,6 +491,26 @@ async fn run() -> Result<()> {
 /// the page its OAuth trip already ends on, rather than through a second tab.
 pub(crate) const PRICING_URL: &str = "https://anacraft.dev/pricing.html";
 
+/// Stripe's hosted page for the $2.99/month plan — the Payment Link the
+/// pricing page's Subscribe button points at, and the one place in the CLI
+/// that goes straight there.
+///
+/// That place is the button on the page Google's consent screen hands back
+/// (see `configure::Paywall`). Everywhere else opens [`PRICING_URL`] instead,
+/// and the difference is whether the ask has been made yet. A tab that opens
+/// out of nowhere onto a card field is a decision nobody was asked for. That
+/// button is the asking: it is captioned "Become an Anacrafter", the price and
+/// "cancel any time" are on the line beneath it, and pressing it is the answer
+/// — so putting a page of plans in front of it re-asks a question that was
+/// just answered.
+///
+/// A Payment Link rather than a checkout session built here: a session needs a
+/// secret key, and a key shipped inside a binary anybody can download is a key
+/// that has leaked. The link is public by design and safe to hardcode — but it
+/// now exists in two places, here and on `docs/pricing.html`, so a new one has
+/// to land in both.
+pub(crate) const SUBSCRIBE_URL: &str = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02";
+
 /// The same, for the $29/year plan — empty until that Payment Link exists.
 ///
 /// A hardcoded link that 404s is worse than a plan that admits it is not ready,
@@ -513,7 +533,19 @@ pub(crate) fn price_line() -> &'static str {
 /// How long to wait on a checkout before handing back a way to finish later,
 /// and how often to ask. Stripe's webhook reaches Supabase within seconds of a
 /// payment; the rest of the window is somebody hunting for their card.
-const CHECKOUT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+///
+/// Five minutes rather than fifteen. Stripe imposes no deadline worth matching
+/// — the session a Payment Link opens is good for a day — so this is sized to
+/// the person, not the service: card in hand is under a minute, and the case
+/// that runs long is a 3-D Secure step-up waiting on a bank app, which is the
+/// two-to-five minutes this has to cover. Fifteen made every ordinary payment
+/// sit inside a window sized for the worst one, and a terminal spinning for a
+/// quarter of an hour reads as something wrong rather than something waiting.
+///
+/// Giving up early costs almost nothing either way: the row is claimed before
+/// the browser opens, the webhook fills it in whenever the payment lands, and
+/// `craft subscribe --check` collects it afterwards.
+const CHECKOUT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 const CHECKOUT_POLL: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Start a subscription, or pick up one that already exists.
