@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pricing — anacraft</title>
-<meta name="description" content="The dashboard, the one-shot reports and craft configure are free. craft watch and craft mcp are the Anacrafter subscription — $2.99 a month, in the browser or with craft subscribe.">
+<meta name="description" content="The dashboard and the one-shot reports are free. craft configure, craft watch and craft mcp are the Anacrafter subscription — $2.99 a month, in the browser or with craft subscribe.">
 <link rel="canonical" href="https://anacraft.dev/pricing.html">
 <meta name="robots" content="index, follow">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://anacraft.dev/pricing.html">
 <meta property="og:title" content="Pricing — anacraft">
-<meta property="og:description" content="The dashboard, the one-shot reports and craft configure are free. craft watch and craft mcp are the Anacrafter subscription — $2.99 a month, in the browser or with craft subscribe.">
+<meta property="og:description" content="The dashboard and the one-shot reports are free. craft configure, craft watch and craft mcp are the Anacrafter subscription — $2.99 a month, in the browser or with craft subscribe.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=2dd77504">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -274,12 +274,12 @@
 
 <div class="tldr">
   <div class="h">Where the line is</div>
-  <p>Everything that answers a question <b>you thought to ask</b> is free, and stays free — the
-  dashboard, the one-shot reports, and <code>craft configure</code>, which creates the GA4 property
-  for a domain and hands you its tag.</p>
-  <p>Two things run <b>when you are not there</b>: <code>craft watch</code>, which checks the numbers
-  against their own recent normal and tells you what broke, and <code>craft mcp</code>, which lets an
-  assistant read the site. Those two are the subscription.</p>
+  <p>Everything that <b>reads</b> your numbers is free, and stays free — the dashboard, the realtime
+  feed, and every one-shot report. No account, no card, no expiry.</p>
+  <p>Three things do more than read. <code>craft configure</code> <b>creates</b> the GA4 property for
+  a domain and hands you its tag; <code>craft watch</code> checks the numbers against their own recent
+  normal and tells you what broke; <code>craft mcp</code> lets an assistant read the site for you.
+  Those three are the subscription.</p>
 </div>
 
 <div class="plans">
@@ -288,9 +288,9 @@
     <div class="fig">Free</div>
     <div class="per">no account, no card, no expiry</div>
     <ul>
-      <li><b>craft configure</b> — creates the property, prints the tag</li>
       <li><b>The dashboard</b> — seven panels, realtime feed, achievements</li>
       <li><b>One-shot reports</b> — overview, pages, portals, realms, live</li>
+      <li><b>craft login · props · use</b> — connect a property you already have</li>
       <li><b>Every property</b> you save, five palettes, synthetic-data mode</li>
     </ul>
     <div class="foot">Apache-2.0. The whole thing is on
@@ -302,6 +302,8 @@
     <div class="fig">$2.99</div>
     <div class="per">per month · cancel any time</div>
     <ul>
+      <li><b>craft configure</b> — creates the GA4 property and its web stream,
+        prints the tag</li>
       <li><b>craft watch</b> — drops, spikes and silences, to the terminal or
         <a href="/alerts.html">Slack</a></li>
       <li><b>craft mcp</b> — ten read-only tools for Claude Desktop or any MCP client</li>
@@ -311,7 +313,8 @@
     <a class="buy" href="https://buy.stripe.com/3cIdR93sU4SbfECab79MY02">Subscribe — $2.99/month</a>
     <p class="then">Pay with the same email you sign in to Google with, then
       <code>craft login</code> on any machine. That is the whole of it.</p>
-    <div class="foot">Both commands have a <code>--demo</code> mode that needs no subscription.</div>
+    <div class="foot"><code>craft watch</code> and <code>craft mcp</code> both have a
+      <code>--demo</code> mode that needs no subscription.</div>
   </div>
 </div>
 
@@ -320,7 +323,7 @@
 <table class="tbl">
   <tr><th>Command</th><th>Plan</th><th>What it does</th></tr>
   <tr><td>craft</td><td class="free">Free</td><td>The dashboard. With no property saved it runs on synthetic data</td></tr>
-  <tr><td>craft configure</td><td class="free">Free</td><td>Creates the GA4 property and web stream, prints the tag with the real measurement id</td></tr>
+  <tr><td>craft configure</td><td class="sub">★ Anacrafter</td><td>Creates the GA4 property and web stream, prints the tag with the real measurement id — the ask arrives on the page the Google sign-in already ends on</td></tr>
   <tr><td>craft login · props · use</td><td class="free">Free</td><td>Sign in, list properties, pick the default</td></tr>
   <tr><td>craft overview · pages · portals · realms · live</td><td class="free">Free</td><td>One-shot reports that print and exit</td></tr>
   <tr><td>craft theme · demo</td><td class="free">Free</td><td>Palettes, and the whole dashboard on synthetic data</td></tr>
@@ -392,8 +395,8 @@ writes the flag itself when it does.</p>
     from Apache-2.0 source. We are not going to pretend otherwise: no phone-home, no licence check
     on launch beyond the one keeping your own subscription current, and no telemetry anywhere in
     the binary.</p>
-    <p>So it is an honest ask rather than a lock — $2.99 a month for the two commands that work
-    while you are asleep, from the people who wrote them.</p>
+    <p>So it is an honest ask rather than a lock — $2.99 a month for the command that sets the
+    thing up and the two that work while you are asleep, from the people who wrote them.</p>
   </div>
 
   <div class="note">

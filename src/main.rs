@@ -86,6 +86,10 @@ enum Command {
     ///
     /// This is the one command that changes anything in Analytics, so it asks
     /// Google for permission to do so when you run it, and not before.
+    ///
+    /// Part of the Anacrafter subscription. The ask arrives on the page the
+    /// sign-in already ends on, and the terminal picks the payment up from
+    /// there without anything to paste.
     Configure {
         /// The site to measure, e.g. example.com
         domain: String,
@@ -467,7 +471,10 @@ async fn run() -> Result<()> {
 /// has to land in both. The difference is what rides along: this one carries a
 /// token and lands on an account immediately, while a checkout from the page
 /// arrives anonymous and is adopted by email on the next `craft login`.
-const SUBSCRIBE_URL: &str = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02";
+///
+/// `pub(crate)` because `craft configure` sends people to the same link — from
+/// the page its OAuth trip already ends on, rather than through a second tab.
+pub(crate) const SUBSCRIBE_URL: &str = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02";
 
 /// The same, for the $29/year plan — empty until that Payment Link exists.
 ///
@@ -683,11 +690,24 @@ async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
     }
     .save()?;
 
-    wait_for_payment(account.as_ref(), &token).await
+    wait_for_payment(account.as_ref(), &token, "craft subscribe --check")
+        .await
+        .map(|_| ())
 }
 
 /// Poll Supabase until the webhook says the payment landed.
-async fn wait_for_payment(account: Option<&auth::Account>, token: &str) -> Result<()> {
+///
+/// Returns whether it did, because the caller may have something waiting on
+/// the answer: `craft configure` has a property to create once the payment is
+/// in, and nothing to do at all if it never arrives. `next` is the command to
+/// hand back when the window closes first — the way to pick this up later,
+/// which is `--check` for a bare `craft subscribe` and the same configure run
+/// for the one that was interrupted by it.
+pub(crate) async fn wait_for_payment(
+    account: Option<&auth::Account>,
+    token: &str,
+    next: &str,
+) -> Result<bool> {
     println!(
         "  {} waiting for Stripe — {}\n",
         paint(theme::glyph::PICKAXE, ore::iron()),
@@ -707,7 +727,8 @@ async fn wait_for_payment(account: Option<&auth::Account>, token: &str) -> Resul
                     checked: Some(chrono::Utc::now()),
                 }
                 .save()?;
-                return activated(&status);
+                activated(&status)?;
+                return Ok(true);
             }
         }
 
@@ -717,9 +738,9 @@ async fn wait_for_payment(account: Option<&auth::Account>, token: &str) -> Resul
             println!(
                 "\n  {} once the payment clears, run {}\n",
                 paint("○", ore::stone()),
-                bold("craft subscribe --check")
+                bold(next)
             );
-            return Ok(());
+            return Ok(false);
         }
 
         spin(frame, left);
@@ -767,7 +788,8 @@ fn activated(status: &license::Status) -> Result<()> {
     }
     println!(
         "  {}\n",
-        dim("craft mcp is unlocked, and the dashboard wears a gold star")
+        dim("craft configure, craft watch and craft mcp are unlocked, \
+             and the dashboard wears a gold star")
     );
     Ok(())
 }

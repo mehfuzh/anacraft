@@ -15,6 +15,12 @@
 //! account, and it asks for the permission to do so itself — see
 //! `auth::ensure_scope` and `docs/oauth-scopes.md`.
 //!
+//! Which is also why it is the command that asks for the subscription: the
+//! guide is the most-read page on the site, and this is its first line, so the
+//! people running this are the people who are actually here. `Paywall` below
+//! is the whole of that, and the shape of it is that the ask arrives on the
+//! page the sign-in already ends on rather than in a tab of its own.
+//!
 //! `craft delete` is the other half, and deliberately the asymmetric one. It
 //! forgets a property locally and then hands the console the destructive click,
 //! because deleting somebody's analytics history is not a thing this binary
@@ -24,7 +30,7 @@
 
 use anyhow::{bail, Context, Result};
 
-use crate::auth::{Tokens, SCOPE_EDIT};
+use crate::auth::{Cta, Landing, Tokens, SCOPE_EDIT};
 use crate::config::Config;
 use crate::ga::{Account, Ga, Property, WebStream};
 use crate::render::{bold, dim, paint, panel_bottom, panel_top};
@@ -52,11 +58,24 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
     let why =
         format!("setting up {host} needs permission to add a property to your Analytics account");
 
+    // Everything above this line is local, so somebody who stops at either of
+    // the two screens below — Google's, or Stripe's — has changed nothing.
+    let cold = Tokens::load()?.is_none();
+    let paywall = Paywall::open(cold).await?;
+
     // A machine that has never signed in needs one browser trip, not two, so
-    // the cold start asks for both at once. Everything above this line is
-    // local, so somebody who declines has changed nothing.
-    if Tokens::load()?.is_none() {
-        ga.auth().ensure_scope(SCOPE_EDIT, &why).await?;
+    // the cold start asks for both scopes at once — and carries the
+    // subscription ask, when one is owed, on the page that trip ends on.
+    if cold {
+        ga.auth()
+            .ensure_scope(SCOPE_EDIT, &why, &paywall.landing())
+            .await?;
+    }
+
+    if !paywall.settle(&host).await? {
+        // The wait has already said how to pick this up, and nothing was
+        // created to pick up from.
+        return Ok(());
     }
 
     println!();
@@ -85,7 +104,9 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
         // their tag back was served above, entirely within read-only access,
         // and was never shown a consent screen.
         Some(Existing::Unfinished(property)) => {
-            ga.auth().ensure_scope(SCOPE_EDIT, &why).await?;
+            ga.auth()
+                .ensure_scope(SCOPE_EDIT, &why, &crate::auth::GRANTED)
+                .await?;
             println!(
                 "  {} finishing {} {}",
                 glyph::PICKAXE,
@@ -99,7 +120,9 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
         }
 
         None => {
-            ga.auth().ensure_scope(SCOPE_EDIT, &why).await?;
+            ga.auth()
+                .ensure_scope(SCOPE_EDIT, &why, &crate::auth::GRANTED)
+                .await?;
             let account = pick_account(&ga, opts.account.as_deref()).await?;
             let timezone = match opts.timezone {
                 Some(tz) => tz,
@@ -163,6 +186,188 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
     print_tag(&stream.measurement_id);
     print_next(&host);
     Ok(())
+}
+
+// ----------------------------------------------------------------- paywall ---
+
+/// The subscription, and the one place `craft configure` asks for it.
+///
+/// This command is where the most people are: `docs/setup-ga4.html` is the
+/// most-read page on the site and this is its first line, so somebody running
+/// this is somebody who has arrived. Asking three commands later, at `craft
+/// watch`, is asking the ones who never got that far.
+///
+/// Where the ask lands is the rest of it. A cold start is about to open a
+/// browser for Google's consent screen anyway, so the checkout rides back on
+/// the page that trip ends on: one tab, one trip, and the terminal is already
+/// sitting on a poll by the time somebody reaches for their card. What comes
+/// back is the same `supporter = true` every other machine gets, written by
+/// the same code path `craft subscribe` ends in.
+///
+/// It is a paywall in the honest sense and not in the other one. Nothing is
+/// created in Analytics before the payment clears, nothing is charged if it
+/// never does, and the flag it ends in is a line of TOML in a config anybody
+/// can edit — see `license::gate` for the same argument made once.
+enum Paywall {
+    /// Already an Anacrafter. Nothing to ask, and nothing to wait for.
+    Paid,
+    /// Not yet.
+    Owed {
+        /// Minted before the browser opens, because on a cold start the page
+        /// carrying the checkout is drawn before the token exchange has said
+        /// who is signing in. The tie to the Google account is made after the
+        /// fact by `claim`, and the webhook writes the row from this token
+        /// either way, so neither order loses the payment.
+        token: String,
+        checkout: String,
+        /// The line under the button. Held here so the price is quoted from
+        /// the one place that knows it.
+        note: String,
+        /// Whether the ask is riding on a consent screen that was going to be
+        /// shown regardless. False means there is no page to put it on —
+        /// somebody already signed in — so the checkout gets its own tab.
+        on_consent: bool,
+    },
+}
+
+impl Paywall {
+    /// Ask where this machine stands, before anything opens.
+    async fn open(cold: bool) -> Result<Paywall> {
+        if crate::license::sync(Config::load()?.supporter).await {
+            return Ok(Paywall::Paid);
+        }
+
+        let token = crate::license::mint_token();
+        // Known on a warm start and not on a cold one, which is the whole of
+        // why it is an `Option`: prefilling it is what makes the Stripe
+        // customer match the Google account without anybody typing an address
+        // twice, and a cold start gets that from `link_account` instead.
+        let email = crate::auth::Auth::account()
+            .ok()
+            .flatten()
+            .and_then(|a| a.email);
+
+        Ok(Paywall::Owed {
+            checkout: crate::license::checkout_url(crate::SUBSCRIBE_URL, &token, email.as_deref()),
+            token,
+            note: format!(
+                "{} · cancel any time · the terminal is already waiting",
+                crate::price_line()
+            ),
+            on_consent: cold,
+        })
+    }
+
+    /// What to leave the browser looking at once consent comes back.
+    fn landing(&self) -> Landing<'_> {
+        match self {
+            Paywall::Paid => crate::auth::GRANTED,
+            Paywall::Owed { checkout, note, .. } => Landing {
+                title: "One thing left",
+                body: "anacraft has the permission it needs. Creating the property is part of \
+                       the Anacrafter subscription — start one here and it comes back to the \
+                       terminal on its own, with nothing to paste. Already an Anacrafter? The \
+                       terminal has picked that up by now; close this tab and let it.",
+                cta: Some(Cta {
+                    label: "Become an Anacrafter",
+                    url: checkout,
+                    note,
+                }),
+            },
+        }
+    }
+
+    /// Wait for the payment, and say whether it arrived.
+    ///
+    /// `false` is not an error: somebody who closed the tab has an untouched
+    /// Analytics account and an uncharged card, and the message on the way out
+    /// is the same command they just ran.
+    async fn settle(self, host: &str) -> Result<bool> {
+        let Paywall::Owed {
+            token,
+            checkout,
+            on_consent,
+            ..
+        } = self
+        else {
+            return Ok(true);
+        };
+
+        // A cold start had nobody to ask about: the flag was read before the
+        // sign-in, so the answer it gave was about the machine and not about
+        // the person. Now there is an account, which is the key everything is
+        // really on — so ask again before sending anybody to a checkout. An
+        // Anacrafter on a second laptop is exactly the person who must not be
+        // sold a second subscription, and `sync` also picks up a payment made
+        // on the website under the same email.
+        //
+        // The button on the landing page is out already and cannot be recalled,
+        // which is why it says so on it.
+        if on_consent && crate::license::sync(Config::load()?.supporter).await {
+            println!(
+                "\n  {} {}",
+                paint(glyph::STAR, ore::gold()),
+                dim("subscription found on this account"),
+            );
+            return Ok(true);
+        }
+
+        println!(
+            "\n  {} {} is part of the Anacrafter subscription  ·  {}\n",
+            paint(glyph::STAR, ore::gold()),
+            bold("craft configure"),
+            crate::price_line(),
+        );
+        println!("  {}\n", bold(&checkout));
+        if on_consent {
+            println!(
+                "  {}\n",
+                dim("the tab Google just handed back has the same button on it")
+            );
+        } else {
+            // Signed in already, so there was no consent screen to fold the
+            // ask into and this is the tab that carries it.
+            let _ = open::that(&checkout);
+        }
+
+        let account = crate::auth::Auth::account()?;
+
+        if crate::license::project().is_none() {
+            // A build with no subscription service behind it — one somebody
+            // compiled themselves. There is nothing to poll, so say where the
+            // flag lives rather than spin against nobody.
+            println!(
+                "  once it's active, set {} in {}\n",
+                bold("supporter = true"),
+                dim(&Config::path()?.display().to_string()),
+            );
+            return Ok(false);
+        }
+
+        // Claim the row before the payment lands, so the webhook has something
+        // to fill in. Best-effort, the way `craft subscribe` has it: a claim
+        // that will not go through is not worth blocking a payment over, and
+        // only the tie to the Google account is lost.
+        if let Some(account) = &account {
+            if crate::license::claim(&token, account).await.is_err() {
+                println!(
+                    "  {}\n",
+                    dim("could not record the checkout — it will still be picked up by token")
+                );
+            }
+        }
+        crate::license::Record {
+            token: Some(token.clone()),
+            user_id: account.as_ref().map(|a| a.sub.clone()),
+            ..Default::default()
+        }
+        .save()?;
+
+        // Re-running is the way back in, and it is the same command either
+        // way: nothing was created, so the second run starts where this one
+        // stopped rather than beside it.
+        crate::wait_for_payment(account.as_ref(), &token, &format!("craft configure {host}")).await
+    }
 }
 
 // ------------------------------------------------------------------ lookup ---
@@ -558,6 +763,32 @@ async fn resolve(cfg: &Config, target: &str) -> Result<Found> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_paid_up_machine_is_asked_for_nothing() {
+        // The landing page a subscriber lands on is the plain one. A button
+        // there would be an offer to pay twice.
+        assert!(Paywall::Paid.landing().cta.is_none());
+    }
+
+    #[test]
+    fn the_ask_carries_the_checkout_the_terminal_is_polling() {
+        // The token on the button and the token being waited on are the same
+        // one, or the payment lands somewhere nothing is watching.
+        let paywall = Paywall::Owed {
+            token: "tok".into(),
+            checkout: "https://buy.stripe.com/x?client_reference_id=tok".into(),
+            note: "$2.99/month · cancel any time".into(),
+            on_consent: true,
+        };
+        let cta = paywall.landing().cta.expect("the ask is the whole point");
+        assert!(
+            cta.url.contains("client_reference_id=tok"),
+            "got: {}",
+            cta.url
+        );
+        assert!(cta.note.contains("$2.99"));
+    }
 
     #[test]
     fn reads_the_host_out_of_whatever_was_typed() {

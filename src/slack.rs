@@ -247,7 +247,7 @@ pub async fn install() -> Result<()> {
     let code = auth::wait_for_code(
         &listener,
         &state,
-        (
+        &auth::Landing::plain(
             "Installed",
             "anacraft can post to the channel you picked. \
              You can close this tab and return to the terminal.",

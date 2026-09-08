@@ -53,7 +53,7 @@ property saved it runs on synthetic data, so it works before you sign in.
 # The dashboard, on synthetic data — no Google account needed
 craft
 
-# No GA4 property yet? One command creates it and prints the tag
+# No GA4 property yet? One command creates it and prints the tag (★ Anacrafter)
 craft configure yoursite.com
 
 # Already have one? Connect it instead
@@ -65,9 +65,12 @@ craft use 1234567  # save it as the default
 craft
 ```
 
-`craft configure` creates the property and its web data stream, prints the
-gtag.js snippet with your measurement id already in it, and saves the property
-as the default. Paste the snippet into `<head>`, then `craft live` to watch the
+`craft configure` is part of the [Anacrafter subscription](https://anacraft.dev/pricing.html).
+It creates the property and its web data stream, prints the gtag.js snippet with
+your measurement id already in it, and saves the property as the default. The
+subscription ask arrives on the page the Google sign-in already ends on, and the
+terminal picks the payment up from there — nothing is created in your Analytics
+account before it clears. Paste the snippet into `<head>`, then `craft live` to watch the
 first visit arrive.
 
 Run it again for the same domain and it creates nothing — it finds the property
@@ -420,9 +423,12 @@ people's quota consumption.
 ## Setting up GA4
 
 `craft configure <domain>` is the preferred route: property, data stream and
-tag in one command, without the console. The rest of the Google side — access
-management, retention, key events, API enablement — is console work, and is
-documented in [Configure your analytics](https://anacraft.dev/setup-ga4.html).
+tag in one command, without the console. It is part of the subscription, the
+same as `craft watch` and `craft mcp` — the ask arrives on the page the Google
+sign-in already ends on, and nothing is created in the Analytics account until
+the payment clears. The rest of the Google side — access management, retention,
+key events, API enablement — is console work, and is documented in
+[Configure your analytics](https://anacraft.dev/setup-ga4.html).
 
 `craft delete <domain|id>` is the way back out, and does less than it sounds
 like: it forgets the property here so the dashboard stops opening on it, then

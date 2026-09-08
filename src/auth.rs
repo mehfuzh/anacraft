@@ -292,7 +292,7 @@ impl Auth {
         self.consent(
             SCOPE,
             Grant::Fresh,
-            (
+            &Landing::plain(
                 "Logged in",
                 "anacraft is connected to your Google Analytics account. \
                  You can close this tab and return to the terminal.",
@@ -315,24 +315,25 @@ impl Auth {
     /// The request re-sends the scopes already held plus the new one, and
     /// `include_granted_scopes=true` means the token that comes back covers
     /// both rather than replacing the old grant.
-    pub async fn ensure_scope(&self, scope: &str, why: &str) -> Result<()> {
+    ///
+    /// `landing` is what the browser is left looking at. It is the caller's to
+    /// choose because the trip is the caller's: `craft configure` folds its
+    /// subscription ask into this page rather than opening a second tab for
+    /// it, and [`GRANTED`] is the plain version for everybody else.
+    pub async fn ensure_scope(&self, scope: &str, why: &str, landing: &Landing<'_>) -> Result<()> {
         if Tokens::load()?.is_some_and(|t| t.granted(scope)) {
             return Ok(());
         }
         self.consent(
             &format!("{SCOPE} {scope}"),
             Grant::Additional { scope, why },
-            (
-                "Permission granted",
-                "anacraft can set up the property now. \
-                 You can close this tab and return to the terminal.",
-            ),
+            landing,
         )
         .await
     }
 
     /// One trip through the browser, for either kind of grant.
-    async fn consent(&self, scope: &str, grant: Grant<'_>, success: (&str, &str)) -> Result<()> {
+    async fn consent(&self, scope: &str, grant: Grant<'_>, landing: &Landing<'_>) -> Result<()> {
         let Pkce {
             verifier,
             challenge,
@@ -371,7 +372,7 @@ impl Auth {
         println!("  if it doesn't open, paste this:\n\n  {auth_url}\n");
         let _ = open::that(&auth_url);
 
-        let code = wait_for_code(&listener, &state, success)?;
+        let code = wait_for_code(&listener, &state, landing)?;
 
         let res = self
             .http
@@ -482,16 +483,57 @@ pub(crate) fn nonce(len: usize) -> String {
         .collect()
 }
 
-/// Serve the loopback redirect until the provider hands over a code.
+/// The page the browser is left looking at once the redirect has come back.
 ///
-/// `success` is the page the browser lands on, as `(title, body)`. It is an
-/// argument rather than a constant because two providers arrive here now and
-/// "connected to your Google Analytics account" is the wrong sentence for a
-/// Slack install.
+/// An argument rather than a constant because the sentence differs by caller —
+/// "connected to your Google Analytics account" is the wrong thing to say
+/// about a Slack install — and, since `craft configure` moved behind the
+/// subscription, because one of these pages has something to ask for.
+#[derive(Clone, Copy)]
+pub struct Landing<'a> {
+    pub title: &'a str,
+    pub body: &'a str,
+    /// The one link this page is allowed to carry.
+    ///
+    /// A tab that has just handed over a permission is the cheapest place
+    /// there will ever be to ask for the next thing: it is already open, it is
+    /// the thing being looked at, and the terminal behind it is already
+    /// sitting on a poll. Nothing else on the page is clickable, so when this
+    /// is `Some` there is exactly one thing to do on it.
+    pub cta: Option<Cta<'a>>,
+}
+
+/// A button, and the line under it that says what pressing it costs.
+#[derive(Clone, Copy)]
+pub struct Cta<'a> {
+    pub label: &'a str,
+    pub url: &'a str,
+    pub note: &'a str,
+}
+
+impl<'a> Landing<'a> {
+    /// A page with nothing to press — every landing but the paywall's.
+    pub const fn plain(title: &'a str, body: &'a str) -> Landing<'a> {
+        Landing {
+            title,
+            body,
+            cta: None,
+        }
+    }
+}
+
+/// What `ensure_scope` leaves behind when there is nothing further to ask.
+pub const GRANTED: Landing<'static> = Landing::plain(
+    "Permission granted",
+    "anacraft can set up the property now. \
+     You can close this tab and return to the terminal.",
+);
+
+/// Serve the loopback redirect until the provider hands over a code.
 pub(crate) fn wait_for_code(
     listener: &TcpListener,
     expected_state: &str,
-    success: (&str, &str),
+    landing: &Landing<'_>,
 ) -> Result<String> {
     for stream in listener.incoming() {
         let mut stream = stream?;
@@ -512,7 +554,10 @@ pub(crate) fn wait_for_code(
         if params.is_empty() {
             respond(
                 &mut stream,
-                &page("Waiting", "Nothing to see here yet.", Tone::Good),
+                &page(
+                    &Landing::plain("Waiting", "Nothing to see here yet."),
+                    Tone::Good,
+                ),
             );
             continue;
         }
@@ -521,8 +566,10 @@ pub(crate) fn wait_for_code(
             respond(
                 &mut stream,
                 &page(
-                    "Login cancelled",
-                    "Nothing was changed. You can close this tab.",
+                    &Landing::plain(
+                        "Login cancelled",
+                        "Nothing was changed. You can close this tab.",
+                    ),
                     Tone::Bad,
                 ),
             );
@@ -537,9 +584,11 @@ pub(crate) fn wait_for_code(
             respond(
                 &mut stream,
                 &page(
-                    "Rejected",
-                    "The redirect did not match the request that started it. \
-                     Close this tab and start again.",
+                    &Landing::plain(
+                        "Rejected",
+                        "The redirect did not match the request that started it. \
+                         Close this tab and start again.",
+                    ),
                     Tone::Bad,
                 ),
             );
@@ -552,7 +601,7 @@ pub(crate) fn wait_for_code(
             .map(|(_, v)| v.clone())
             .context("no authorization code in redirect")?;
 
-        respond(&mut stream, &page(success.0, success.1, Tone::Good));
+        respond(&mut stream, &page(landing, Tone::Good));
         return Ok(code);
     }
     bail!("browser never completed the login")
@@ -641,7 +690,8 @@ fn mark_svg(fill: &str) -> String {
 /// the whole point: this page cannot drift away from the dashboard the way the
 /// previous hardcoded one did, and a light palette gets a readable light page
 /// for free.
-fn page(title: &str, body: &str, tone: Tone) -> String {
+fn page(landing: &Landing<'_>, tone: Tone) -> String {
+    let Landing { title, body, cta } = landing;
     let p = crate::theme::palette();
     let (ink, card, fg, dim, shadow) =
         (hex(p.ink), hex(p.bg), hex(p.fg), hex(p.sage), hex(p.shadow));
@@ -660,6 +710,19 @@ fn page(title: &str, body: &str, tone: Tone) -> String {
         })
         .collect();
 
+    // The ask, when there is one. Painted in the accent on the accent's own
+    // ink, so it reads as this page's own button rather than as a link
+    // somebody dropped into it.
+    let ask = match cta {
+        Some(cta) => format!(
+            "<a class=cta href=\"{}\">{}</a><p class=note>{}</p>",
+            escape(cta.url),
+            escape(cta.label),
+            escape(cta.note),
+        ),
+        None => String::new(),
+    };
+
     format!(
         "<!doctype html><html lang=en><meta charset=utf-8>\
          <meta name=viewport content=\"width=device-width,initial-scale=1\">\
@@ -676,14 +739,32 @@ fn page(title: &str, body: &str, tone: Tone) -> String {
          h1{{color:{accent};font-size:19px;font-weight:700;letter-spacing:.04em;\
          margin:0 0 10px}}\
          p{{color:{dim};font-size:13.5px;line-height:1.6;margin:0}}\
+         .cta{{display:inline-block;margin-top:26px;padding:12px 26px;\
+         background:{accent};color:{ink};text-decoration:none;font-weight:700;\
+         font-size:12.5px;letter-spacing:.08em;text-transform:uppercase}}\
+         .cta:hover{{opacity:.86}}\
+         p.note{{margin-top:14px;font-size:12px}}\
          .bar{{display:flex;gap:2px;justify-content:center;margin-top:26px}}\
          .bar i{{width:9px;height:9px;display:block}}\
          @keyframes rise{{from{{opacity:0;transform:translateY(6px)}}}}\
          @media(prefers-reduced-motion:reduce){{.card{{animation:none}}}}\
          </style>\
-         <div class=card>{mark}<h1>{title}</h1><p>{body}</p>\
+         <div class=card>{mark}<h1>{title}</h1><p>{body}</p>{ask}\
          <div class=bar>{blocks}</div></div>"
     )
+}
+
+/// Escape for HTML, for the two places this page interpolates something that
+/// is not a colour.
+///
+/// The paywall's button carries a checkout URL with a query string on it, and
+/// a bare `&` in an attribute is the kind of thing that works in every browser
+/// until the day it does not.
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// Percent-encode everything outside the unreserved set.
@@ -748,7 +829,7 @@ mod tests {
     use super::*;
 
     /// Stand-in for whatever page a caller lands the browser on.
-    const DONE: (&str, &str) = ("Done", "Close this tab.");
+    const DONE: Landing<'static> = Landing::plain("Done", "Close this tab.");
     use std::net::TcpStream;
     use std::thread;
 
@@ -757,12 +838,12 @@ mod tests {
         // The old page hardcoded its colours, which is how it drifted away from
         // the dashboard. Pin the derivation so that cannot happen again.
         crate::theme::select("osaka-jade");
-        let jade = page("Logged in", "body", Tone::Good);
+        let jade = page(&Landing::plain("Logged in", "body"), Tone::Good);
         assert!(jade.contains("#2dd5b7"), "accent missing");
         assert!(jade.contains("#09100d"), "ink missing");
 
         crate::theme::select("catppuccin-latte");
-        let latte = page("Logged in", "body", Tone::Good);
+        let latte = page(&Landing::plain("Logged in", "body"), Tone::Good);
         assert!(
             !latte.contains("#09100d"),
             "a light palette must not paint the dark ground"
@@ -770,9 +851,43 @@ mod tests {
 
         // The failure states differ only in the accent.
         crate::theme::select("osaka-jade");
-        assert!(page("Rejected", "body", Tone::Bad).contains("#ff5345"));
+        assert!(page(&Landing::plain("Rejected", "body"), Tone::Bad).contains("#ff5345"));
 
         crate::theme::select("osaka-jade");
+    }
+
+    #[test]
+    fn a_landing_with_nothing_to_ask_has_nothing_to_click() {
+        // The ordinary login page must stay a dead end. A stray button on it
+        // would be the one clickable thing in front of somebody who has just
+        // been told they are signed in.
+        let plain = page(&Landing::plain("Logged in", "body"), Tone::Good);
+        assert!(!plain.contains("class=cta"), "an ask appeared unasked for");
+        assert!(!plain.contains("<a "), "the plain page grew a link");
+    }
+
+    #[test]
+    fn the_paywall_button_carries_an_escaped_checkout_url() {
+        // The checkout URL has a query string, so the `&` between its
+        // parameters has to survive the trip through an HTML attribute.
+        let page = page(
+            &Landing {
+                title: "One thing left",
+                body: "body",
+                cta: Some(Cta {
+                    label: "Become an Anacrafter",
+                    url: "https://buy.stripe.com/x?client_reference_id=t&prefilled_email=a%40b.co",
+                    note: "$2.99/month",
+                }),
+            },
+            Tone::Good,
+        );
+        assert!(page.contains("client_reference_id=t&amp;prefilled_email=a%40b.co"));
+        assert!(
+            !page.contains("id=t&prefilled"),
+            "an unescaped & reached the attribute"
+        );
+        assert!(page.contains("Become an Anacrafter"));
     }
 
     #[test]
@@ -961,7 +1076,7 @@ mod tests {
 
         thread::spawn(move || hit(port, "/?code=4%2FabcXYZ&state=secret"));
 
-        let code = wait_for_code(&listener, "secret", DONE).unwrap();
+        let code = wait_for_code(&listener, "secret", &DONE).unwrap();
         assert_eq!(code, "4/abcXYZ");
     }
 
@@ -979,7 +1094,7 @@ mod tests {
         });
 
         assert_eq!(
-            wait_for_code(&listener, "secret", DONE).unwrap(),
+            wait_for_code(&listener, "secret", &DONE).unwrap(),
             "realcode"
         );
     }
@@ -991,7 +1106,7 @@ mod tests {
 
         thread::spawn(move || hit(port, "/?code=abc&state=attacker"));
 
-        let err = wait_for_code(&listener, "secret", DONE)
+        let err = wait_for_code(&listener, "secret", &DONE)
             .unwrap_err()
             .to_string();
         assert!(err.contains("state mismatch"), "got: {err}");
@@ -1004,7 +1119,7 @@ mod tests {
 
         thread::spawn(move || hit(port, "/?error=access_denied&state=secret"));
 
-        let err = wait_for_code(&listener, "secret", DONE)
+        let err = wait_for_code(&listener, "secret", &DONE)
             .unwrap_err()
             .to_string();
         assert!(err.contains("access_denied"), "got: {err}");
