@@ -468,20 +468,28 @@ async fn run() -> Result<()> {
 
 // ---------------------------------------------------------------- accounts ---
 
-/// Stripe's hosted page for the $2.99/month plan.
+/// Where the CLI sends somebody who wants to subscribe: the site's pricing
+/// page, not the Payment Link behind its Subscribe button.
 ///
-/// A Payment Link, not a checkout session built here: a session needs a secret
-/// key, and a key shipped inside a binary anybody can download is a key that
-/// has leaked. The link is public by design and safe to hardcode.
+/// A tab that opens straight onto a card field asks for a decision before
+/// showing what it is for. The page is where the plans, the table of which
+/// command is on which side, and the sentence about paying with the same email
+/// as the Google account all are — and it is one click from the same checkout,
+/// so nothing is further away than a click that was worth being asked for.
 ///
-/// `docs/pricing.html` has the same URL on its Subscribe button, so a new one
-/// has to land in both. The difference is what rides along: this one carries a
-/// token and lands on an account immediately, while a checkout from the page
-/// arrives anonymous and is adopted by email on the next `craft login`.
+/// The token still travels. `license::checkout_url` hangs
+/// `client_reference_id` and `prefilled_email` on this URL and the page's own
+/// script forwards both onto its Subscribe button, so a checkout begun in the
+/// terminal still lands on the account the moment it clears. If it ever did
+/// not, the payment is adopted by email on the next lookup instead — later,
+/// not lost.
 ///
-/// `pub(crate)` because `craft configure` sends people to the same link — from
+/// The Payment Link itself now lives in exactly one place, `docs/pricing.html`,
+/// which is one fewer copy to keep in step when it changes.
+///
+/// `pub(crate)` because `craft configure` sends people to the same page — from
 /// the page its OAuth trip already ends on, rather than through a second tab.
-pub(crate) const SUBSCRIBE_URL: &str = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02";
+pub(crate) const PRICING_URL: &str = "https://anacraft.dev/pricing.html";
 
 /// The same, for the $29/year plan — empty until that Payment Link exists.
 ///
@@ -511,8 +519,10 @@ const CHECKOUT_POLL: std::time::Duration = std::time::Duration::from_secs(3);
 /// Start a subscription, or pick up one that already exists.
 ///
 /// Order matters here: ask where the account stands *before* opening anything,
-/// because sending an existing subscriber to a Payment Link buys them a second
-/// subscription. That same first step is the whole of `--check`, and it is what
+/// because sending an existing subscriber to a checkout buys them a second
+/// subscription. The lookup below registers the email first, so a payment made
+/// on the pricing page — by them, in a browser, minutes ago — is found rather
+/// than asked for twice. That same first step is the whole of `--check`, and it is what
 /// makes a new laptop work — the record is keyed to the Google account, so
 /// signing in is all a second machine has to do.
 async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
@@ -609,8 +619,7 @@ async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
     }
 
     // A build with no lookup has only the flag to go on, and sending an
-    // existing subscriber back to a Payment Link buys them a second
-    // subscription.
+    // existing subscriber back to a checkout buys them a second subscription.
     if license::project().is_none() && Config::load()?.supporter {
         println!(
             "\n  {} {}  ·  {}\n",
@@ -633,7 +642,7 @@ async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
     let (url, price) = if annual {
         (SUBSCRIBE_ANNUAL_URL, "$29/year")
     } else {
-        (SUBSCRIBE_URL, price_line())
+        (PRICING_URL, price_line())
     };
 
     // A fresh token per checkout: an old one belongs to the old subscription,

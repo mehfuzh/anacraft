@@ -426,6 +426,28 @@ writes the flag itself when it does.</p>
 </div>
 
 <script>
+  // A checkout begun in the terminal lands on this page rather than straight on
+  // Stripe, so the terminal's token has to travel the last hop with it: the
+  // webhook finds the row this machine claimed by `client_reference_id`, and
+  // without it the payment arrives with nobody attached and waits for the next
+  // sign-in to adopt it by email.
+  //
+  // Only the two parameters the checkout itself understands are carried across,
+  // so a link somebody pastes around cannot smuggle anything else onto the
+  // button. Anything else in the query string — a campaign tag, a ref — stays
+  // where it is.
+  (function () {
+    var buy = document.querySelector('a.buy');
+    if (!buy) return;
+    var from = new URLSearchParams(location.search);
+    var to = new URL(buy.href);
+    ['client_reference_id', 'prefilled_email'].forEach(function (key) {
+      var value = from.get(key);
+      if (value) to.searchParams.set(key, value);
+    });
+    buy.href = to.toString();
+  })();
+
   function cp(el, text) {
     navigator.clipboard.writeText(text).then(function () {
       el.classList.add('done');

@@ -233,6 +233,37 @@ enum Paywall {
     },
 }
 
+/// Whether this machine is already an Anacrafter, asked with the care the
+/// moment deserves — because the next thing that happens if the answer is no
+/// is somebody being sent to pay.
+///
+/// Two questions, cheapest first. `sync` answers from the cache when it can,
+/// which is the common case and costs nothing. What it cannot know about is the
+/// payment made in a browser a few minutes ago — on the pricing page, under
+/// the same email, quite possibly on another machine — because a paid-up cache
+/// is trusted for hours and the account only picks up an unattached payment
+/// when its email is registered again. `license::already_paid` does both
+/// halves over the wire, and says nothing out loud when it finds nothing.
+async fn already_an_anacrafter() -> Result<bool> {
+    if crate::license::sync(Config::load()?.supporter).await {
+        return Ok(true);
+    }
+
+    let account = crate::auth::Auth::account().ok().flatten();
+    let record = crate::license::Record::load();
+    // Only ever this account's own checkout: a token held over from another
+    // sign-in on this machine would answer about their subscription. See
+    // `license::Record::speaks_for`.
+    let mine = record.speaks_for(account.as_ref());
+    let token = record.token.filter(|_| mine);
+
+    Ok(
+        crate::license::already_paid(account.as_ref(), token.as_deref())
+            .await
+            .is_some(),
+    )
+}
+
 impl Paywall {
     /// Ask where this machine stands, before anything opens.
     async fn open(cold: bool) -> Result<Paywall> {
@@ -246,7 +277,7 @@ impl Paywall {
         // an Anacrafter on a second laptop is not sold a second subscription.
         // It is the same fact either way round: the account is the key, and
         // before the sign-in there is no account.
-        if !cold && crate::license::sync(Config::load()?.supporter).await {
+        if !cold && already_an_anacrafter().await? {
             return Ok(Paywall::Paid);
         }
 
@@ -261,7 +292,7 @@ impl Paywall {
             .and_then(|a| a.email);
 
         Ok(Paywall::Owed {
-            checkout: crate::license::checkout_url(crate::SUBSCRIBE_URL, &token, email.as_deref()),
+            checkout: crate::license::checkout_url(crate::PRICING_URL, &token, email.as_deref()),
             token,
             note: format!(
                 "{} · cancel any time · the terminal is already waiting",
@@ -316,7 +347,7 @@ impl Paywall {
         //
         // The button on the landing page is out already and cannot be recalled,
         // which is why it says so on it.
-        if on_consent && crate::license::sync(Config::load()?.supporter).await {
+        if on_consent && already_an_anacrafter().await? {
             println!(
                 "\n  {} {}",
                 paint(glyph::STAR, ore::gold()),
@@ -860,7 +891,7 @@ mod tests {
         // one, or the payment lands somewhere nothing is watching.
         let paywall = Paywall::Owed {
             token: "tok".into(),
-            checkout: "https://buy.stripe.com/x?client_reference_id=tok".into(),
+            checkout: "https://anacraft.dev/pricing.html?client_reference_id=tok".into(),
             note: "$2.99/month · cancel any time".into(),
             on_consent: true,
         };
@@ -871,6 +902,19 @@ mod tests {
             cta.url
         );
         assert!(cta.note.contains("$2.99"));
+    }
+
+    #[test]
+    fn the_ask_lands_on_the_plans_and_not_on_a_card_field() {
+        // Nobody is dropped straight onto a checkout by a command they ran to
+        // create a property. The page comes first — the plans, the table, the
+        // note about which email to pay with — and the token rides along so the
+        // click after it still lands on this account.
+        let url = crate::license::checkout_url(crate::PRICING_URL, "tok", Some("me@x.io"));
+        assert!(url.starts_with(crate::PRICING_URL), "got: {url}");
+        assert!(!url.contains("buy.stripe.com"), "got: {url}");
+        assert!(url.contains("client_reference_id=tok"), "got: {url}");
+        assert!(url.contains("prefilled_email=me%40x.io"), "got: {url}");
     }
 
     #[test]

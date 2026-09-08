@@ -5,8 +5,11 @@
 //! the machine meet in the middle, at a Supabase project:
 //!
 //! 1. `craft subscribe` mints a token, writes a pending row keyed to the signed
-//!    in Google account, and sends the browser to Stripe carrying that token as
-//!    the checkout's `client_reference_id`.
+//!    in Google account, and opens the site's pricing page carrying that token,
+//!    which the page forwards onto Stripe as the checkout's
+//!    `client_reference_id`. The page rather than the card field, because a
+//!    command should not spend somebody's money one click sooner than they
+//!    meant to.
 //! 2. Stripe's webhook (`supabase/functions/stripe-webhook`) fills that row in
 //!    with the customer, the subscription and its status, and keeps it current
 //!    as the subscription renews, lapses or is cancelled.
@@ -295,9 +298,14 @@ pub fn mint_token() -> String {
         .collect()
 }
 
-/// Where to send somebody to pay, carrying the token and — so the Stripe
-/// customer matches the Google account rather than whatever they type — the
-/// signed-in email.
+/// Where to send somebody who wants to subscribe, carrying the token and — so
+/// the Stripe customer matches the Google account rather than whatever they
+/// type — the signed-in email.
+///
+/// `link` is the site's pricing page rather than the Payment Link behind it
+/// (see [`crate::PRICING_URL`]), and both parameters are named the way Stripe
+/// names them because the page forwards them straight onto its Subscribe
+/// button. That keeps one shape of URL for whichever hop it lands on first.
 pub fn checkout_url(link: &str, token: &str, email: Option<&str>) -> String {
     let mut url = format!(
         "{link}{}client_reference_id={token}",
@@ -307,6 +315,39 @@ pub fn checkout_url(link: &str, token: &str, email: Option<&str>) -> String {
         url.push_str(&format!("&prefilled_email={}", encode(email)));
     }
     url
+}
+
+/// Whether this account has already paid — asked over the wire, in the last
+/// moment before anybody is sent to a checkout.
+///
+/// Not [`sync`], and the difference is the whole point of it. `sync` answers a
+/// paid-up account from a cache up to `TTL` old, and registers the account only
+/// when the local record has not seen it. The payment this is looking for is
+/// the one a cache cannot know about: made in a browser minutes ago, on the
+/// pricing page, under the same email, possibly on another machine. So this
+/// registers first — `link_account` is what adopts a payment that arrived with
+/// nobody attached to it — and then asks.
+///
+/// A `Some` is remembered on the way past, both in the record and in
+/// `supporter`, so the rest of the run behaves like the subscriber it just
+/// found. Quiet on every failure: nothing here is a gate, and the worst an
+/// unreachable service can do is leave somebody looking at a page they can
+/// close.
+pub async fn already_paid(account: Option<&Account>, token: Option<&str>) -> Option<Status> {
+    project()?;
+    if account.is_none() && token.is_none() {
+        return None;
+    }
+    if let Some(account) = account {
+        let _ = link(account).await;
+    }
+    let status = fetch(account, token).await.ok()?;
+    let _ = Record::load().confirm(account, &status);
+    if !status.is_active() {
+        return None;
+    }
+    let _ = set_supporter(true);
+    Some(status)
 }
 
 /// Percent-encode an email for a query string. Only `@` and `+` really matter,
