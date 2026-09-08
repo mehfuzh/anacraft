@@ -57,6 +57,20 @@ answers where the id cannot. It still moves nothing: the payment stays on
 whatever row it was on, and the only thing an address can turn is a no into a
 yes.
 
+A subscriber Stripe has never heard of — whoever wrote this, a lifetime handed
+out for helping, an apology — is `users.comped`, added by the
+`a_grant_that_survives` migration. It is the one column on that table meant to
+be written by hand, and it exists because `subscribed` is not: that one is
+derived, and `refresh_subscribed` recomputes it from the payments table on
+every sign-in and every claim, so a `subscribed = true` typed in by hand is
+erased by the next command that touches the service. `subscribed` is now
+`comped or exists(active payment)`, and nothing that reads it had to change.
+
+```sql
+update public.users set comped = true where lower(email) = 'them@example.com';
+select public.refresh_subscribed(user_id) from public.users;  -- settle the flag
+```
+
 Somebody who pays with an email that is not on their Google account is still
 the one case with no automatic path — neither key matches, by design. The row
 is there with its Stripe customer on it; setting its `user_id` by hand is the
