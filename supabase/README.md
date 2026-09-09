@@ -191,6 +191,29 @@ curl -s "$URL/rest/v1/rpc/subscription_status" \
   -d '{"p_user_id":null,"p_token":null,"p_email":"them@example.com"}'
 ```
 
+## The badge endpoint
+
+`burn` serves the image `craft burn` hands out, as an SVG, from a row the CLI
+publishes. It is the only function here that renders anything for a stranger's
+browser, and the only one on the critical path of a page that is not ours — so
+it answers something on every request (an unknown id gets a plain `anacraft`
+pill, never a broken image or a zero somebody might believe) and caches for
+five minutes at a number that moves on the order of days.
+
+It holds no credentials and can reach no Analytics. The count was worked out on
+the site owner's own machine and published through `publish_badge`, which takes
+a secret minted alongside the badge id; the anon key cannot be the check,
+because it ships inside a binary anybody can download. Colours travel in the
+row rather than living in this function, so a palette added to the CLI works
+the day it ships instead of the day this is redeployed.
+
+```bash
+supabase functions deploy burn --no-verify-jwt
+```
+
+`--no-verify-jwt` for the same reason as the relay below: an `<img>` sends no
+Supabase token and could not be made to.
+
 ## The Slack relay
 
 `slack-oauth` has nothing to do with subscriptions and holds no secret. It

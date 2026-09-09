@@ -3,6 +3,7 @@
 mod achievements;
 mod auth;
 mod avatar;
+mod burn;
 mod config;
 mod configure;
 mod ga;
@@ -242,6 +243,23 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Mint the badge for your own site — how many other sites link to it.
+    ///
+    /// Counts distinct referring domains over the last thirty days and prints
+    /// the HTML to paste. The number is served, not baked in, so the badge on
+    /// your page follows every `craft burn --refresh`. Free, and deliberately:
+    /// a badge exists to be seen by people who have never heard of anacraft.
+    Burn {
+        /// Which palette to render it in. Defaults to the dashboard's.
+        #[arg(long)]
+        theme: Option<String>,
+        /// The words beside the number. Default: "sites link here".
+        #[arg(long)]
+        label: Option<String>,
+        /// Recount and republish, keeping the badge already on your page.
+        #[arg(long)]
+        refresh: bool,
+    },
     /// Print the site's dashboard captures as HTML. Used by `make capture`.
     #[command(hide = true)]
     Capture,
@@ -296,6 +314,19 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Theme { name } => cmd_theme(name.as_deref()),
+        Command::Burn {
+            theme,
+            label,
+            refresh,
+        } => {
+            burn::run(
+                &cfg.resolve_property(cli.property.as_deref())?,
+                theme,
+                label,
+                refresh,
+            )
+            .await
+        }
         Command::Subscribe { annual, check } => cmd_subscribe(annual, check).await,
         Command::Mcp {
             demo,

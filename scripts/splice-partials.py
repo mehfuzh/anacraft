@@ -23,6 +23,7 @@ PAGES = [
     "alerts.html",
     "setup-ga4.html",
     "pricing.html",
+    "burn.html",
     "success.html",
     "privacy.html",
     "terms.html",

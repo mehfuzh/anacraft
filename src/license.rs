@@ -370,7 +370,9 @@ fn client() -> Result<reqwest::Client> {
         .context("building the subscription HTTP client")
 }
 
-async fn rpc(name: &str, body: serde_json::Value) -> Result<String> {
+/// `pub(crate)` for `craft burn`, which talks to the same project through the
+/// same anon key and has no reason to build a second client to do it.
+pub(crate) async fn rpc(name: &str, body: serde_json::Value) -> Result<String> {
     let (url, key) = project().context("this build has no subscription service configured")?;
     let res = client()?
         .post(format!("{url}/rest/v1/rpc/{name}"))

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The burn badge — anacraft</title>
+<meta name="description" content="craft burn mints a badge for your own site showing how many other sites link to it, counted from your GA4 property over a rolling thirty days and served in any anacraft palette. Free, no subscription, one line of HTML.">
+<link rel="canonical" href="https://anacraft.dev/burn.html">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://anacraft.dev/burn.html">
+<meta property="og:title" content="The burn badge — anacraft">
+<meta property="og:description" content="craft burn mints a badge for your own site showing how many other sites link to it, counted from your GA4 property over a rolling thirty days and served in any anacraft palette. Free, no subscription, one line of HTML.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg?v=2dd77504">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  @font-face {
+    font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400;
+    font-display: block; src: url('fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  }
+  :root {
+    --ground: #060a09; --ink: #09100d; --panel: #0d1512;
+    --line: rgba(193,196,151,.11); --line-2: rgba(193,196,151,.20);
+    --fg: #c1c497; --white: #eef1dc; --dim: #6c7f73;
+    --jade: #2dd5b7; --jade-deep: #509475; --gold: #ffe16b; --coral: #ff5345;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--ground); color: var(--fg); line-height: 1.7;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: var(--jade); color: #04120e; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+
+  /* nav:start */
+  nav {
+    /* Not pinned: the nav is the top of the page, not a bar laid over it, so it
+       scrolls away with everything else and takes the ground it sits on. */
+    position: relative; z-index: 1;
+  }
+  .nav-in { display: flex; align-items: center; gap: 32px; height: 60px; }
+  .brand {
+    font-family: 'Archivo', sans-serif; font-weight: 900;
+    font-size: 20px; letter-spacing: -.03em; color: var(--white);
+    display: flex; align-items: baseline; gap: 0;
+  }
+  .brand .pick { width: 14px; height: 14px; display: block; margin-right: 2px; }
+  /* Same voice as the footer: mono, lowercase, one rhythm. The casing is
+     text-transform rather than typed in, so the markup still says "Quick start"
+     and "Configure" for a screen reader. The brand keeps its own face —
+     it is a logo, not a link in the row. */
+  .nav-links {
+    display: flex; align-items: center; gap: 16px; margin-left: auto;
+    font-family: var(--mono); font-size: 11.5px;
+    text-transform: lowercase; letter-spacing: .01em;
+    color: var(--dim);
+  }
+  .nav-links a { transition: color .15s; }
+  .nav-links a:hover { color: var(--white); }
+  @media (max-width: 720px) { .nav-links a:not(.mode-toggle) { display: none; } }
+  /* nav:end */
+
+  /* ── document ──────────────────────────────────────── */
+  .doc { max-width: 760px; margin: 0 auto; padding: 72px 28px 96px; }
+  .eyebrow { font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
+             text-transform: uppercase; color: var(--jade); margin-bottom: 18px; }
+  h1 { font-family: 'Archivo', sans-serif; font-weight: 900; font-size: clamp(34px, 6vw, 50px);
+       line-height: 1.05; letter-spacing: -.035em; color: var(--white); margin-bottom: 14px; }
+  .stamp { font-family: var(--mono); font-size: 12.5px; color: var(--dim); margin-bottom: 40px; }
+  h2 { font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 21px;
+       letter-spacing: -.02em; color: var(--white); margin: 52px 0 14px; }
+  h2 .n { color: var(--jade-deep); font-family: var(--mono); font-size: 15px;
+          font-weight: 400; margin-right: 10px; }
+  h3 { font-family: 'Archivo', sans-serif; font-weight: 700; font-size: 15.5px;
+       color: var(--white); margin: 28px 0 8px; }
+  p { margin-bottom: 15px; font-size: 15.5px; }
+  ul { margin: 0 0 15px 0; padding-left: 22px; }
+  li { margin-bottom: 8px; font-size: 15.5px; }
+  li::marker { color: var(--jade-deep); }
+  b, strong { color: var(--white); font-weight: 600; }
+  code { font-family: var(--mono); font-size: .88em; color: var(--jade);
+         background: var(--panel); border: 1px solid var(--line);
+         padding: 1.5px 5px; white-space: nowrap; }
+  .doc a:not(.brand) { color: var(--jade); border-bottom: 1px solid rgba(45,213,183,.3); }
+  .doc a:not(.brand):hover { border-bottom-color: var(--jade); }
+
+  .tldr { border: 1px solid var(--line-2); border-left: 3px solid var(--jade);
+          background: var(--panel); padding: 22px 24px; margin-bottom: 8px; }
+  .tldr p:last-child { margin-bottom: 0; }
+  .tldr .h { font-family: var(--mono); font-size: 11.5px; letter-spacing: .14em;
+             text-transform: uppercase; color: var(--jade); margin-bottom: 10px; }
+
+  .tbl { width: 100%; border-collapse: collapse; margin-bottom: 18px;
+         font-size: 13.5px; display: block; overflow-x: auto; }
+  .tbl th, .tbl td { text-align: left; padding: 9px 12px;
+                     border-bottom: 1px solid var(--line); vertical-align: top; }
+  .tbl th { font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+            text-transform: uppercase; color: var(--dim); font-weight: 400;
+            border-bottom-color: var(--line-2); }
+  .tbl td:first-child { font-family: var(--mono); color: var(--jade); white-space: nowrap; }
+
+  /* the legal pages never needed a code block; this guide does */
+  pre.code { font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+             background: var(--panel); border: 1px solid var(--line);
+             border-left: 3px solid var(--jade-deep);
+             padding: 16px 18px; margin: 0 0 18px; overflow-x: auto; color: var(--fg); }
+  pre.code .d { color: var(--dim); }
+  pre.code .k { color: var(--jade); }
+  .step { font-size: 15.5px; margin: 0 0 14px; padding-left: 16px;
+          border-left: 2px solid var(--line-2); }
+
+  /* footer:start */
+  footer {
+    border-top: 1px solid var(--line); padding: 34px 0;
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    color: var(--dim);
+    /* The whole row runs in the terminal voice: mono, lowercase, a little
+       tighter than the page text. The casing is done with text-transform
+       rather than typed in, so the markup still says "Privacy Policy" for a
+       screen reader and for anyone reading the source. Mono sets wider than
+       the sans it replaces, hence the step down in size. */
+    font-family: var(--mono); font-size: 11.5px;
+    text-transform: lowercase; letter-spacing: .01em;
+  }
+  footer .r { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  footer a:hover { color: var(--jade); }
+  footer .by { display: inline-flex; align-items: center; gap: 8px; }
+  /* A chip rather than a word: the rule does the framing the brackets used to,
+     so nothing has to be typed into the markup and a screen reader still reads
+     a clean "crafted in San Francisco". */
+  footer .tag {
+    font-size: 11px; letter-spacing: .04em;
+    color: var(--jade); border: 1px solid var(--line-2);
+    /* A tinted rule so the chip reads as one green object rather than green
+       text in a grey box. Declared after the shorthand: a browser without
+       color-mix drops just this line and keeps the neutral border. */
+    border-color: color-mix(in srgb, var(--jade) 32%, transparent);
+    padding: 2px 8px; line-height: 1.6;
+  }
+  /* The glow rides the same curve as the beat, brightest at the top of each
+     pulse, so the heart reads as lit from within rather than merely resized.
+     It is drawn with var(--jade), which the light theme redefines, so the
+     halo follows the palette instead of pinning one value. */
+  .heart { height: 14px; width: auto; display: block; transform-origin: center;
+           animation: beat 2.4s ease-in-out infinite;
+           filter: drop-shadow(0 0 3px var(--jade)); }
+  @keyframes beat {
+    0%, 40%, 100% { transform: scale(1);    filter: drop-shadow(0 0 2px var(--jade)); }
+    10%           { transform: scale(1.3);  filter: drop-shadow(0 0 7px var(--jade)); }
+    20%           { transform: scale(1);    filter: drop-shadow(0 0 2px var(--jade)); }
+    30%           { transform: scale(1.18); filter: drop-shadow(0 0 5px var(--jade)); }
+  }
+  @media (prefers-reduced-motion: reduce) { .heart { animation: none; } }
+  /* footer:end */
+
+  @media (max-width: 560px) {
+    .wrap { padding: 0 18px; }
+    .doc { padding: 48px 18px 72px; }
+    footer .r { margin-left: 0; flex-wrap: wrap; }
+  }
+
+  /* burn:start — the badge gallery, and nothing else uses these */
+  .chips { display: flex; flex-wrap: wrap; gap: 14px; margin: 26px 0 8px; align-items: center; }
+  .chip { display: block; }
+  .chip svg { display: block; }
+  .chip-name {
+    font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+    text-transform: lowercase; letter-spacing: .04em; margin-top: 6px;
+  }
+  .chip-cell { display: flex; flex-direction: column; align-items: flex-start; }
+  /* burn:end */
+</style>
+<script src="/analytics.js?v=8fa4ec5f"></script>
+</head>
+<body>
+<!-- nav:start -->
+<nav>
+  <div class="wrap nav-in">
+    <a class="brand" href="/"><img class="pick" src="mark.svg?v=7b310f6e" alt="A" width="14" height="14">nacraft</a>
+    <div class="nav-links">
+      <a href="/#dashboard">Dashboard</a>
+      <a href="/#start">Quick start</a>
+      <a href="/#mcp">MCP</a>
+      <a href="/alerts.html">Alerts</a>
+      <a href="/setup-ga4.html">Configure</a>
+      <a href="/burn.html">Badge</a>
+      <a href="/pricing.html">Pricing</a>
+    </div>
+  </div>
+</nav>
+<!-- nav:end -->
+
+<main class="doc">
+
+<div class="eyebrow">Guide</div>
+<h1>The burn badge</h1>
+<div class="stamp">craft burn · free, no subscription</div>
+
+<div class="tldr">
+  <div class="h">What it is</div>
+  <p>A small image for your own site, showing <b>how many other sites link to it</b>. One command
+  mints it, one line of HTML wears it, and the number is served — so it stays current without you
+  touching the page again.</p>
+  <p style="margin-top:18px"><svg xmlns="http://www.w3.org/2000/svg" width="186" height="40" viewBox="0 0 93 20" role="img" aria-label="12 sites"><title>12 sites</title><rect width="93" height="20" rx="3" fill="#111c18"/><rect width="24" height="20" rx="3" fill="#3a5247" fill-opacity="0.45"/><rect x="21" width="3" height="20" fill="#3a5247" fill-opacity="0.45"/><g transform="translate(6,4.0) scale(0.8571)" fill="#2dd5b7" shape-rendering="crispEdges"><rect x="5" y="0" width="4" height="1"/><rect x="4" y="1" width="6" height="1"/><rect x="3" y="2" width="8" height="1"/><rect x="3" y="3" width="8" height="1"/><rect x="2" y="4" width="4" height="1"/><rect x="8" y="4" width="4" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="8" y="5" width="4" height="1"/><rect x="1" y="6" width="4" height="1"/><rect x="9" y="6" width="4" height="1"/><rect x="1" y="7" width="4" height="1"/><rect x="9" y="7" width="4" height="1"/><rect x="0" y="8" width="4" height="1"/><rect x="10" y="8" width="4" height="1"/><rect x="0" y="9" width="14" height="1"/><rect x="0" y="10" width="14" height="1"/><rect x="0" y="11" width="4" height="1"/><rect x="10" y="11" width="4" height="1"/><rect x="0" y="12" width="4" height="1"/><rect x="10" y="12" width="4" height="1"/><rect x="0" y="13" width="4" height="1"/><rect x="10" y="13" width="4" height="1"/></g><g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11"><text x="58.5" y="14" text-anchor="middle"><tspan fill="#2dd5b7" font-weight="700">12</tspan><tspan fill="#c1c497"> sites</tspan></text></g></svg></p>
+</div>
+
+<h2><span class="n">01</span>Mint it</h2>
+<p><code>craft burn</code> counts the referring domains on the property you already have selected and
+prints the HTML to paste. Nothing to sign up for beyond the Google account <code>craft login</code>
+already uses.</p>
+<pre class="code"><span class="k">$</span> craft burn
+
+  <span class="d">⛏ counting the sites that link to anacraft.dev over the last 30 days…</span>
+
+  <span class="k">★ 12</span> sites link to <span class="k">anacraft.dev</span>  ·  osaka-jade theme
+
+  <span class="d">paste this where you want the badge:</span>
+
+  &lt;a href="https://anacraft.dev/burn.html"&gt;
+    &lt;img src="…/functions/v1/burn/<span class="k">&lt;id&gt;</span>.svg" alt="12 sites link to anacraft.dev" height="20"&gt;
+  &lt;/a&gt;</pre>
+
+<h2><span class="n">02</span>Pick a palette</h2>
+<p>The badge wears the dashboard's own themes. <code>--theme</code> takes any of them, and the colours
+are resolved when the badge is minted rather than when it is served — so a palette added to the binary
+works the day it ships.</p>
+<div class="chips">
+  <div class="chip-cell"><span class="chip"><svg xmlns="http://www.w3.org/2000/svg" width="93" height="20" viewBox="0 0 93 20" role="img" aria-label="12 sites"><title>12 sites</title><rect width="93" height="20" rx="3" fill="#111c18"/><rect width="24" height="20" rx="3" fill="#3a5247" fill-opacity="0.45"/><rect x="21" width="3" height="20" fill="#3a5247" fill-opacity="0.45"/><g transform="translate(6,4.0) scale(0.8571)" fill="#2dd5b7" shape-rendering="crispEdges"><rect x="5" y="0" width="4" height="1"/><rect x="4" y="1" width="6" height="1"/><rect x="3" y="2" width="8" height="1"/><rect x="3" y="3" width="8" height="1"/><rect x="2" y="4" width="4" height="1"/><rect x="8" y="4" width="4" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="8" y="5" width="4" height="1"/><rect x="1" y="6" width="4" height="1"/><rect x="9" y="6" width="4" height="1"/><rect x="1" y="7" width="4" height="1"/><rect x="9" y="7" width="4" height="1"/><rect x="0" y="8" width="4" height="1"/><rect x="10" y="8" width="4" height="1"/><rect x="0" y="9" width="14" height="1"/><rect x="0" y="10" width="14" height="1"/><rect x="0" y="11" width="4" height="1"/><rect x="10" y="11" width="4" height="1"/><rect x="0" y="12" width="4" height="1"/><rect x="10" y="12" width="4" height="1"/><rect x="0" y="13" width="4" height="1"/><rect x="10" y="13" width="4" height="1"/></g><g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11"><text x="58.5" y="14" text-anchor="middle"><tspan fill="#2dd5b7" font-weight="700">12</tspan><tspan fill="#c1c497"> sites</tspan></text></g></svg></span><span class="chip-name">osaka-jade</span></div>
+  <div class="chip-cell"><span class="chip"><svg xmlns="http://www.w3.org/2000/svg" width="93" height="20" viewBox="0 0 93 20" role="img" aria-label="12 sites"><title>12 sites</title><rect width="93" height="20" rx="3" fill="#1e1e2e"/><rect width="24" height="20" rx="3" fill="#45475a" fill-opacity="0.45"/><rect x="21" width="3" height="20" fill="#45475a" fill-opacity="0.45"/><g transform="translate(6,4.0) scale(0.8571)" fill="#94e2d5" shape-rendering="crispEdges"><rect x="5" y="0" width="4" height="1"/><rect x="4" y="1" width="6" height="1"/><rect x="3" y="2" width="8" height="1"/><rect x="3" y="3" width="8" height="1"/><rect x="2" y="4" width="4" height="1"/><rect x="8" y="4" width="4" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="8" y="5" width="4" height="1"/><rect x="1" y="6" width="4" height="1"/><rect x="9" y="6" width="4" height="1"/><rect x="1" y="7" width="4" height="1"/><rect x="9" y="7" width="4" height="1"/><rect x="0" y="8" width="4" height="1"/><rect x="10" y="8" width="4" height="1"/><rect x="0" y="9" width="14" height="1"/><rect x="0" y="10" width="14" height="1"/><rect x="0" y="11" width="4" height="1"/><rect x="10" y="11" width="4" height="1"/><rect x="0" y="12" width="4" height="1"/><rect x="10" y="12" width="4" height="1"/><rect x="0" y="13" width="4" height="1"/><rect x="10" y="13" width="4" height="1"/></g><g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11"><text x="58.5" y="14" text-anchor="middle"><tspan fill="#94e2d5" font-weight="700">12</tspan><tspan fill="#cdd6f4"> sites</tspan></text></g></svg></span><span class="chip-name">catppuccin</span></div>
+  <div class="chip-cell"><span class="chip"><svg xmlns="http://www.w3.org/2000/svg" width="93" height="20" viewBox="0 0 93 20" role="img" aria-label="12 sites"><title>12 sites</title><rect width="93" height="20" rx="3" fill="#0d1117"/><rect width="24" height="20" rx="3" fill="#30363d" fill-opacity="0.45"/><rect x="21" width="3" height="20" fill="#30363d" fill-opacity="0.45"/><g transform="translate(6,4.0) scale(0.8571)" fill="#39c5cf" shape-rendering="crispEdges"><rect x="5" y="0" width="4" height="1"/><rect x="4" y="1" width="6" height="1"/><rect x="3" y="2" width="8" height="1"/><rect x="3" y="3" width="8" height="1"/><rect x="2" y="4" width="4" height="1"/><rect x="8" y="4" width="4" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="8" y="5" width="4" height="1"/><rect x="1" y="6" width="4" height="1"/><rect x="9" y="6" width="4" height="1"/><rect x="1" y="7" width="4" height="1"/><rect x="9" y="7" width="4" height="1"/><rect x="0" y="8" width="4" height="1"/><rect x="10" y="8" width="4" height="1"/><rect x="0" y="9" width="14" height="1"/><rect x="0" y="10" width="14" height="1"/><rect x="0" y="11" width="4" height="1"/><rect x="10" y="11" width="4" height="1"/><rect x="0" y="12" width="4" height="1"/><rect x="10" y="12" width="4" height="1"/><rect x="0" y="13" width="4" height="1"/><rect x="10" y="13" width="4" height="1"/></g><g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11"><text x="58.5" y="14" text-anchor="middle"><tspan fill="#39c5cf" font-weight="700">12</tspan><tspan fill="#c9d1d9"> sites</tspan></text></g></svg></span><span class="chip-name">github</span></div>
+  <div class="chip-cell"><span class="chip"><svg xmlns="http://www.w3.org/2000/svg" width="93" height="20" viewBox="0 0 93 20" role="img" aria-label="12 sites"><title>12 sites</title><rect width="93" height="20" rx="3" fill="#1a1b26"/><rect width="24" height="20" rx="3" fill="#393f51" fill-opacity="0.45"/><rect x="21" width="3" height="20" fill="#393f51" fill-opacity="0.45"/><g transform="translate(6,4.0) scale(0.8571)" fill="#7aa2f7" shape-rendering="crispEdges"><rect x="5" y="0" width="4" height="1"/><rect x="4" y="1" width="6" height="1"/><rect x="3" y="2" width="8" height="1"/><rect x="3" y="3" width="8" height="1"/><rect x="2" y="4" width="4" height="1"/><rect x="8" y="4" width="4" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="8" y="5" width="4" height="1"/><rect x="1" y="6" width="4" height="1"/><rect x="9" y="6" width="4" height="1"/><rect x="1" y="7" width="4" height="1"/><rect x="9" y="7" width="4" height="1"/><rect x="0" y="8" width="4" height="1"/><rect x="10" y="8" width="4" height="1"/><rect x="0" y="9" width="14" height="1"/><rect x="0" y="10" width="14" height="1"/><rect x="0" y="11" width="4" height="1"/><rect x="10" y="11" width="4" height="1"/><rect x="0" y="12" width="4" height="1"/><rect x="10" y="12" width="4" height="1"/><rect x="0" y="13" width="4" height="1"/><rect x="10" y="13" width="4" height="1"/></g><g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11"><text x="58.5" y="14" text-anchor="middle"><tspan fill="#7aa2f7" font-weight="700">12</tspan><tspan fill="#c0caf5"> sites</tspan></text></g></svg></span><span class="chip-name">tokyo-night</span></div>
+  <div class="chip-cell"><span class="chip"><svg xmlns="http://www.w3.org/2000/svg" width="93" height="20" viewBox="0 0 93 20" role="img" aria-label="12 sites"><title>12 sites</title><rect width="93" height="20" rx="3" fill="#fafbfe"/><rect width="24" height="20" rx="3" fill="#c8cfda" fill-opacity="0.45"/><rect x="21" width="3" height="20" fill="#c8cfda" fill-opacity="0.45"/><g transform="translate(6,4.0) scale(0.8571)" fill="#0969da" shape-rendering="crispEdges"><rect x="5" y="0" width="4" height="1"/><rect x="4" y="1" width="6" height="1"/><rect x="3" y="2" width="8" height="1"/><rect x="3" y="3" width="8" height="1"/><rect x="2" y="4" width="4" height="1"/><rect x="8" y="4" width="4" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="8" y="5" width="4" height="1"/><rect x="1" y="6" width="4" height="1"/><rect x="9" y="6" width="4" height="1"/><rect x="1" y="7" width="4" height="1"/><rect x="9" y="7" width="4" height="1"/><rect x="0" y="8" width="4" height="1"/><rect x="10" y="8" width="4" height="1"/><rect x="0" y="9" width="14" height="1"/><rect x="0" y="10" width="14" height="1"/><rect x="0" y="11" width="4" height="1"/><rect x="10" y="11" width="4" height="1"/><rect x="0" y="12" width="4" height="1"/><rect x="10" y="12" width="4" height="1"/><rect x="0" y="13" width="4" height="1"/><rect x="10" y="13" width="4" height="1"/></g><g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11"><text x="58.5" y="14" text-anchor="middle"><tspan fill="#0969da" font-weight="700">12</tspan><tspan fill="#242938"> sites</tspan></text></g></svg></span><span class="chip-name">catppuccin-latte</span></div>
+</div>
+<pre class="code"><span class="k">$</span> craft burn --theme tokyo-night</pre>
+
+<h2><span class="n">03</span>What the number counts</h2>
+<p><b>Distinct referring domains over the last thirty days.</b> A visit counts when somebody arrived by
+following a link from another site — GA4's <code>referral</code> medium. Search engines, ad campaigns
+and people typing your address in are all traffic, and none of them is a site linking to you, so none
+of them is counted.</p>
+<p>One site counts once, however GA spelled it: <code>News.YCombinator.com</code>,
+<code>news.ycombinator.com</code> and <code>news.ycombinator.com/item</code> are one link, not three.</p>
+
+<h2><span class="n">04</span>A chiclet, and what became of it</h2>
+<p>If you kept a blog in 2007, you had one of these. FeedBurner's counter — everybody called it the
+chiclet — was a small orange button in the sidebar with a number on it, and the number was how many
+people subscribed to your feed. Sidebars were full of them, stacked with the Creative Commons badge and
+the Technorati rank and a button that said this site was best viewed in Firefox.</p>
+
+<p>It mattered more than it should have. A chiclet reading <b>4,812 readers</b> was a flex, and one
+reading <b>7</b> was an act of honesty that made the whole sidebar likeable. Either way it was
+<i>your</i> number about <i>your</i> site, shown because you decided to show it — which is a different
+thing from a follower count on a platform that owns both the count and you.</p>
+
+<p>FeedBurner was four people in Chicago in 2004. Google bought it in 2007 for a figure everyone quotes
+as around $100&nbsp;million; one of its founders, Dick Costolo, later went off to run Twitter. And then
+it was left alone for a very long time. The API was retired, AdSense for Feeds was switched off, the
+email service finally closed in 2021, and the chiclets sat in a decade of sidebars showing less and less
+until most of them showed nothing at all.</p>
+
+<h3>The number nobody could explain</h3>
+<p>The complaint that dogged it the whole time was that the count would not sit still. People would
+watch it halve overnight and write posts asking what they had done wrong. The answer was that the number
+was assembled from what feed readers reported when they happened to poll — so a big aggregator having a
+quiet day took a slice of your subscribers with it, and gave them back tomorrow.</p>
+
+<p>The end of that story is the best illustration of it. When Google Reader shut down in 2013, chiclets
+across the entire web fell off a cliff on the same afternoon, because Reader had been doing most of the
+counting all along. Thousands of people watched their audience appear to vanish, and their audience had
+not gone anywhere.</p>
+
+<h3>So this one is boring on purpose</h3>
+<p>That is the lesson worth inheriting, and the reason the window here is a month wide. A number that
+visibly jitters reads as broken whatever it says, and a broken-looking number gets taken off the page —
+which is the one failure mode a badge cannot survive.</p>
+<p>Thirty days of distinct referring domains moves slowly by construction. The badge serves the last
+count rather than computing one per request, so it cannot flicker between two answers on two reloads
+either. For a number sitting on somebody's homepage, boring is the highest compliment available.</p>
+
+<h2><span class="n">05</span>Keeping it current</h2>
+<p>The count is published when you run the command, not scraped from you on a schedule — anacraft has no
+standing access to your Analytics and this is not the feature that would introduce it. Re-run to
+recount; the badge already on your page picks it up without an edit.</p>
+<pre class="code"><span class="d"># same badge, same URL, fresh number</span>
+<span class="k">$</span> craft burn --refresh
+
+<span class="d"># or let cron keep it warm — weekly is plenty for a 30-day window</span>
+0 7 * * 1  craft burn --refresh</pre>
+<p>The badge holds its last number in between, so a machine that is off for a week shows last week's
+count rather than a zero.</p>
+
+<h2><span class="n">06</span>What it costs you, and what it costs us</h2>
+<p>Nothing, and it is not part of the <a href="/pricing.html">subscription</a>. A badge exists to be seen
+by people who have never heard of anacraft — charging for the privilege of putting our name on your
+site would be charging in the wrong direction.</p>
+<p>Being straight about the one trade: the badge is an image served from our endpoint, so loading it
+reaches us the way loading any hosted image reaches its host. We set no cookie, the badge carries no
+script, and the row behind it holds a number and four colours — but your visitors' requests do arrive
+here, and a badge that claimed otherwise would be lying about how images work. If that is not a trade
+you want, do not wear the badge: nothing else in anacraft does this.</p>
+<p>Your Analytics stays where it is. The counting happens on your machine, and what leaves it is one
+integer.</p>
+
+<h2><span class="n">07</span>If the badge is blank</h2>
+<p>An unknown id renders as a plain <code>anacraft</code> pill rather than a broken image or a zero —
+somebody else's page is not the place to display our errors. If you see that, the row is gone or the URL
+is wrong; <code>craft burn</code> prints the current one.</p>
+<p>A count of <code>0</code> is a real answer: nothing has linked to you in thirty days. It is also the
+number most worth watching change.</p>
+
+</main>
+
+
+<div class="wrap">
+<!-- footer:start -->
+<footer>
+  <div class="wrap" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;width:100%">
+    <span class="by"><span class="tag">crafted</span> in San Francisco <svg class="heart" role="img" aria-label="love" viewBox="0 0 9 8" fill="var(--jade)" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="5" y="1" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="1" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/></svg></span>
+    <span class="legal">© 2026 · All rights reserved</span>
+    <span class="r">
+      <a href="/privacy.html">Privacy Policy</a>
+      <a href="/terms.html">Terms of Service</a>
+      <a href="mailto:support@anacraft.dev">support@anacraft.dev</a>
+    </span>
+  </div>
+</footer>
+<!-- footer:end -->
+</div>
+
+</body>
+</html>
