@@ -320,6 +320,16 @@ impl Panels {
             || self.events
     }
 
+    /// Panels that live in the left-hand column, top to bottom.
+    ///
+    /// Three of them, and the column is there for any one of them. It used to
+    /// be there for the vitals alone, which meant `5` did not hide a panel so
+    /// much as close half the dashboard — the chart and the map went with it,
+    /// and the only way to get them back was to turn the figures on again.
+    fn left_any(&self) -> bool {
+        self.vitals || self.map || self.events
+    }
+
     /// Panels that live in the right-hand column, top to bottom.
     fn right_any(&self) -> bool {
         self.live || self.chunks || self.realms_ranked || self.portals || self.trend
@@ -2149,8 +2159,24 @@ fn left_column(panels: &Panels, height: u16) -> Vec<(Stack, u16)> {
     if panels.map && cost(MAP_ROWS, !stack.is_empty()) {
         stack.push((Stack::Map, MAP_ROWS));
     }
-    if cost(VITALS_MIN_ROWS, !stack.is_empty()) {
+    if panels.vitals && cost(VITALS_MIN_ROWS, !stack.is_empty()) {
         stack.push((Stack::Vitals, VITALS_MIN_ROWS));
+    }
+
+    // With the figures off there is nothing below the map that can use a row,
+    // so it takes as many as it can draw and the chart above it takes the rest.
+    // Only then: while the vitals are up those rows are what brings their bars
+    // and gaps back, and a map cannot spend a row past `MAP_MAX_ROWS` at all —
+    // giving it three of theirs would buy dead ground with a density.
+    if !panels.vitals {
+        if let Some(slot) = stack
+            .iter_mut()
+            .find(|(panel, _)| matches!(panel, Stack::Map))
+        {
+            // Not taken off `budget`: the rows left after this pass are handed
+            // out by `draw`, from the claims this returns.
+            slot.1 += budget.min(MAP_MAX_ROWS - MAP_ROWS);
+        }
     }
 
     // Who gets rows is one question; where they sit is another. Sort back into
@@ -2230,8 +2256,12 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
         return;
     }
 
+    // Each column is drawn if anything in it is on, and whichever is alone
+    // takes the whole body. Hiding a panel hides that panel: the ones left in
+    // its column take the rows it was using, in the order they sit in.
     let right_any = dash.panels.right_any();
-    let (left, right) = if dash.panels.vitals && right_any {
+    let left_any = dash.panels.left_any();
+    let (left, right) = if left_any && right_any {
         let split = if narrow { (63, 37) } else { (56, 44) };
         let cols = Layout::default()
             .direction(Direction::Horizontal)
@@ -2242,7 +2272,7 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
             .spacing(1)
             .split(area);
         (Some(cols[0]), Some(cols[1]))
-    } else if dash.panels.vitals {
+    } else if left_any {
         (Some(area), None)
     } else {
         (None, Some(area))
@@ -4347,6 +4377,77 @@ mod tests {
             .iter()
             .find(|(panel, _)| std::mem::discriminant(panel) == std::mem::discriminant(&want))
             .map(|(_, rows)| *rows)
+    }
+
+    #[test]
+    fn hiding_one_panel_hides_one_panel() {
+        // `5` used to close half the dashboard: the left column was drawn only
+        // if the vitals were on, so turning the figures off took the chart and
+        // the map with them and nothing in that half could be brought back
+        // without them.
+        let without_vitals = Panels {
+            vitals: false,
+            ..all_three()
+        };
+        assert!(
+            without_vitals.left_any(),
+            "the column went with the panel that was switched off"
+        );
+
+        let stack = left_column(&without_vitals, 40);
+        assert!(
+            placed(&stack, Stack::Events).is_some(),
+            "the chart went too"
+        );
+        assert!(placed(&stack, Stack::Map).is_some(), "the map went too");
+        assert!(
+            placed(&stack, Stack::Vitals).is_none(),
+            "the figures stayed"
+        );
+
+        // And the rows the figures were using are spent rather than left as a
+        // gap: the map takes as many as it can draw, the chart takes the rest.
+        assert_eq!(
+            placed(&stack, Stack::Map),
+            Some(MAP_MAX_ROWS),
+            "the map kept its short box with rows going spare"
+        );
+
+        // The other two, the same way round.
+        let only_vitals = Panels {
+            events: false,
+            map: false,
+            ..all_three()
+        };
+        assert!(only_vitals.left_any());
+        assert_eq!(
+            left_column(&only_vitals, 40).len(),
+            1,
+            "a panel that is off claimed rows"
+        );
+
+        // Nothing left on that side, and the column is not drawn at all.
+        let neither = Panels {
+            events: false,
+            map: false,
+            vitals: false,
+            ..all_three()
+        };
+        assert!(!neither.left_any());
+        assert!(left_column(&neither, 40).is_empty());
+    }
+
+    #[test]
+    fn the_map_only_takes_the_vitals_rows_when_the_vitals_are_gone() {
+        // The regression the growth above could cause. At the size the site
+        // captures, three rows moved to the map are three the figures needed to
+        // get their bars back.
+        const CAPTURE_BODY: u16 = 38;
+        assert_eq!(
+            placed(&left_column(&all_three(), CAPTURE_BODY), Stack::Map),
+            Some(MAP_ROWS),
+            "the map grew at the figures' expense"
+        );
     }
 
     #[test]
