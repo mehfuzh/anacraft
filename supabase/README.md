@@ -203,7 +203,15 @@ five minutes at a number that moves on the order of days.
 It holds no credentials and can reach no Analytics. The count was worked out on
 the site owner's own machine and published through `publish_badge`, which takes
 a secret minted alongside the badge id; the anon key cannot be the check,
-because it ships inside a binary anybody can download. Colours travel in the
+because it ships inside a binary anybody can download.
+
+Nor is there a schedule on this side that recounts, and there cannot be: only a
+machine with the owner's credentials can count. `craft burn` mints the badge
+once, and `burn::keep_current` republishes the number from the dashboard,
+`craft watch` and the MCP server as they run — twice a day at most, against a
+thirty-day window.
+A cron here would mean holding standing access to somebody's Analytics, which
+is the one thing this whole arrangement exists to avoid. Colours travel in the
 row rather than living in this function, so a palette added to the CLI works
 the day it ships instead of the day this is redeployed.
 

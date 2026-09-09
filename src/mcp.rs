@@ -87,6 +87,16 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
         crate::license::sync(cfg.supporter).await
     };
 
+    // The badge's number, kept current by a session the assistant was having
+    // anyway. Nothing is served to the client from this and nothing is printed
+    // — stdout is the protocol here — so it is spawned and forgotten. Skipped
+    // in demo, which has no account and no badge to publish to.
+    if !demo {
+        if let Ok(id) = cfg.resolve_property(property) {
+            crate::burn::keep_current(&id);
+        }
+    }
+
     let source = if demo {
         // The demo is the shop window: no account, no subscription, no gate.
         // It exists so the server can be wired into a client and looked at

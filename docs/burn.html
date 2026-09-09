@@ -228,7 +228,9 @@ already uses.</p>
 <h2><span class="n">02</span>Pick a palette</h2>
 <p>The badge wears the dashboard's own themes. <code>--theme</code> takes any of them, and the colours
 are resolved when the badge is minted rather than when it is served — so a palette added to the binary
-works the day it ships.</p>
+works the day it ships. A badge then keeps the palette it was minted in until you pass
+<code>--theme</code> again: trying a theme in the dashboard for an evening does not restyle the pill
+on your homepage.</p>
 <div class="chips">
   <div class="chip-cell"><span class="chip"><svg xmlns="http://www.w3.org/2000/svg" width="93" height="20" viewBox="0 0 93 20" role="img" aria-label="12 sites"><title>12 sites</title><rect width="93" height="20" rx="3" fill="#111c18"/><rect width="24" height="20" rx="3" fill="#3a5247" fill-opacity="0.45"/><rect x="21" width="3" height="20" fill="#3a5247" fill-opacity="0.45"/><g transform="translate(6,4.0) scale(0.8571)" fill="#2dd5b7" shape-rendering="crispEdges"><rect x="5" y="0" width="4" height="1"/><rect x="4" y="1" width="6" height="1"/><rect x="3" y="2" width="8" height="1"/><rect x="3" y="3" width="8" height="1"/><rect x="2" y="4" width="4" height="1"/><rect x="8" y="4" width="4" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="8" y="5" width="4" height="1"/><rect x="1" y="6" width="4" height="1"/><rect x="9" y="6" width="4" height="1"/><rect x="1" y="7" width="4" height="1"/><rect x="9" y="7" width="4" height="1"/><rect x="0" y="8" width="4" height="1"/><rect x="10" y="8" width="4" height="1"/><rect x="0" y="9" width="14" height="1"/><rect x="0" y="10" width="14" height="1"/><rect x="0" y="11" width="4" height="1"/><rect x="10" y="11" width="4" height="1"/><rect x="0" y="12" width="4" height="1"/><rect x="10" y="12" width="4" height="1"/><rect x="0" y="13" width="4" height="1"/><rect x="10" y="13" width="4" height="1"/></g><g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11"><text x="58.5" y="14" text-anchor="middle"><tspan fill="#2dd5b7" font-weight="700">12</tspan><tspan fill="#c1c497"> sites</tspan></text></g></svg></span><span class="chip-name">osaka-jade</span></div>
   <div class="chip-cell"><span class="chip"><svg xmlns="http://www.w3.org/2000/svg" width="93" height="20" viewBox="0 0 93 20" role="img" aria-label="12 sites"><title>12 sites</title><rect width="93" height="20" rx="3" fill="#1e1e2e"/><rect width="24" height="20" rx="3" fill="#45475a" fill-opacity="0.45"/><rect x="21" width="3" height="20" fill="#45475a" fill-opacity="0.45"/><g transform="translate(6,4.0) scale(0.8571)" fill="#94e2d5" shape-rendering="crispEdges"><rect x="5" y="0" width="4" height="1"/><rect x="4" y="1" width="6" height="1"/><rect x="3" y="2" width="8" height="1"/><rect x="3" y="3" width="8" height="1"/><rect x="2" y="4" width="4" height="1"/><rect x="8" y="4" width="4" height="1"/><rect x="2" y="5" width="4" height="1"/><rect x="8" y="5" width="4" height="1"/><rect x="1" y="6" width="4" height="1"/><rect x="9" y="6" width="4" height="1"/><rect x="1" y="7" width="4" height="1"/><rect x="9" y="7" width="4" height="1"/><rect x="0" y="8" width="4" height="1"/><rect x="10" y="8" width="4" height="1"/><rect x="0" y="9" width="14" height="1"/><rect x="0" y="10" width="14" height="1"/><rect x="0" y="11" width="4" height="1"/><rect x="10" y="11" width="4" height="1"/><rect x="0" y="12" width="4" height="1"/><rect x="10" y="12" width="4" height="1"/><rect x="0" y="13" width="4" height="1"/><rect x="10" y="13" width="4" height="1"/></g><g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11"><text x="58.5" y="14" text-anchor="middle"><tspan fill="#94e2d5" font-weight="700">12</tspan><tspan fill="#cdd6f4"> sites</tspan></text></g></svg></span><span class="chip-name">catppuccin</span></div>
@@ -283,16 +285,22 @@ count rather than computing one per request, so it cannot flicker between two an
 either. For a number sitting on somebody's homepage, boring is the highest compliment available.</p>
 
 <h2><span class="n">05</span>Keeping it current</h2>
-<p>The count is published when you run the command, not scraped from you on a schedule — anacraft has no
-standing access to your Analytics and this is not the feature that would introduce it. Re-run to
-recount; the badge already on your page picks it up without an edit.</p>
-<pre class="code"><span class="d"># same badge, same URL, fresh number</span>
-<span class="k">$</span> craft burn --refresh
-
-<span class="d"># or let cron keep it warm — weekly is plenty for a 30-day window</span>
-0 7 * * 1  craft burn --refresh</pre>
-<p>The badge holds its last number in between, so a machine that is off for a week shows last week's
-count rather than a zero.</p>
+<p><b>Mint it once.</b> After that the number keeps itself up to date: <code>craft dash</code>,
+<code>craft watch</code> and <code>craft mcp</code> recount the referring domains and republish
+while they run, in the background, for the property you are on. Leave any of them up and it goes on
+republishing — about twice a day, which is as often as a thirty-day window is worth counting.</p>
+<p>So you never re-run the command and you never touch the page. The badge is an image served from
+the number last published, and it picks up a new count on its next load.</p>
+<p>The recount happens on your machine rather than ours, and that is the whole design: the number is
+read with your own credentials and published as one integer, against an id that names nothing.
+anacraft has no standing access to your Analytics — a schedule running on our side would need
+exactly that, so there isn't one.</p>
+<p>Which does mean the number moves when you use anacraft. A laptop that stays shut for a fortnight
+leaves the badge showing a fortnight-old count rather than a zero, and it catches up the next time
+you open the dashboard. On a server, <code>craft watch</code> keeps it current on its own; cron
+still works too, for a machine that runs neither:</p>
+<pre class="code"><span class="d"># weekly is plenty for a 30-day window</span>
+0 7 * * 1  craft burn</pre>
 
 <h2><span class="n">06</span>What it costs you, and what it costs us</h2>
 <p>Nothing, and it is not part of the <a href="/pricing.html">subscription</a>. A badge exists to be seen

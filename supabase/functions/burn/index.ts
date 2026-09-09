@@ -17,10 +17,10 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 /// How long a badge may be served from a cache before the origin is asked
-/// again. The number behind it is a thirty-day count that the CLI refreshes by
-/// hand, so it moves on the order of days — five minutes is already far finer
-/// than the data underneath it, and it keeps a popular site's badge off this
-/// function almost entirely.
+/// again. The number behind it is a thirty-day count that the CLI republishes
+/// twice a day at most, so it moves on the order of days — five minutes is
+/// already far finer than the data underneath it, and it keeps a popular
+/// site's badge off this function almost entirely.
 const MAX_AGE = 300;
 
 /// The one hard cap on what the badge can say. The number comes from a row

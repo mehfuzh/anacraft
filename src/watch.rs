@@ -971,6 +971,12 @@ pub async fn run(cfg: &Config, property: Option<&str>, opts: Options) -> Result<
     // exits on the first of those is a watch that was not running when the
     // thing it was watching for happened.
     let every = every.max(MIN_INTERVAL);
+    // The best host the badge has: a watch is the thing people leave running
+    // on a machine that never opens a dashboard. Spawned and silent, and it
+    // does nothing at all unless a badge was minted here — see
+    // `burn::keep_current`. Not in the one-shot branch above, which exits long
+    // before a recount could finish.
+    crate::burn::keep_current(&id);
     loop {
         match pass(&ga, cfg, &id, &title, &opts).await {
             Ok(_) => {}

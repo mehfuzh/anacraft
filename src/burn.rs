@@ -21,8 +21,14 @@
 //! and publishes one integer, so the row behind the badge holds an answer and
 //! never the credentials that produced it — the endpoint could not reach
 //! anybody's Analytics if it tried.
+//!
+//! Which is also why the number is kept current from here rather than by a
+//! schedule on the service: only a machine with a credential can count, so
+//! `keep_current` publishes from the sessions somebody was having anyway. The
+//! command is run once, and the badge on the page follows on its own.
 
 use anyhow::{bail, Context, Result};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::PathBuf;
@@ -62,7 +68,16 @@ const REFERRAL: &str = "referral";
 const DEFAULT_LABEL: &str = "sites";
 const DEFAULT_LABEL_ONE: &str = "site";
 
-/// The badge this machine minted, kept beside the other per-machine records.
+/// How long a published count is left alone before a launch recounts it.
+///
+/// The window underneath is thirty days, so the number moves on the order of
+/// days: a badge recounted twice an hour would publish the same integer both
+/// times and spend somebody's GA quota to do it. Twelve hours keeps the badge
+/// current for anybody who opens the dashboard once a day, and costs them one
+/// extra report when they do.
+const FRESH_FOR: Duration = Duration::hours(12);
+
+/// A badge this machine minted, kept beside the other per-machine records.
 ///
 /// The secret is the only thing that can change the number, so this is written
 /// 0600 like the tokens and not into the shareable config.
@@ -76,31 +91,110 @@ pub struct Badge {
     /// its own badge rather than overwriting this one.
     pub property: String,
     pub theme: String,
+    /// When the count behind the badge was last accepted by the service.
+    ///
+    /// Held locally so the automatic refresh can tell whether it is due
+    /// without a request — the same reason `license::Record` keeps `checked`.
+    /// `None` is a badge minted before this was recorded, which reads as due,
+    /// and being due once is the right way for those to arrive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<DateTime<Utc>>,
 }
 
 impl Badge {
-    fn path() -> Result<PathBuf> {
-        Ok(config::home()?.join("burn.json"))
-    }
-
-    fn load() -> Option<Badge> {
-        Self::path()
-            .ok()
-            .filter(|p| p.exists())
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-    }
-
-    fn save(&self) -> Result<()> {
-        config::write_private(&Self::path()?, &serde_json::to_string_pretty(self)?)
-    }
-
     /// Where the image lives. The project's own domain, because that is where
     /// the function is — a prettier host in front of it is a DNS change and
     /// nothing else, and the badge URL is the one thing here that cannot be
     /// changed afterwards without blanking every badge already embedded.
     pub fn url(&self, project: &str) -> String {
         format!("{project}/functions/v1/burn/{}.svg", self.id)
+    }
+
+    /// Whether the number is old enough to be worth counting again.
+    fn is_stale(&self, now: DateTime<Utc>) -> bool {
+        match self.published_at {
+            // A clock that went backwards leaves this false rather than
+            // negative-and-true, so a machine with a wrong date recounts on
+            // its next launch instead of on every single one.
+            Some(at) => now - at >= FRESH_FOR,
+            None => true,
+        }
+    }
+}
+
+/// Every badge this machine minted, one per property.
+///
+/// A list rather than the single record this file started as. `burn.json` held
+/// one badge, so minting for a second property overwrote the first — and with
+/// it that badge's secret, which is the one thing here that cannot be
+/// recovered. The badge already embedded on the first site would then be
+/// serving a number nobody could ever correct again.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Book {
+    badges: Vec<Badge>,
+}
+
+impl Book {
+    fn path() -> Result<PathBuf> {
+        Ok(config::home()?.join("burn.json"))
+    }
+
+    fn load() -> Book {
+        // Every failure here — no file, no home directory, hand-mangled JSON —
+        // means the same thing: this machine has minted nothing. None of them
+        // is worth failing a command over.
+        Self::path()
+            .ok()
+            .filter(|p| p.exists())
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|raw| Self::parse(&raw))
+            .unwrap_or_default()
+    }
+
+    /// Reads either shape the file has had.
+    ///
+    /// `badges` is deliberately *not* `#[serde(default)]`: with a default,
+    /// this parse would succeed on the old single-badge file and hand back an
+    /// empty list, and the next save would write that empty list over the only
+    /// copy of a badge's secret. Failing here is what routes the old shape to
+    /// the reader below, which is the only one that understands it.
+    fn parse(raw: &str) -> Book {
+        if let Ok(book) = serde_json::from_str::<Book>(raw) {
+            return book;
+        }
+        match serde_json::from_str::<Badge>(raw) {
+            Ok(one) => Book { badges: vec![one] },
+            Err(_) => Book::default(),
+        }
+    }
+
+    fn get(&self, property: &str) -> Option<&Badge> {
+        self.badges.iter().find(|badge| badge.property == property)
+    }
+
+    /// Write a badge down, replacing whatever this property had.
+    ///
+    /// Re-reads the file first rather than saving a `Book` the caller loaded
+    /// earlier: the refresh below runs across a network call, and a book read
+    /// before one can be a badge out of date by the time it is written.
+    fn record(badge: Badge) -> Result<()> {
+        let mut book = Book::load();
+        // By index rather than by `iter_mut`: a badge already in the list is
+        // replaced where it sits, so the file keeps the order badges were
+        // minted in.
+        match book
+            .badges
+            .iter()
+            .position(|held| held.property == badge.property)
+        {
+            Some(at) => book.badges[at] = badge,
+            None => book.badges.push(badge),
+        }
+        book.save()
+    }
+
+    fn save(&self) -> Result<()> {
+        config::write_private(&Self::path()?, &serde_json::to_string_pretty(self)?)
     }
 }
 
@@ -171,12 +265,7 @@ fn referring_domain(source_medium: &str) -> Option<String> {
 }
 
 /// `craft burn`.
-pub async fn run(
-    property: &str,
-    theme: Option<String>,
-    label: Option<String>,
-    refresh: bool,
-) -> Result<()> {
+pub async fn run(property: &str, theme: Option<String>, label: Option<String>) -> Result<()> {
     let cfg = Config::load()?;
     // The site's own name, as its owner wrote it — for the alt text and for
     // the line this command prints, never for the pill. A property reached by
@@ -194,25 +283,30 @@ pub async fn run(
         );
     };
 
+    // An existing badge keeps its id: it is already in somebody's HTML by now,
+    // and a badge that changes its own URL is a badge that goes blank.
+    let existing = Book::load().get(property).cloned();
+
     // The palette is resolved here rather than at serve time: the themes live
     // in this binary, so carrying the colors means a new one works the day it
     // ships instead of the day the endpoint is redeployed.
-    let palette = match &theme {
-        Some(name) => theme::THEMES
-            .iter()
-            .find(|p| p.name == name)
-            .copied()
-            .with_context(|| {
-                format!(
-                    "no theme called {name} — try {}",
-                    theme::THEMES
-                        .iter()
-                        .map(|p| p.name)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })?,
-        None => theme::palette(),
+    //
+    // `--theme` restyles the badge; without it, one that already exists keeps
+    // the palette it was minted in. The dashboard's theme is not the badge's:
+    // somebody trying a palette for an evening, or reading a property that
+    // carries one of its own, has not asked for the pill on their homepage to
+    // change color — and re-running this is now something the machine does on
+    // its own, where there is nobody to be surprised at.
+    let palette = match theme.as_deref() {
+        // A name typed on the command line is worth an error when it is wrong.
+        Some(name) => named(name)?,
+        // A name read back from the file is not: a palette that shipped once
+        // and was later renamed would otherwise wedge every refresh of a badge
+        // minted in it.
+        None => existing
+            .as_ref()
+            .and_then(|badge| named(&badge.theme).ok())
+            .unwrap_or_else(theme::palette),
     };
 
     let ga = Ga::new()?;
@@ -238,11 +332,7 @@ pub async fn run(
     );
     let count = count_linking_sites(&ga, property).await?;
 
-    // An existing badge keeps its id: it is already in somebody's HTML by now,
-    // and a badge that changes its own URL is a badge that goes blank.
-    let existing = Badge::load().filter(|badge| badge.property == property);
     let badge = match existing {
-        Some(badge) if refresh => badge,
         Some(badge) => Badge {
             theme: palette.name.to_string(),
             ..badge
@@ -252,6 +342,7 @@ pub async fn run(
             secret: crate::license::mint_token(),
             property: property.to_string(),
             theme: palette.name.to_string(),
+            published_at: None,
         },
     };
 
@@ -282,18 +373,21 @@ pub async fn run(
         id: id.trim().trim_matches('"').to_string(),
         ..badge
     };
-    badge.save()?;
+    // Written down before the count goes anywhere. The secret is the only
+    // thing here that cannot be recovered, and a mint that succeeded followed
+    // by a publish that did not would otherwise leave the row owned by a
+    // secret this machine had already forgotten.
+    Book::record(badge.clone())?;
 
-    crate::license::rpc(
-        "publish_badge",
-        json!({
-            "p_id": badge.id,
-            "p_secret": badge.secret,
-            "p_count": count,
-        }),
-    )
-    .await
-    .context("publishing the count")?;
+    publish(&badge, count).await?;
+    // Recorded after the service took the number, not before: a publish that
+    // failed has to stay due, or a bad afternoon would leave the badge looking
+    // fresh and holding an old count for half a day.
+    let badge = Badge {
+        published_at: Some(Utc::now()),
+        ..badge
+    };
+    Book::record(badge.clone())?;
 
     let url = badge.url(&project);
     let plural = if count == 1 {
@@ -317,16 +411,134 @@ pub async fn run(
     println!(
         "  {}\n",
         dim(&format!(
-            "the number is served, not baked in — re-run `craft burn --refresh` \
-             to recount, and the badge on your page follows. {}",
+            "the number is served, not baked in — the dashboard recounts and \
+             republishes it as you use anacraft, so the badge on your page \
+             keeps up on its own. {}",
             match count {
                 0 => "nothing links here yet, so it reads 0 until something does.",
-                _ => "it holds the last count until then.",
+                _ => "it holds the last count in between.",
             }
         ))
     );
 
     Ok(())
+}
+
+/// A shipped palette by name.
+fn named(name: &str) -> Result<&'static theme::Palette> {
+    theme::THEMES
+        .iter()
+        .find(|p| p.name == name)
+        .copied()
+        .with_context(|| {
+            format!(
+                "no theme called {name} — try {}",
+                theme::THEMES
+                    .iter()
+                    .map(|p| p.name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+}
+
+/// Set the number behind a badge.
+///
+/// The secret is the whole of the authorisation — see `publish_badge` in the
+/// migration. Nothing about the account or the property travels with it: one
+/// integer, against an id that names nothing.
+async fn publish(badge: &Badge, count: usize) -> Result<()> {
+    crate::license::rpc(
+        "publish_badge",
+        json!({
+            "p_id": badge.id,
+            "p_secret": badge.secret,
+            "p_count": count,
+        }),
+    )
+    .await
+    .context("publishing the count")?;
+    Ok(())
+}
+
+/// How often the loop below looks at the clock.
+///
+/// Not how often it publishes — that is `FRESH_FOR`. This only has to be fine
+/// enough that a dashboard left open across a weekend does not sit a whole
+/// extra day past due, and coarse enough to cost nothing when it finds there
+/// is nothing to do, which is almost every time.
+const TICK: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Keep the badge's number current for as long as this process runs.
+///
+/// This is what makes the count dynamic, and it has to live here: the badge is
+/// served from a row, and that row can only be written by a machine holding
+/// both the secret and a credential for the property. The service has neither
+/// and is never going to — a cron in Supabase would mean handing it standing
+/// access to somebody's Analytics, which is the one thing the whole feature is
+/// arranged to avoid.
+///
+/// So the recount rides on the sessions people were having anyway. The
+/// dashboard, `craft watch` and the MCP server all already hold a token for
+/// the property being read, and all already make a cached, best-effort service
+/// call on the way in; this is the same shape, one step further. It publishes
+/// on the way in and then keeps publishing, because these are things people
+/// leave running for days — a badge that went stale behind a running dashboard
+/// would be the same chore in a better disguise.
+///
+/// Only those three, and only because they are long-lived. A one-shot command
+/// would exit before the recount it started could finish, and spawning one
+/// there would be a GA request thrown away.
+///
+/// Spawned rather than awaited: nobody waits for a number on their homepage to
+/// be republished before their own dashboard draws.
+///
+/// Silent on every failure, and that is deliberate rather than lazy. The
+/// caller owns the terminal a moment later — the dashboard draws over it, and
+/// the MCP server holds stdout as a protocol channel where a stray line is a
+/// parse error at the client — so there is nowhere for a complaint to go.
+/// Nothing much is lost by keeping quiet, either: the row goes on serving its
+/// last count, which is the failure this was designed around.
+pub fn keep_current(property: &str) {
+    // A build with no service configured has no badge to keep current.
+    if crate::license::project().is_none() {
+        return;
+    }
+    // Nothing minted here for the property being read. Checked before spawning
+    // so the overwhelmingly common case — no badge at all — costs one file
+    // read and no task.
+    if Book::load().get(property).is_none() {
+        return;
+    }
+
+    let property = property.to_string();
+    tokio::spawn(async move {
+        loop {
+            // Re-read every tick: this loop is the thing that moves
+            // `published_at`, and `craft burn` may have moved it too.
+            let due = Book::load()
+                .get(&property)
+                .filter(|badge| badge.is_stale(Utc::now()))
+                .cloned();
+            if let Some(badge) = due {
+                // An expired refresh token, an exhausted GA quota, a service
+                // that is down. Every one of them means the badge keeps the
+                // number it has and this asks again next tick.
+                let _ = refresh(&property, badge).await;
+            }
+            tokio::time::sleep(TICK).await;
+        }
+    });
+}
+
+/// One recount, published.
+async fn refresh(property: &str, badge: Badge) -> Result<()> {
+    let count = count_linking_sites(&Ga::new()?, property).await?;
+    publish(&badge, count).await?;
+    Book::record(Badge {
+        published_at: Some(Utc::now()),
+        ..badge
+    })
 }
 
 /// The HTML to paste.
@@ -402,6 +614,66 @@ mod tests {
         for got in &seen {
             assert_eq!(got.as_deref(), Some("news.ycombinator.com"), "{seen:?}");
         }
+    }
+
+    #[test]
+    fn the_file_written_before_there_was_a_list_still_reads() {
+        // `burn.json` was one badge, and the secret in it is the only thing
+        // that can ever correct the number on somebody's page. Reading this
+        // shape as an empty list would lose it on the next save, so the
+        // fallback is the whole point of `Book::parse`.
+        let book = Book::parse(
+            r#"{"id":"abc123def456","secret":"s3cret","property":"397412345","theme":"github"}"#,
+        );
+        assert_eq!(book.badges.len(), 1, "{book:?}");
+        let badge = book.get("397412345").expect("the badge");
+        assert_eq!(badge.secret, "s3cret");
+        // Nothing recorded a publish time, so the first launch recounts.
+        assert!(badge.is_stale(Utc::now()));
+    }
+
+    #[test]
+    fn a_second_property_does_not_evict_the_first() {
+        let book = Book::parse(
+            r#"{"badges":[
+                 {"id":"aaaaaaaaaaaa","secret":"one","property":"111","theme":"github"},
+                 {"id":"bbbbbbbbbbbb","secret":"two","property":"222","theme":"light"}
+               ]}"#,
+        );
+        assert_eq!(book.get("111").map(|b| b.secret.as_str()), Some("one"));
+        assert_eq!(book.get("222").map(|b| b.secret.as_str()), Some("two"));
+        // A property nobody minted for is not an error and not a badge.
+        assert!(book.get("333").is_none());
+    }
+
+    #[test]
+    fn a_mangled_file_reads_as_no_badges_rather_than_failing() {
+        assert!(Book::parse("{").badges.is_empty());
+        assert!(Book::parse("").badges.is_empty());
+    }
+
+    #[test]
+    fn a_count_is_recounted_once_it_is_older_than_the_window() {
+        let now = Utc::now();
+        let badge = |published_at| Badge {
+            id: "abc123def456".into(),
+            secret: "s3cret".into(),
+            property: "397412345".into(),
+            theme: "osaka-jade".into(),
+            published_at,
+        };
+
+        // Just published: the number underneath moves on the order of days,
+        // so recounting now would spend a GA report to publish the same
+        // integer.
+        assert!(!badge(Some(now)).is_stale(now));
+        assert!(!badge(Some(now - FRESH_FOR + Duration::minutes(1))).is_stale(now));
+        assert!(badge(Some(now - FRESH_FOR)).is_stale(now));
+        assert!(badge(Some(now - Duration::days(9))).is_stale(now));
+
+        // A clock that went backwards leaves the badge fresh rather than
+        // recounting on every tick until the date is fixed.
+        assert!(!badge(Some(now + Duration::days(1))).is_stale(now));
     }
 
     #[test]

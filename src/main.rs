@@ -246,19 +246,18 @@ enum Command {
     /// Mint the badge for your own site — how many other sites link to it.
     ///
     /// Counts distinct referring domains over the last thirty days and prints
-    /// the HTML to paste. The number is served, not baked in, so the badge on
-    /// your page follows every `craft burn --refresh`. Free, and deliberately:
-    /// a badge exists to be seen by people who have never heard of anacraft.
+    /// the HTML to paste. Run once: the number is served rather than baked in,
+    /// and the dashboard, `craft watch` and the MCP server recount and
+    /// republish it as they run, so the badge on the page keeps up without
+    /// this command being run again. Free, and deliberately: a badge exists to
+    /// be seen by people who have never heard of anacraft.
     Burn {
-        /// Which palette to render it in. Defaults to the dashboard's.
+        /// Which palette to render it in. Keeps the badge's own by default.
         #[arg(long)]
         theme: Option<String>,
         /// The words beside the number. Default: "sites link here".
         #[arg(long)]
         label: Option<String>,
-        /// Recount and republish, keeping the badge already on your page.
-        #[arg(long)]
-        refresh: bool,
     },
     /// Print the site's dashboard captures as HTML. Used by `make capture`.
     #[command(hide = true)]
@@ -314,16 +313,15 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Theme { name } => cmd_theme(name.as_deref()),
-        Command::Burn {
-            theme,
-            label,
-            refresh,
-        } => {
+        Command::Burn { theme, label } => {
+            // `--theme` is also a global, so a name typed after `burn` can
+            // land in either field. Both mean the same thing here — restyle
+            // the badge — and reading only one of them would make the flag
+            // work or not depending on where clap put it.
             burn::run(
                 &cfg.resolve_property(cli.property.as_deref())?,
-                theme,
+                theme.or_else(|| cli.theme.clone()),
                 label,
-                refresh,
             )
             .await
         }
@@ -492,6 +490,11 @@ async fn run() -> Result<()> {
                     .or_else(|| saved.and_then(|p| p.live_refresh))
                     .unwrap_or(ui::LIVE_EVERY),
             };
+            // The badge, if this machine minted one for the property being
+            // opened: recounted and republished from here for as long as the
+            // dashboard is up. Spawned, silent and skipped when there is no
+            // badge — see `burn::keep_current`.
+            burn::keep_current(&property);
             ui::run(&cfg, &property, settings).await
         }
     }
