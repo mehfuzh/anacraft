@@ -14,8 +14,8 @@
 //! here because ratatui needs styled spans, so the block-drawing helpers are
 //! reimplemented against `Line`/`Span`.
 
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -107,9 +107,15 @@ const MAP_ROWS: u16 = 12;
 /// the bottom, and for a while that was a box that could not spend it — the
 /// dead ground under the caption in a tall terminal was exactly this.
 const MAP_MAX_ROWS: u16 = WORLD.len() as u16 + 3;
-/// The events chart: enough rows that the two lines are told apart, plus the
-/// axis labels, the legend and the borders.
-const EVENTS_ROWS: u16 = 14;
+/// The events chart, in the map's box.
+///
+/// Deliberately the same height and written as the same number: the two are
+/// the only picture panels in the left column, they sit one above the other,
+/// and two boxes that are nearly the same size read as a mistake rather than
+/// as a choice. Twelve rows is nine of plot once the borders and the axis
+/// labels are paid for, which is enough to tell six lines apart — the legend
+/// costs nothing, it rides the bottom border.
+const EVENTS_ROWS: u16 = MAP_ROWS;
 /// Width of the view-count column on the chunk rows.
 const VIEWS_COLUMN: usize = 8;
 /// Width of the share-of-page-views column beside it.
@@ -179,9 +185,37 @@ fn flash_level(at: Option<Instant>) -> f64 {
 
 // ------------------------------------------------------------------ data ---
 
-/// Event counts keyed by GA's `YYYYMMDD`, for the period and the one before it,
-/// each already in chronological order.
-type EventCounts = (Vec<(String, f64)>, Vec<(String, f64)>);
+/// Event counts keyed by GA's `YYYYMMDD`, in chronological order.
+type Daily = Vec<(String, f64)>;
+
+/// What the events chart is drawn from.
+///
+/// The period's daily totals, the same days for the period before it, and the
+/// handful of event names the total is mostly made of. The names are the answer
+/// to the question the old two-line chart always raised and never answered:
+/// events are up, but up in *what*.
+struct EventCounts {
+    current: Daily,
+    previous: Daily,
+    /// One series per event name, ranked by its total over the period, each
+    /// already laid on the days of `current` — one count per day, zeros
+    /// included. Aligned here rather than at draw time because a name with no
+    /// row on Tuesday is the normal case, not the exception.
+    names: Vec<(String, Vec<f64>)>,
+}
+
+/// The most event-name lines the chart will draw.
+///
+/// Four, because the palette has four ores to spare before two lines start
+/// reading as the same colour, and because the breakdown exists to say which
+/// handful of events the total is made of rather than to list them all.
+const EVENT_NAME_LINES: usize = 4;
+
+/// The ores the name lines are handed, in rank order. Chosen for hue rather
+/// than for brightness: these lines are told apart by colour, not by weight.
+fn event_ores() -> [Color; EVENT_NAME_LINES] {
+    [ore::gold(), ore::emerald(), ore::lapis(), ore::copper()]
+}
 
 /// One report pass. The realtime number is not in here: it arrives on its own
 /// cadence, and folding it in would make it as stale as the reports.
@@ -251,6 +285,10 @@ struct EventTrend {
     previous: Vec<(f64, f64)>,
     /// Day-of-month labels, one per point in `current`.
     days: Vec<String>,
+    /// The top event names, in rank order, in the chart's own coordinates.
+    /// Drawn under the two period lines: every one of them is part of the
+    /// total above it, so they cannot cross it and never need their own scale.
+    names: Vec<(String, Vec<(f64, f64)>)>,
     total: f64,
     total_previous: f64,
     peak: f64,
@@ -526,7 +564,12 @@ impl Dash {
 
     /// The two periods are plotted against one x range, so day 1 of this period
     /// sits under day 1 of the last however many days each actually returned.
-    fn apply_events(&mut self, (current, previous): EventCounts) {
+    fn apply_events(&mut self, counts: EventCounts) {
+        let EventCounts {
+            current,
+            previous,
+            names,
+        } = counts;
         let points = |counts: &[(String, f64)]| -> Vec<(f64, f64)> {
             counts
                 .iter()
@@ -539,12 +582,25 @@ impl Dash {
             days: current.iter().map(|(date, _)| day_of_month(date)).collect(),
             total: current.iter().map(|(_, count)| count).sum(),
             total_previous: previous.iter().map(|(_, count)| count).sum(),
-            // One scale for both lines, or the comparison is meaningless.
+            // One scale for every line, or the comparison is meaningless. The
+            // name series are parts of `current` and cannot exceed it, so the
+            // two period lines still decide the ceiling.
             peak: current
                 .iter()
                 .chain(previous.iter())
                 .map(|(_, count)| *count)
                 .fold(0.0_f64, f64::max),
+            names: names
+                .into_iter()
+                .map(|(name, series)| {
+                    let points = series
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, count)| (i as f64, count))
+                        .collect();
+                    (name, points)
+                })
+                .collect(),
             current: points(&current),
             previous: points(&previous),
         };
@@ -702,36 +758,198 @@ async fn fetch_portals(client: &Ga, property: &str, days: u32) -> Result<Vec<(St
         .collect())
 }
 
-/// Event counts per day, for the period and for the period before it — the pair
-/// the chart draws as one comparison.
+/// Everything the events chart draws: this period by day, the period before it,
+/// and the top event names broken out over the same days.
 ///
-/// Two requests rather than one: GA has no period comparison in a single report,
-/// and asking for both date ranges at once returns them interleaved with no way
-/// to tell which range a row came from.
+/// Three requests rather than one. GA has no period comparison in a single
+/// report — asking for both date ranges at once returns them interleaved with
+/// no way to tell which range a row came from — and the breakdown needs a
+/// second dimension, which would otherwise split every day's total into rows
+/// the headline cannot be summed back out of.
+///
+/// Two of the three actually leave the machine. The middle one is the period
+/// before this one, which `settled` answers from memory for as long as it
+/// cannot have changed, so the name breakdown is drawn for what the old
+/// two-line chart already cost.
 async fn fetch_events(client: &Ga, property: &str, days: u32) -> Result<EventCounts> {
-    let by_day = |range| {
-        ReportRequest::new(&["eventCount"])
-            .by(&["date"])
-            .range(range)
-    };
-
-    let (current, previous) = tokio::try_join!(
-        client.report(property, by_day(DateRange::last_days(days))),
-        client.report(property, by_day(DateRange::previous_days(days)))
+    let (current, previous, names) = tokio::try_join!(
+        events_by_day(client, property, DateRange::last_days(days)),
+        settled_previous(client, property, days),
+        events_by_name(client, property, days),
     )?;
 
-    // GA returns date rows unordered; a line chart needs them chronological.
-    let series = |report: &crate::ga::Report| {
-        let mut rows: Vec<(String, f64)> = report
-            .rows
-            .iter()
-            .map(|row| (row.dimension(0).to_string(), row.metric(0)))
-            .collect();
-        rows.sort_by(|a, b| a.0.cmp(&b.0));
-        rows
-    };
+    // The names are laid on the days the totals actually came back with, not
+    // on the days that were asked for: a property with a quiet Sunday has no
+    // Sunday row anywhere, and the axis is built from `current`.
+    let days: Vec<&str> = current.iter().map(|(date, _)| date.as_str()).collect();
+    Ok(EventCounts {
+        names: align(&days, names),
+        current,
+        previous,
+    })
+}
 
-    Ok((series(&current), series(&previous)))
+/// One report's worth of event counts by day, chronological.
+///
+/// GA returns date rows unordered, and a line chart needs them in order or it
+/// draws the month as a scribble.
+async fn events_by_day(client: &Ga, property: &str, range: DateRange) -> Result<Daily> {
+    let report = client
+        .report(
+            property,
+            ReportRequest::new(&["eventCount"])
+                .by(&["date"])
+                .range(range),
+        )
+        .await?;
+
+    let mut rows: Daily = report
+        .rows
+        .iter()
+        .map(|row| (row.dimension(0).to_string(), row.metric(0)))
+        .collect();
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(rows)
+}
+
+/// How many `date` × `eventName` cells to ask for.
+///
+/// One request either way, so this is only a question of where the tail is cut.
+/// Two thousand covers a quarter's window on a site with twenty distinct
+/// events, and the cells come back ranked by count — so the days that make a
+/// name one of the top few are the first rows GA hands over, and a cut tail
+/// costs a small day on a small event rather than a whole line.
+const NAME_CELLS: i32 = 2_000;
+
+/// The top event names over the period, each as its own daily series.
+async fn events_by_name(client: &Ga, property: &str, days: u32) -> Result<Vec<(String, Daily)>> {
+    let report = client
+        .report(
+            property,
+            ReportRequest::new(&["eventCount"])
+                .by(&["date", "eventName"])
+                .range(DateRange::last_days(days))
+                .top("eventCount", NAME_CELLS),
+        )
+        .await?;
+
+    // GA ranked the cells, not the names: `page_view` on its best day outranks
+    // `session_start` on its best day, and neither ordering says which name is
+    // bigger over the period. So the totals are summed here and the ranking is
+    // done on them.
+    let mut totals: HashMap<&str, f64> = HashMap::new();
+    let mut series: HashMap<&str, Daily> = HashMap::new();
+    for row in &report.rows {
+        let (date, name, count) = (row.dimension(0), row.dimension(1), row.metric(0));
+        *totals.entry(name).or_default() += count;
+        series
+            .entry(name)
+            .or_default()
+            .push((date.to_string(), count));
+    }
+
+    let mut ranked: Vec<(String, Daily)> = series
+        .into_iter()
+        .map(|(name, rows)| (name.to_string(), rows))
+        .collect();
+    // Ties broken by name so the colours a site sees are the same on every
+    // refresh — a legend that reshuffles itself every thirty seconds is worse
+    // than no legend.
+    ranked.sort_by(|a, b| {
+        totals[b.0.as_str()]
+            .total_cmp(&totals[a.0.as_str()])
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    ranked.truncate(EVENT_NAME_LINES);
+    for (_, rows) in ranked.iter_mut() {
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+    }
+    Ok(ranked)
+}
+
+/// Lay each name's counts on the period's days.
+///
+/// A name with nothing on Tuesday has no Tuesday row, and a series that simply
+/// skipped it would draw Wednesday's count above Tuesday's tick — every point
+/// after a quiet day sliding one day left of the day it belongs to, which on a
+/// chart of five lines is five wrong stories rather than one.
+fn align(days: &[&str], names: Vec<(String, Daily)>) -> Vec<(String, Vec<f64>)> {
+    names
+        .into_iter()
+        .map(|(name, rows)| {
+            let found: HashMap<&str, f64> = rows
+                .iter()
+                .map(|(date, count)| (date.as_str(), *count))
+                .collect();
+            let series = days
+                .iter()
+                .map(|day| found.get(day).copied().unwrap_or(0.0))
+                .collect();
+            (name, series)
+        })
+        .collect()
+}
+
+/// How long the previous period's counts are trusted without asking again.
+///
+/// They are the one thing on this chart that cannot change: the window ends the
+/// day before the current period begins, so it is finished data about finished
+/// days. Asking for it again every thirty seconds is a request per refresh, for
+/// as long as the dashboard is open, whose answer is already on the screen.
+///
+/// What does move is which days the window covers, and that happens once, at
+/// midnight — in the property's reporting timezone, which is not necessarily
+/// this machine's. So this is a time-to-live rather than a date: half an hour
+/// is long enough to take the request out of the refresh entirely, and short
+/// enough that the roll-over is never visible for long whatever timezone the
+/// property keeps.
+const SETTLED_FOR: Duration = Duration::from_secs(30 * 60);
+
+/// The previous period, as last fetched.
+///
+/// One slot rather than a map: a dashboard reads one property over one window
+/// at a time, and the entry a second property would evict is one this one is
+/// no longer drawing.
+struct Settled {
+    property: String,
+    days: u32,
+    at: Instant,
+    counts: Daily,
+}
+
+static SETTLED: Mutex<Option<Settled>> = Mutex::new(None);
+
+/// The period before this one, from memory when that is still honest.
+async fn settled_previous(client: &Ga, property: &str, days: u32) -> Result<Daily> {
+    if let Some(counts) = settled_hit(property, days, Instant::now()) {
+        return Ok(counts);
+    }
+
+    let counts = events_by_day(client, property, DateRange::previous_days(days)).await?;
+    // A poisoned lock means some other task panicked holding it. That is worth
+    // nothing here: the cache is an optimisation, and losing it costs one
+    // request per refresh rather than a dashboard.
+    if let Ok(mut slot) = SETTLED.lock() {
+        *slot = Some(Settled {
+            property: property.to_string(),
+            days,
+            at: Instant::now(),
+            counts: counts.clone(),
+        });
+    }
+    Ok(counts)
+}
+
+/// What the slot has to say about this property and window, if anything.
+///
+/// Keyed on both: switching property or changing the window with `[`/`]` asks a
+/// different question, and answering it with the last one's numbers would draw
+/// somebody else's fortnight under this one.
+fn settled_hit(property: &str, days: u32, now: Instant) -> Option<Daily> {
+    let slot = SETTLED.lock().ok()?;
+    let held = slot.as_ref()?;
+    let fresh = now.saturating_duration_since(held.at) < SETTLED_FOR;
+    (held.property == property && held.days == days && fresh).then(|| held.counts.clone())
 }
 
 /// `YYYYMMDD` down to the day, for the chart's x axis.
@@ -1466,7 +1684,35 @@ impl Synthetic {
                         })
                         .collect()
                 };
-                (series(&NOW, 0), series(&BEFORE, 7))
+                // The names under the total, as shares of the day.
+                //
+                // Not a partition, and a real property's are not either: GA
+                // counts a page view as `page_view` and again inside
+                // `user_engagement`, so these overlap on purpose. What the
+                // demo has to show is four ranked lines that sit under the
+                // headline and keep their order, which is exactly what the
+                // chart claims about a real site.
+                const NAMES: [(&str, f64); 4] = [
+                    ("page_view", 0.58),
+                    ("user_engagement", 0.31),
+                    ("scroll", 0.17),
+                    ("session_start", 0.09),
+                ];
+                let current = series(&NOW, 0);
+                EventCounts {
+                    names: NAMES
+                        .iter()
+                        .map(|(name, share)| {
+                            let daily = current
+                                .iter()
+                                .map(|(_, count)| (count * share).round())
+                                .collect();
+                            (name.to_string(), daily)
+                        })
+                        .collect(),
+                    previous: series(&BEFORE, 7),
+                    current,
+                }
             },
         };
 
@@ -2050,7 +2296,7 @@ fn body(frame: &mut Frame, dash: &Dash, area: Rect, narrow: bool) {
         for ((panel, _), area) in stack.into_iter().zip(rows.iter()) {
             match panel {
                 Stack::Map => frame.render_widget(map_panel(dash, area.width, area.height), *area),
-                Stack::Events => frame.render_widget(events_panel(dash), *area),
+                Stack::Events => frame.render_widget(events_panel(dash, area.width), *area),
                 Stack::Vitals => frame.render_widget(metrics_panel(dash, area.height), *area),
             }
         }
@@ -2927,24 +3173,88 @@ enum Column {
 /// leaderboard cannot show at all — it ranks names, and the ranking barely
 /// moves. Both periods share one y scale, and the current one is drawn second so
 /// it sits on top where they cross.
-fn events_panel(dash: &Dash) -> Chart<'_> {
+/// One line of the events chart.
+///
+/// A function rather than a closure inside the panel: the `Dataset` borrows the
+/// points it was handed, and that is a lifetime a closure cannot name.
+fn events_line(color: Color, points: &[(f64, f64)]) -> Dataset<'_> {
+    Dataset::default()
+        .marker(symbols::Marker::HalfBlock)
+        .graph_type(GraphType::Line)
+        .style(Style::default().fg(color))
+        .data(points)
+}
+
+/// The events legend, and how many name lines it managed to name.
+///
+/// It rides the bottom border rather than sitting inside the plot: ratatui
+/// hides its own legend once a panel is short, and the left column never gives
+/// this one the rows it would want.
+///
+/// Which is also what limits the breakdown. The border is one row, so the
+/// legend is one row, so the number of lines the chart can honestly draw is
+/// however many fit along it — every one on a wide terminal, the top one or two
+/// at eighty columns, and none at all on a panel narrow enough that the two
+/// periods are all it can say. The chart is read left to right; a colour nobody
+/// can look up is noise in it.
+fn events_legend(dash: &Dash, width: u16) -> (Line<'static>, usize) {
+    let swatch = |color: Color| Span::styled("\u{2501}\u{2501} ", Style::default().fg(color));
+    let label = |text: String| Span::styled(text, Style::default().fg(theme::sage()));
+
+    let mut spans = vec![
+        swatch(theme::accent()),
+        label(format!("last {} days  ", dash.days)),
+        swatch(theme::accent_deep()),
+        label("previous  ".to_string()),
+    ];
+    // What the comparison already spends, plus the space the border keeps at
+    // each end of a title.
+    let mut spent: usize = spans
+        .iter()
+        .map(|span| span.content.chars().count())
+        .sum::<usize>()
+        + 2;
+
+    let mut named = 0;
+    for ((name, _), ore) in dash.events.names.iter().zip(event_ores()) {
+        // Swatch, name, and the two spaces that keep it off the next entry.
+        let entry = 3 + name.chars().count() + 2;
+        if spent + entry > width as usize {
+            break;
+        }
+        spans.push(swatch(ore));
+        spans.push(label(format!("{name}  ")));
+        spent += entry;
+        named += 1;
+    }
+
+    (Line::from(spans).right_aligned(), named)
+}
+
+fn events_panel(dash: &Dash, width: u16) -> Chart<'_> {
     let trend = &dash.events;
     // An empty or flat series would collapse the y axis onto a single row.
     let peak = trend.peak.max(1.0);
     let last = trend.current.len().saturating_sub(1).max(1) as f64;
 
-    let datasets = vec![
-        Dataset::default()
-            .marker(symbols::Marker::HalfBlock)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(theme::accent_deep()))
-            .data(&trend.previous),
-        Dataset::default()
-            .marker(symbols::Marker::HalfBlock)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(theme::accent()))
-            .data(&trend.current),
-    ];
+    // The legend decides how many name lines are drawn, not the other way
+    // round: a line nothing names is a mystery rather than information, so the
+    // chart shows every one the panel is wide enough to label and no more.
+    let (legend, named) = events_legend(dash, width);
+
+    // Names first, then the two period lines over the top of them. Every name
+    // is part of the total, so where they touch it is the total that should
+    // survive the overdraw — the alternative is a headline line with holes
+    // punched in it by its own components.
+    let mut datasets: Vec<Dataset> = trend
+        .names
+        .iter()
+        .take(named)
+        .zip(event_ores())
+        .map(|((_, points), ore)| events_line(ore, points))
+        .collect();
+    datasets.push(events_line(theme::accent_deep(), &trend.previous));
+    datasets.push(events_line(theme::accent(), &trend.current));
 
     // The headline rides on the border, where the panel has room for it.
     let headline = Line::from(vec![
@@ -2956,23 +3266,6 @@ fn events_panel(dash: &Dash) -> Chart<'_> {
         ),
         delta_span(trend.total, trend.total_previous, false),
         Span::raw(" "),
-    ])
-    .right_aligned();
-
-    // The legend rides the bottom border rather than sitting inside the plot:
-    // ratatui hides its own legend once the panel is short, and the left column
-    // never gives this one the rows it wants.
-    let legend = Line::from(vec![
-        Span::styled("\u{2501}\u{2501} ", Style::default().fg(theme::accent())),
-        Span::styled(
-            format!("last {} days  ", dash.days),
-            Style::default().fg(theme::sage()),
-        ),
-        Span::styled(
-            "\u{2501}\u{2501} ",
-            Style::default().fg(theme::accent_deep()),
-        ),
-        Span::styled("previous ", Style::default().fg(theme::sage())),
     ])
     .right_aligned();
 
@@ -3800,6 +4093,103 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn a_name_that_was_quiet_on_tuesday_still_lines_up_with_tuesday() {
+        // The bug this exists to prevent is silent and total: GA sends no row
+        // for a day a name did not happen, and a series built from the rows it
+        // did send would draw every later point one day to the left. The line
+        // stays smooth and stops being about the days underneath it.
+        let days = ["20260901", "20260902", "20260903"];
+        let aligned = align(
+            &days,
+            vec![(
+                "scroll".to_string(),
+                vec![("20260901".to_string(), 9.0), ("20260903".to_string(), 4.0)],
+            )],
+        );
+
+        assert_eq!(aligned.len(), 1);
+        assert_eq!(aligned[0].0, "scroll");
+        assert_eq!(aligned[0].1, vec![9.0, 0.0, 4.0], "Tuesday lost its place");
+    }
+
+    #[test]
+    fn a_name_with_nothing_in_the_period_is_a_flat_line_not_a_short_one() {
+        // Every series has to be as long as the axis, or ratatui draws it
+        // against the wrong x bounds.
+        let days = ["20260901", "20260902"];
+        let aligned = align(&days, vec![("purchase".to_string(), Vec::new())]);
+        assert_eq!(aligned[0].1, vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn the_chart_draws_every_name_the_panel_can_label_and_no_more() {
+        // The rule the breakdown lives by: a coloured line nobody can look up
+        // is noise, so the legend decides how many are drawn. Narrow panels
+        // fall back to the two periods, which is what the chart was before.
+        let dash = settled_demo();
+        assert!(
+            dash.events.names.len() > 1,
+            "the demo has no breakdown to draw"
+        );
+
+        let (_, narrow) = events_legend(&dash, 40);
+        let (_, wide) = events_legend(&dash, 200);
+        assert_eq!(
+            narrow, 0,
+            "a 40-column panel named a line it has no room for"
+        );
+        assert!(
+            wide > narrow,
+            "a wide panel named no more than a narrow one"
+        );
+        assert!(
+            wide <= EVENT_NAME_LINES,
+            "more lines than there are ores to draw them in"
+        );
+
+        // Monotonic, so growing the terminal never takes a line away.
+        let mut named = 0;
+        for width in 40..=200u16 {
+            let (_, count) = events_legend(&dash, width);
+            assert!(count >= named, "width {width}: a line was dropped");
+            named = count;
+        }
+
+        // And the name is on the panel, not just in the count.
+        let panel = rendered(200, EVENTS_ROWS, events_panel(&dash, 200)).join("\n");
+        assert!(
+            panel.contains(&dash.events.names[0].0),
+            "the top event name never reached the legend"
+        );
+    }
+
+    #[test]
+    fn the_settled_period_is_only_reused_for_the_question_it_answered() {
+        // The cache saves a request per refresh; answering the wrong question
+        // with it would draw another property's fortnight under this one.
+        *SETTLED.lock().unwrap() = Some(Settled {
+            property: "111".to_string(),
+            days: 7,
+            at: Instant::now(),
+            counts: vec![("20260901".to_string(), 12.0)],
+        });
+
+        let now = Instant::now();
+        assert!(settled_hit("111", 7, now).is_some(), "its own question");
+        assert!(settled_hit("222", 7, now).is_none(), "another property");
+        assert!(settled_hit("111", 28, now).is_none(), "another window");
+
+        // And it goes quiet once the window it describes could have rolled.
+        let later = now.checked_add(SETTLED_FOR).expect("a clock with a future");
+        assert!(
+            settled_hit("111", 7, later).is_none(),
+            "stale and still used"
+        );
+
+        *SETTLED.lock().unwrap() = None;
+    }
+
     /// The chart is the panel's whole point, so the two things that make it
     /// readable — a drawn line and the axis it is read against — have to survive
     /// every width the left column can hand it.
@@ -3816,7 +4206,7 @@ mod tests {
         assert_eq!(dash.events.previous.len(), 7);
 
         for width in 40..=120u16 {
-            let rows = rendered(width, EVENTS_ROWS, events_panel(&dash));
+            let rows = rendered(width, EVENTS_ROWS, events_panel(&dash, width));
             let panel = rows.join("\n");
 
             let plotted = panel
@@ -4026,11 +4416,13 @@ mod tests {
 
         // Being last down the column, the vitals are then handed every row the
         // others left, so the densities come back as the terminal grows. These
-        // are the two heights that matter: the bars return at 42 rows of body,
-        // and the gaps between them at 48.
+        // are the two heights that matter: the bars return at 40 rows of body,
+        // and the gaps between them at 46. Both were two rows later while the
+        // chart was two rows taller than the map — every density in this column
+        // came back sooner the day the two boxes were made the same size.
         let granted = |body: u16| body - (EVENTS_ROWS + 1 + 1 + MAP_ROWS);
-        assert_eq!(granted(42), VITALS_TIGHT_ROWS, "the bars came back late");
-        assert_eq!(granted(48), VITALS_ROWS, "the gaps came back late");
+        assert_eq!(granted(40), VITALS_TIGHT_ROWS, "the bars came back late");
+        assert_eq!(granted(46), VITALS_ROWS, "the gaps came back late");
 
         // And the general rule: wherever there is room for the chart, the
         // vitals at their smallest and the map, the map is drawn.
