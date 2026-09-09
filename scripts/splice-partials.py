@@ -10,6 +10,10 @@ belongs. Run it through `make partials`.
 A part's markup and its styles land in different places, so a page carries a
 pair of markers for each: `<!-- nav:start -->` … `<!-- nav:end -->` around the
 element, and `/* nav:start */` … `/* nav:end */` inside the page's own <style>.
+
+`{{version}}` in a part's markup is filled in from `Cargo.toml`, so the version
+in the footer follows the crate rather than being a number somebody has to
+remember to retype on the way out of a release.
 """
 
 import pathlib
@@ -59,13 +63,28 @@ def source(name, suffix):
     return path.read_text().strip("\n")
 
 
+def version():
+    """The crate's version, from the first `version =` under `[package]`.
+
+    Read rather than asked of cargo: this script runs on a machine that may not
+    have a toolchain, and the answer is one line of TOML.
+    """
+    text = (root / "Cargo.toml").read_text()
+    package = text.split("[package]", 1)[-1].split("\n[", 1)[0]
+    found = re.search(r'^version\s*=\s*"([^"]+)"', package, re.M)
+    if not found:
+        sys.exit("no version under [package] in Cargo.toml")
+    return found.group(1)
+
+
+crate = version()
 changed = 0
 for name in PAGES:
     page = docs / name
     before = after = page.read_text()
 
     for part, has_css in PARTS.items():
-        markup = source(part, "html").strip()
+        markup = source(part, "html").strip().replace("{{version}}", crate)
         if name == ROOT_PAGE:
             markup = markup.replace('href="/#', 'href="#')
 
@@ -87,4 +106,4 @@ for name in PAGES:
         changed += 1
     print(f"  {name}: {'updated' if after != before else 'already current'}")
 
-print(f"\n{'/'.join(PARTS)} spliced into {len(PAGES)} pages, {changed} changed")
+print(f"\n{'/'.join(PARTS)} spliced into {len(PAGES)} pages at v{crate}, {changed} changed")

@@ -11,6 +11,12 @@
     text-transform: lowercase; letter-spacing: .01em;
   }
   footer .r { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  /* Which release the install command will actually give you. It sits in the
+     footer rather than beside the command because it is a fact people check
+     against a changelog, not a version they are asked to type — `install.sh`
+     resolves the latest release itself and takes no version argument. Kept a
+     step quieter than the line it follows: it is a fingerprint, not news. */
+  footer .ver { opacity: .72; }
   footer a:hover { color: var(--jade); }
   footer .by { display: inline-flex; align-items: center; gap: 8px; }
   /* A chip rather than a word: the rule does the framing the brackets used to,

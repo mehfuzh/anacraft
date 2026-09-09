@@ -2108,8 +2108,26 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
             } else {
                 theme::fade(ore::gold(), 0.45)
             }))
-            .style(Style::default().bg(theme::bg_lift())),
+            .style(Style::default().bg(theme::bg_lift()))
+            // Which build this is, riding the border of the one box that is
+            // always on screen and has room to spare.
+            //
+            // On a border rather than in a panel because it is a fact somebody
+            // looks up twice a year — when a release note mentions something
+            // they do not have, and when they are reporting that it broke.
+            // Every row of content is worth more than that, and the footer is
+            // already over budget at eighty columns.
+            .title_top(version_tag()),
     )
+}
+
+/// The running build, for the corner of a border.
+fn version_tag() -> Line<'static> {
+    Line::from(Span::styled(
+        format!(" v{} ", env!("CARGO_PKG_VERSION")),
+        Style::default().fg(ore::stone()),
+    ))
+    .right_aligned()
 }
 
 /// Which of the left column's panels get rows, and how many they are pinned to,
@@ -4574,6 +4592,22 @@ mod tests {
             (VITALS_TIGHT_ROWS - 2) as usize,
             "the tight panel left dead rows inside its border"
         );
+    }
+
+    #[test]
+    fn the_running_build_is_on_screen_whichever_side_you_are_on() {
+        // Asked for twice a year and both times in a hurry: a release note
+        // mentions something that is not there, or something broke and the
+        // first question is which build. So it is on the one box that is always
+        // drawn, in both of its states, rather than behind a key.
+        let mut dash = capture_dash();
+        let want = format!("v{}", env!("CARGO_PKG_VERSION"));
+
+        for supporter in [false, true] {
+            dash.supporter = supporter;
+            let box_ = rendered(74, SUPPORTER_ROWS, supporter_box(&dash)).join("\n");
+            assert!(box_.contains(&want), "supporter {supporter}: {box_}");
+        }
     }
 
     #[test]
