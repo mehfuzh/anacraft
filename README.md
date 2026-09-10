@@ -127,9 +127,9 @@ already prints for free.
 ### Claude Desktop
 
 ```sh
-craft mcp --install          # write the server into Claude Desktop's config
-craft mcp --install --demo   # ...pointed at synthetic data instead
-craft mcp --uninstall        # take it back out again
+craft mcp --install           # write Claude Desktop and Smartloop configs
+craft mcp --install --demo    # ...pointed at synthetic data instead
+craft mcp --uninstall         # take it back out again
 ```
 
 Restart Claude Desktop and ask it how the site is doing. The block it merges in
@@ -315,9 +315,9 @@ Protocol](https://modelcontextprotocol.io), so Claude Desktop, Claude Code, or
 any MCP client can answer "how is the site doing" without a human reading a TUI.
 
 ```sh
-craft mcp --install          # write the server into Claude Desktop's config
-craft mcp --install --demo   # ...with `--demo` in the args it writes
-craft mcp --uninstall        # take the server back out of that config
+craft mcp --install           # write Claude Desktop and Smartloop configs
+craft mcp --install --demo    # use synthetic data in both entries
+craft mcp --uninstall         # take the server back out of Claude Desktop's config
 craft mcp                    # the server itself; clients spawn this, you rarely do
 craft mcp --demo             # synthetic data, no Google account, no subscription
 ```

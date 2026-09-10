@@ -192,9 +192,9 @@ Desktop or any MCP client can answer "how is the site doing" without a human
 reading a TUI.
 
 ```sh
-craft mcp --install          # merge the server into Claude Desktop's config
-craft mcp --install --demo   # ...with `--demo` in the args it writes
-craft mcp --uninstall        # take the server back out of that config
+craft mcp --install           # install into Claude Desktop and Smartloop
+craft mcp --install --demo    # use synthetic data in both entries
+craft mcp --uninstall         # take the server back out of that config
 craft mcp --demo             # synthetic data — no account, no subscription
 ```
 

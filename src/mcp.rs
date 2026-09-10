@@ -1462,6 +1462,65 @@ pub fn install(demo: bool) -> Result<()> {
     Ok(())
 }
 
+/// Install into every first-party client configuration supported by anacraft.
+pub fn install_all(demo: bool) -> Result<()> {
+    install(demo)?;
+    write_toml(demo)
+}
+
+/// Generate the local-server definition Smartloop Studio accepts when a TOML
+/// file is dropped onto its custom MCP installer.
+pub fn write_toml(demo: bool) -> Result<()> {
+    use crate::render::{dim, paint};
+    use crate::theme::ore;
+
+    let path = write_smartloop_definition(demo)?;
+    println!(
+        "\n  {} anacraft definition written to {}\n",
+        paint("✓", ore::emerald()),
+        dim(&path.display().to_string()),
+    );
+    Ok(())
+}
+
+/// Write the same local-server definition Smartloop Studio accepts when a TOML
+/// file is dropped onto its custom MCP installer.
+fn write_smartloop_definition(demo: bool) -> Result<PathBuf> {
+    let home = dirs::home_dir().context("could not locate a home directory")?;
+    let path = home.join(".smartloop").join("mcp.d").join("anacraft.toml");
+    let definition = smartloop_definition(demo)?;
+
+    let directory = path
+        .parent()
+        .context("Smartloop definition has no parent directory")?;
+    std::fs::create_dir_all(directory)
+        .with_context(|| format!("creating {}", directory.display()))?;
+    std::fs::write(&path, definition).with_context(|| format!("writing {}", path.display()))?;
+    Ok(path)
+}
+
+fn smartloop_definition(demo: bool) -> Result<String> {
+    let entry = server_entry(demo);
+    let command = entry["command"]
+        .as_str()
+        .context("MCP command is not a string")?;
+    let args = entry["args"]
+        .as_array()
+        .context("MCP arguments are not an array")?
+        .iter()
+        .map(|arg| {
+            arg.as_str()
+                .map(|arg| toml::Value::String(arg.to_owned()))
+                .context("MCP argument is not a string")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(format!(
+        "[[mcp]]\nname = \"anacraft\"\ncommand = {}\nargs = {}\n",
+        toml::Value::String(command.to_owned()),
+        toml::Value::Array(args),
+    ))
+}
+
 /// The client's config as JSON, or an empty object if there isn't one yet.
 /// Refusing beats rewriting: this file is the user's, and other MCP servers
 /// live in it, so unparseable JSON stops us with `hint` rather than costing
@@ -1979,6 +2038,23 @@ mod tests {
         // Same key, same command: `--install` twice is an update, not a pair of
         // servers offering the same ten tools over different data.
         assert_eq!(live["command"], demo["command"]);
+    }
+
+    #[test]
+    fn smartloop_definition_uses_its_local_mcp_format() {
+        let definition = smartloop_definition(true).unwrap();
+        let parsed: toml::Value = definition.parse().unwrap();
+        let server = parsed["mcp"][0].as_table().unwrap();
+
+        assert_eq!(server["name"].as_str(), Some("anacraft"));
+        assert_eq!(
+            server["command"].as_str(),
+            server_entry(true)["command"].as_str()
+        );
+        assert_eq!(
+            server["args"].as_array().unwrap()[1].as_str(),
+            Some("--demo")
+        );
     }
 
     #[test]

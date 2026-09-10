@@ -220,9 +220,9 @@ enum Command {
         /// Serve synthetic data — no Google account, no subscription.
         #[arg(long)]
         demo: bool,
-        /// Write the server into Claude Desktop's config instead of serving.
-        /// Pair with --demo to install the synthetic-data server.
-        #[arg(long)]
+        /// Install into Claude Desktop and Smartloop instead of serving.
+        /// Pair with --demo to install synthetic-data servers.
+        #[arg(long, conflicts_with = "uninstall")]
         install: bool,
         /// Take the server back out of Claude Desktop's config, leaving any
         /// other servers in there alone.
@@ -337,7 +337,7 @@ async fn run() -> Result<()> {
             if uninstall {
                 mcp::uninstall()
             } else if install {
-                mcp::install(demo)
+                mcp::install_all(demo)
             } else {
                 mcp::serve(demo, cli.property.as_deref()).await
             }

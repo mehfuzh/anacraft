@@ -15,12 +15,13 @@ placeholder regardless.
 
 ## Wiring it up
 
-**Claude Desktop** — `craft mcp --install` writes the block and merges with
-whatever else is in the file; add `--demo` to write a block that serves
+**Claude Desktop and Smartloop** — `craft mcp --install` writes the Claude
+block, merges with whatever else is in that file, and writes the Smartloop
+TOML definition; add `--demo` to write servers that serve
 synthetic data. Either way it is the one `anacraft` entry, so re-running
 `--install` without `--demo` upgrades it in place rather than leaving a
-synthetic twin alongside the real one. `craft mcp --uninstall` removes that one
-entry and nothing else. Restart the app afterwards. To do it by hand:
+synthetic twin alongside the real one. `craft mcp --uninstall` removes the
+Claude entry. Restart the apps afterwards. To do it by hand:
 
 | Platform | File |
 |---|---|
