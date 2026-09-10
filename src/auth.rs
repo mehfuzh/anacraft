@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 
-/// Analytics, plus the two non-sensitive OpenID scopes.
+/// Analytics read and edit, plus the two non-sensitive OpenID scopes.
 ///
 /// The identity scopes are not there to read anything about the person: they
 /// are how a subscription survives a new laptop. Stripe's webhook writes the
@@ -23,16 +23,23 @@ use std::net::{Ipv4Addr, TcpListener, TcpStream};
 /// the same account gets its subscription back without anybody copying a token
 /// around. `openid` and `email` are non-sensitive, so unlike a wider Analytics
 /// scope they add nothing to the consent review — see the test below.
-const SCOPE: &str = "openid email https://www.googleapis.com/auth/analytics.readonly";
+///
+/// `analytics.edit` is included so `craft configure` never has to ask for
+/// permission separately. It covers creating a property, adding a web data
+/// stream, and deleting a property — the three Admin API calls this binary
+/// makes. Asking once at login rather than mid-configure avoids a second
+/// consent screen when somebody is already following the setup guide.
+const SCOPE: &str =
+    "openid email https://www.googleapis.com/auth/analytics.readonly \
+     https://www.googleapis.com/auth/analytics.edit";
 
-/// The one write scope, asked for separately and only by `craft configure`.
+/// The write scope, included in [`SCOPE`] so login covers it from the start.
 ///
 /// Creating a GA4 property and its web data stream is the whole reason it
 /// exists: those two Admin API calls are documented as requiring
 /// `analytics.edit`, and Google publishes no narrower "create a property"
-/// scope to drop to. It is deliberately *not* in `SCOPE` — see `ensure_scope`
-/// for why that distinction is the point rather than an implementation
-/// detail.
+/// scope to drop to. Included in the base login scope so `craft configure`
+/// never has to provoke a second consent screen.
 pub const SCOPE_EDIT: &str = "https://www.googleapis.com/auth/analytics.edit";
 
 const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -302,13 +309,13 @@ impl Auth {
     /// Ask for one scope more than the stored credentials carry, at the moment
     /// something actually needs it.
     ///
-    /// This is Google's incremental authorization, and using it is a decision
-    /// rather than a convenience. `craft login` asks for read-only access, and
-    /// for the person who only ever reads their numbers that is the last word:
-    /// they are never shown a screen offering anacraft permission to change
-    /// their Analytics setup. Only `craft configure`, which exists to create a
-    /// property, reaches this — so consent to write is asked for by the one
-    /// command that writes, with `why` naming what it is about to do.
+    /// This is Google's incremental authorization. Since `SCOPE` now carries the
+    /// write scope, a fresh `craft login` is all `craft configure` needs — but
+    /// credentials granted before the edit scope was part of login still land
+    /// short of it, and `craft delete --all` and the tail of `craft configure`
+    /// can hit that on a machine that signed in long ago. So this exists to top
+    /// up what those old credentials hold, with `why` naming what it is about
+    /// to do.
     ///
     /// The request re-sends the scopes already held plus the new one, and
     /// `include_granted_scopes=true` means the token that comes back covers
@@ -321,15 +328,13 @@ impl Auth {
     /// is handed back still waiting, and [`Consented::show`] is what answers
     /// it — with [`GRANTED`] for every caller that knew all along.
     pub async fn ensure_scope(&self, scope: &str, why: &str) -> Result<Consented> {
-        if Tokens::load()?.is_some_and(|t| t.granted(scope)) {
+        let stored = Tokens::load()?;
+        if stored.as_ref().is_some_and(|t| t.granted(scope)) {
             return Ok(Consented::AlreadyHeld);
         }
-        self.consent(
-            &format!("{SCOPE} {scope}"),
-            Grant::Additional { scope, why },
-        )
-        .await
-        .map(Consented::Granted)
+        self.consent(&extend_scopes(stored.as_ref(), scope), Grant::Additional { scope, why })
+            .await
+            .map(Consented::Granted)
     }
 
     /// One trip through the browser, for either kind of grant.
@@ -456,6 +461,38 @@ impl Auth {
                 .await;
         }
         Tokens::clear()
+    }
+}
+
+/// The scope set an incremental grant re-requests: everything the stored
+/// credentials already carry, plus the one being added.
+///
+/// Google's incremental authorization wants the previously granted scopes
+/// named again alongside the new one — `include_granted_scopes=true` then
+/// keeps the exchange a superset rather than a replacement. Credentials that
+/// record nothing (written before scopes were stored, or with an empty set)
+/// fall back to the whole login set, which is the safe direction: it covers
+/// whatever they lost, at the cost of a consent screen.
+fn extend_scopes(stored: Option<&Tokens>, wanted: &str) -> String {
+    let base = match stored
+        .and_then(|t| t.scope.as_deref())
+        .filter(|s| !s.trim().is_empty())
+    {
+        // Credentials that record their scopes: re-request exactly what was
+        // granted plus the new one. Incremental authorization then keeps the
+        // exchange a superset rather than a replacement.
+        Some(granted) => granted.to_string(),
+        // Nothing recorded: fall back to the whole login set — the safe
+        // direction, since it covers whatever a stale exchange might forget.
+        None => SCOPE.to_string(),
+    };
+    // The wanted scope can already be inside the base — the login set carries
+    // `analytics.edit` now — and naming it twice in one consent request is
+    // sloppy if nothing else.
+    if base.split(' ').any(|s| s == wanted) {
+        base
+    } else {
+        format!("{base} {wanted}")
     }
 }
 
@@ -1006,28 +1043,27 @@ mod tests {
     }
 
     #[test]
-    fn signing_in_asks_for_one_read_only_analytics_scope_and_nothing_else() {
+    fn signing_in_asks_for_analytics_and_nothing_else() {
         // A Google OAuth review once stalled because the consent screen listed
         // `analytics` (read+write) and `analytics.manage.users.readonly`, which
         // this app has never requested. The identity scopes added for
-        // subscriptions are the non-sensitive pair and need no review; a second
-        // Analytics scope still would, so pin the whole set.
-        //
-        // `craft configure` now does have a write path, but it is not here:
-        // signing in must stay read-only, so that someone who only reads their
-        // numbers is never offered permission to change their Analytics setup.
+        // subscriptions are the non-sensitive pair and need no review; pin the
+        // whole set.
         assert_eq!(
             SCOPE,
-            "openid email https://www.googleapis.com/auth/analytics.readonly"
+            "openid email https://www.googleapis.com/auth/analytics.readonly \
+             https://www.googleapis.com/auth/analytics.edit"
         );
         let analytics: Vec<&str> = SCOPE
             .split(' ')
             .filter(|s| s.contains("googleapis.com/auth/analytics"))
             .collect();
-        assert_eq!(analytics.len(), 1, "a second Analytics scope was added");
-        assert!(
-            analytics[0].ends_with(".readonly"),
-            "the login scope set has no write path; keep it that way"
+        // Read for the reports, edit for `craft configure` and `craft delete
+        // --all` — the two Analytics scopes this binary uses, and no third one.
+        assert_eq!(
+            analytics.len(),
+            2,
+            "an Analytics scope was added or dropped"
         );
         for scope in SCOPE.split(' ') {
             assert!(
@@ -1039,28 +1075,40 @@ mod tests {
 
     #[test]
     fn the_write_scope_is_the_narrowest_one_that_creates_a_property() {
-        // `analytics.edit` is what properties.create and dataStreams.create
-        // document as their requirement. The neighbouring scopes are all
-        // wider: `analytics` adds report data, `analytics.manage.users` adds
-        // permission to change who can see the account, and `analytics.provision`
-        // adds creating accounts and accepting terms on someone's behalf.
-        // Requesting any of those would be asking for access nothing here uses.
+        // `analytics.edit` is what properties.create, dataStreams.create and
+        // properties.delete document as their requirement. The neighbouring
+        // scopes are all wider: `analytics` adds report data,
+        // `analytics.manage.users` adds permission to change who can see the
+        // account, and `analytics.provision` adds creating accounts and
+        // accepting terms on someone's behalf. Requesting any of those would be
+        // asking for access nothing here uses.
         assert_eq!(SCOPE_EDIT, "https://www.googleapis.com/auth/analytics.edit");
-        assert!(
-            !SCOPE.contains(SCOPE_EDIT),
-            "the write scope leaked into login"
-        );
     }
 
     #[test]
-    fn the_extra_scope_is_only_ever_asked_for_on_top_of_the_granted_ones() {
-        // Sending the write scope alone would work, and would quietly drop
-        // read access on the way through — the report commands would then 403
+    fn the_extra_scope_is_asked_for_on_top_of_the_granted_ones() {
+        // Sending the new scope alone would work, and would quietly drop the
+        // granted ones on the way through — the report commands would then 403
         // until the next `craft login`. The request has to name both.
-        let requested = format!("{SCOPE} {SCOPE_EDIT}");
+        let mut old: Tokens = serde_json::from_str(
+            r#"{"access_token":"a","refresh_token":"r","expires_at":"2030-01-01T00:00:00Z","scope":"openid email https://www.googleapis.com/auth/analytics.readonly"}"#,
+        )
+        .unwrap();
+        let requested = extend_scopes(Some(&old), SCOPE_EDIT);
         assert!(requested.contains("analytics.readonly"));
         assert!(requested.contains("analytics.edit"));
         assert!(requested.starts_with("openid email"));
+
+        // The login set now carries the edit scope as well, so topping it up
+        // must not name the same scope twice.
+        old.scope = Some(SCOPE.to_string());
+        assert_eq!(extend_scopes(Some(&old), SCOPE_EDIT), SCOPE.to_string());
+
+        // No recorded scopes is the worst case: fall back to the whole login
+        // set so a stale exchange cannot quietly drop access.
+        let requested = extend_scopes(None, SCOPE_EDIT);
+        assert!(requested.contains("analytics.edit"));
+        assert!(requested.contains("analytics.readonly"));
     }
 
     #[test]
@@ -1074,14 +1122,18 @@ mod tests {
         // which costs a consent screen rather than a 403.
         assert!(!tokens.granted(SCOPE_EDIT));
 
-        tokens.scope = Some(SCOPE.to_string());
+        // Read-only credentials — the login scope before the edit scope joined
+        // it — must not satisfy the write check.
+        tokens.scope = Some(
+            "openid email https://www.googleapis.com/auth/analytics.readonly".to_string(),
+        );
         assert!(
             !tokens.granted(SCOPE_EDIT),
             "read-only must not imply write"
         );
         assert!(tokens.granted("https://www.googleapis.com/auth/analytics.readonly"));
 
-        tokens.scope = Some(format!("{SCOPE} {SCOPE_EDIT}"));
+        tokens.scope = Some(SCOPE.to_string());
         assert!(tokens.granted(SCOPE_EDIT));
 
         // Prefix matching would be a real bug here: `analytics.edit` must not

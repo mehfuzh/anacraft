@@ -15,6 +15,11 @@
 //! account, and it asks for the permission to do so itself — see
 //! `auth::ensure_scope` and `docs/oauth-scopes.md`.
 //!
+//! MCP's `configure_site` tool runs this same core — see [`setup`] — with the
+//! browser consent swapped for a check of the stored grant, because a client's
+//! subprocess has no browser to open. The result comes back as data; how and
+//! where it is said is the caller's, a terminal's panels or a tool's JSON.
+//!
 //! Which is also why it is the command that asks for the subscription: the
 //! guide is the most-read page on the site, and this is its first line, so the
 //! people running this are the people who are actually here. `Paywall` below
@@ -58,8 +63,6 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
     let uri = format!("https://{host}");
 
     let ga = Ga::new()?;
-    let why =
-        format!("setting up {host} needs permission to add a property to your Analytics account");
 
     // Everything above this line is local, so somebody who stops at either of
     // the two screens below — Google's, or Stripe's — has changed nothing.
@@ -77,6 +80,9 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
     // So an Anacrafter on a new laptop is told they are in, and never sees a
     // button offering them a second subscription.
     if cold {
+        let why = format!(
+            "setting up {host} needs permission to add a property to your Analytics account"
+        );
         let consented = ga.auth().ensure_scope(SCOPE_EDIT, &why).await?;
         paywall = paywall.reconsider().await?;
         consented.show(&paywall.landing());
@@ -88,95 +94,226 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
         return Ok(());
     }
 
+    // From here on it is the same work whether a person at a terminal is
+    // asking or an assistant over MCP is: [`setup`] holds both together, and
+    // this run asks for any missing consent on the spot, because there is a
+    // browser to do it in — `Consent::Ask` is the whole difference from the
+    // MCP call.
+    let setup = setup(&ga, &host, opts, Consent::Ask).await?;
+    save(&setup.property.id, &host)?;
+
     println!();
-    let property = match find_existing(&ga, &host).await? {
-        Some(Existing::Measured(property, stream)) => {
-            // Running this twice is the normal way to get the tag back.
-            // Creating a second property for the same site would split the
-            // numbers in two, and nothing would say so until a week of data
-            // had gone to the wrong one.
-            save(&property.id, &host)?;
+    print_setup(&setup, &host, &uri);
+    Ok(())
+}
+
+/// The whole of [`setup`], retold in the terminal's own voice.
+fn print_setup(setup: &Setup, host: &str, uri: &str) {
+    if let Some(note) = &setup.note {
+        println!("  {}", dim(note));
+    }
+
+    match setup.action {
+        // Running this twice is the normal way to get the tag back. Creating a
+        // second property for the same site would split the numbers in two,
+        // and nothing would say so until a week of data had gone to the wrong
+        // one.
+        SetupAction::Reused => {
             println!(
                 "  {} {} is already measured by {} {}",
                 paint("✓", ore::emerald()),
                 bold(&host),
-                bold(&paint(&property.name, ore::diamond())),
-                dim(&format!("({})", property.id)),
+                bold(&paint(&setup.property.name, ore::diamond())),
+                dim(&format!("({})", setup.property.id)),
             );
             println!("  {}\n", dim("nothing was created — here is its tag again"));
-            print_tag(&stream.measurement_id);
-            print_next(&host);
-            return Ok(());
         }
 
-        // Reaching either arm below means something is about to be created,
-        // and that is the first moment anything is. Somebody who only wanted
-        // their tag back was served above, entirely within read-only access,
-        // and was never shown a consent screen.
-        Some(Existing::Unfinished(property)) => {
-            ga.auth()
-                .ensure_scope(SCOPE_EDIT, &why)
-                .await?
-                .show(&crate::auth::GRANTED);
+        // Reaching either arm below means something was about to be created,
+        // and that was the first moment anything was.
+        SetupAction::Finished => {
             println!(
                 "  {} finishing {} {}",
                 glyph::PICKAXE,
                 bold(&paint(&host, ore::diamond())),
                 dim(&format!(
                     "({}, created earlier but never given a stream)",
-                    property.id
+                    setup.property.id
                 )),
             );
-            property
         }
 
-        None => {
-            ga.auth()
-                .ensure_scope(SCOPE_EDIT, &why)
-                .await?
-                .show(&crate::auth::GRANTED);
-            let account = pick_account(&ga, opts.account.as_deref()).await?;
-            let timezone = match opts.timezone {
-                Some(tz) => tz,
-                None => local_timezone().unwrap_or_else(|| {
-                    println!(
-                        "  {}",
-                        dim(
-                            "could not read this machine's time zone; reporting in UTC — \
-                             re-run with --timezone to change it"
-                        )
-                    );
-                    "UTC".to_string()
-                }),
-            };
-
+        SetupAction::Created => {
             println!(
                 "  {} creating a property for {} in {}",
                 glyph::PICKAXE,
                 bold(&host),
-                dim(&account.name),
+                dim(setup.account.as_deref().unwrap_or("your Analytics account")),
             );
-            let property = ga
-                .create_property(&account, &host, &timezone, &opts.currency)
-                .await
-                .with_context(|| format!("creating a property for {host}"))?;
             println!(
                 "  {} property {} {}",
                 paint("✓", ore::emerald()),
                 bold(&paint(&host, ore::diamond())),
-                dim(&format!("({}, reporting in {timezone})", property.id)),
+                dim(&format!(
+                    "({}, reporting in {})",
+                    setup.property.id,
+                    setup.timezone.as_deref().unwrap_or("UTC"),
+                )),
             );
-            property
         }
-    };
+    }
 
-    // The property exists from here on. A failure below leaves it behind
-    // rather than rolling back — an empty property costs nothing, and deleting
-    // one on somebody's behalf because a second call failed is the more
-    // surprising outcome. Re-running is safe: the next run recognises that
-    // property as unfinished and adds the stream to it.
-    let stream = ga
-        .create_web_stream(&property.id, &host, &uri)
+    if !matches!(setup.action, SetupAction::Reused) {
+        println!(
+            "  {} web stream {} {}\n",
+            paint("✓", ore::emerald()),
+            bold(&setup.stream.measurement_id),
+            dim(&format!("({uri})")),
+        );
+    }
+
+    if setup.timezone_fell_back {
+        println!(
+            "  {}",
+            dim(
+                "could not read this machine's time zone; reporting in UTC — \
+                 re-run with --timezone to change it"
+            )
+        );
+    }
+
+    print_tag(&setup.stream.measurement_id);
+    print_next(&host);
+}
+
+// ------------------------------------------------------------------- setup ---
+
+/// Whether a write may open its own consent flow, or must work from the grant
+/// already on hand.
+///
+/// The CLI can open a browser; an MCP subprocess is inside a client and cannot.
+/// That split is the whole reason the work below is shared — the same calls
+/// serve a terminal and a tool, and only the consent differs.
+pub(crate) enum Consent {
+    /// A person is watching: a missing grant opens the consent screen.
+    Ask,
+    /// No browser available. A missing grant is an error that names the
+    /// terminal command that fixes it.
+    HeldOnly,
+}
+
+/// What a run changed on Google's side, for the caller to say in its own voice
+/// — a terminal's panels, an MCP tool's JSON.
+pub(crate) struct Setup {
+    pub property: Property,
+    pub stream: WebStream,
+    pub action: SetupAction,
+    /// The time zone the property reports in, when this run chose it.
+    pub timezone: Option<String>,
+    /// True when this machine's time zone could not be read and the property
+    /// was created reporting in UTC in its place.
+    pub timezone_fell_back: bool,
+    /// The account the property lives in, when this run created it.
+    pub account: Option<String>,
+    /// Anything discovery learned that the caller should say out loud.
+    pub note: Option<String>,
+}
+
+pub(crate) enum SetupAction {
+    /// A property already measured this domain; nothing was created.
+    Reused,
+    /// The property existed but had no stream; the stream was created just now.
+    Finished,
+    /// Both the property and its web stream were created just now.
+    Created,
+}
+
+/// The whole of `craft configure`, without the terminal's telling of it.
+///
+/// Reusing an existing measurement, creating a property and its web stream,
+/// deciding where and in what time zone — every decision and every write lives
+/// here, shared by the CLI's [`run`] and the MCP `configure_site` tool, so both
+/// see exactly the same Google-shaped behaviour. What differs is the two ends'
+/// [`Consent`] and how they retell the result.
+pub(crate) async fn setup(ga: &Ga, host: &str, opts: Options, consent: Consent) -> Result<Setup> {
+    let uri = format!("https://{host}");
+
+    // Discovery runs on the read grant a login already has, which is why a
+    // re-run — the normal way to get the tag back — needs no consent screen.
+    let (existing, note) = find_existing(ga, host).await?;
+
+    match existing {
+        // Running this twice is the normal way to get the tag back, and there
+        // is nothing to write: no consent to ask for either.
+        Some(Existing::Measured(property, stream)) => Ok(Setup {
+            property,
+            stream,
+            action: SetupAction::Reused,
+            timezone: None,
+            timezone_fell_back: false,
+            account: None,
+            note,
+        }),
+
+        // Reaching either arm below means something is about to be created,
+        // and that is the first moment anything is — and the moment the write
+        // scope is asked for. Somebody who only wanted their tag back was
+        // served above, within access on hand.
+        Some(Existing::Unfinished(property)) => {
+            consent_to_write(ga, host, &consent).await?;
+            let stream = finish_stream(ga, &property, host, &uri).await?;
+            Ok(Setup {
+                property,
+                stream,
+                action: SetupAction::Finished,
+                timezone: None,
+                timezone_fell_back: false,
+                account: None,
+                note,
+            })
+        }
+
+        None => {
+            consent_to_write(ga, host, &consent).await?;
+            let account = pick_account(ga, opts.account.as_deref()).await?;
+            let (timezone, timezone_fell_back) = match opts.timezone {
+                Some(tz) => (tz, false),
+                None => match local_timezone() {
+                    Some(tz) => (tz, false),
+                    // No TZ and no localtime worth reading: report in UTC and
+                    // say so, rather than invent a plausible-looking zone.
+                    None => ("UTC".to_string(), true),
+                },
+            };
+
+            let property = ga
+                .create_property(&account, host, &timezone, &opts.currency)
+                .await
+                .with_context(|| format!("creating a property for {host}"))?;
+            let stream = finish_stream(ga, &property, host, &uri).await?;
+
+            Ok(Setup {
+                property,
+                stream,
+                action: SetupAction::Created,
+                timezone: Some(timezone),
+                timezone_fell_back,
+                account: Some(account.name),
+                note,
+            })
+        }
+    }
+}
+
+/// The web stream that makes a property measurable.
+///
+/// The property exists from here on. A failure below leaves it behind rather
+/// than rolling back — an empty property costs nothing, and deleting one on
+/// somebody's behalf because a second call failed is the more surprising
+/// outcome. Re-running is safe: the next run recognises that property as
+/// unfinished and adds the stream to it.
+async fn finish_stream(ga: &Ga, property: &Property, host: &str, uri: &str) -> Result<WebStream> {
+    ga.create_web_stream(&property.id, host, uri)
         .await
         .with_context(|| {
             format!(
@@ -184,20 +321,38 @@ pub async fn run(domain: &str, opts: Options) -> Result<()> {
                  re-run this command to finish it",
                 property.id
             )
-        })?;
+        })
+}
 
-    save(&property.id, &host)?;
-
-    println!(
-        "  {} web stream {} {}\n",
-        paint("✓", ore::emerald()),
-        bold(&stream.measurement_id),
-        dim(&format!("({uri})")),
+/// Ask for the write scope, to the depth `consent` permits.
+async fn consent_to_write(ga: &Ga, host: &str, consent: &Consent) -> Result<()> {
+    let why = format!(
+        "setting up {host} needs permission to add a property to your Analytics account"
     );
-
-    print_tag(&stream.measurement_id);
-    print_next(&host);
-    Ok(())
+    match consent {
+        // There is a browser nearby, so this is the consent screen — the same
+        // page every other write in the CLI lands on.
+        Consent::Ask => {
+            ga.auth()
+                .ensure_scope(SCOPE_EDIT, &why)
+                .await?
+                .show(&crate::auth::GRANTED);
+            Ok(())
+        }
+        // A client's subprocess is not a place to open a browser. The write is
+        // allowed on the grant already stored, or not at all — and the refusal
+        // names the terminal command that refreshes it.
+        Consent::HeldOnly => match Tokens::load()? {
+            Some(tokens) if tokens.granted(SCOPE_EDIT) => Ok(()),
+            Some(_) => bail!(
+                "stored credentials don't include the write scope — run `craft login` once \
+                 in a terminal to refresh the grant, then restart the MCP client"
+            ),
+            None => bail!(
+                "not logged in — run `craft login` in a terminal, then restart the MCP client"
+            ),
+        },
+    }
 }
 
 // ----------------------------------------------------------------- paywall ---
@@ -259,7 +414,7 @@ enum Paywall {
 /// when its email is registered again. `license::already_paid` does both
 /// halves over the wire, and says nothing out loud when it finds nothing.
 async fn already_an_anacrafter() -> Result<bool> {
-    if crate::license::sync(Config::load()?.supporter).await {
+    if crate::license::sync(&Config::load()?).await.is_some() {
         return Ok(true);
     }
 
@@ -506,7 +661,7 @@ impl Paywall {
 // ------------------------------------------------------------------ lookup ---
 
 /// What the account already has for this domain.
-enum Existing {
+pub(crate) enum Existing {
     /// A property with a web stream pointing at the domain. Nothing to do but
     /// print its tag.
     Measured(Property, WebStream),
@@ -517,12 +672,16 @@ enum Existing {
     Unfinished(Property),
 }
 
-/// What already exists for `host`, if anything.
+/// What already exists for `host`, if anything, plus anything discovery
+/// learned that the caller should say.
+///
+/// The note travels as data rather than printing, because a caller may have no
+/// terminal to print to — see [`setup`] and the MCP `configure_site` tool.
 ///
 /// Properties named after the domain are checked first, because that is what
 /// this command names them, so the common re-run costs one extra call rather
 /// than one per property.
-async fn find_existing(ga: &Ga, host: &str) -> Result<Option<Existing>> {
+pub(crate) async fn find_existing(ga: &Ga, host: &str) -> Result<(Option<Existing>, Option<String>)> {
     let mut properties = ga.properties().await?;
     properties.sort_by_key(|p| p.name.to_lowercase() != host);
 
@@ -543,13 +702,16 @@ async fn find_existing(ga: &Ga, host: &str) -> Result<Option<Existing>> {
             // A live stream beats an empty property, wherever each was found,
             // so this returns immediately and the fallback below never wins
             // over a real match.
-            return Ok(Some(Existing::Measured(
-                property,
-                WebStream {
-                    measurement_id: stream.measurement_id.clone(),
-                    default_uri: stream.default_uri.clone(),
-                },
-            )));
+            return Ok((
+                Some(Existing::Measured(
+                    property,
+                    WebStream {
+                        measurement_id: stream.measurement_id.clone(),
+                        default_uri: stream.default_uri.clone(),
+                    },
+                )),
+                None,
+            ));
         }
 
         // Only an exact name match, and only the first: adding a stream to
@@ -560,20 +722,21 @@ async fn find_existing(ga: &Ga, host: &str) -> Result<Option<Existing>> {
         }
     }
 
-    if unfinished.is_none() && total > SCAN_LIMIT {
-        println!(
-            "  {}",
-            dim(&format!(
-                "checked the first {SCAN_LIMIT} of {total} properties for an existing \
-                 stream on this domain"
-            ))
-        );
-    }
-    Ok(unfinished.map(Existing::Unfinished))
+    // An account larger than the scan is worth knowing about: an empty property
+    // past the scan limit would be finished as if nothing existed.
+    let note = if unfinished.is_none() && total > SCAN_LIMIT {
+        Some(format!(
+            "checked the first {SCAN_LIMIT} of {total} properties for an existing \
+             stream on this domain"
+        ))
+    } else {
+        None
+    };
+    Ok((unfinished.map(Existing::Unfinished), note))
 }
 
 /// Which account to create in: the named one, the only one, or a question.
-async fn pick_account(ga: &Ga, wanted: Option<&str>) -> Result<Account> {
+pub(crate) async fn pick_account(ga: &Ga, wanted: Option<&str>) -> Result<Account> {
     let accounts = ga.accounts().await?;
 
     if accounts.is_empty() {
@@ -653,6 +816,25 @@ fn print_tag(measurement_id: &str) {
         "  {}",
         dim("on every page, and only once — a second GA4 tag doubles every number")
     );
+}
+
+/// The gtag.js snippet with the id in both places it belongs, bare — no panel,
+/// no paint, no lead-in spaces.
+///
+/// Same bytes the terminal's [`tag`] tucks into its panel, for the callers
+/// that have no terminal: the MCP `configure_site` tool carries this in its
+/// JSON, and an assistant hands it to the site's owner to paste.
+pub(crate) fn tag_snippet(measurement_id: &str) -> String {
+    format!(
+        "<!-- Google tag (gtag.js) -->\n\
+         <script async src=\"https://www.googletagmanager.com/gtag/js?id={measurement_id}\"></script>\n\
+         <script>\n\
+         window.dataLayer = window.dataLayer || [];\n\
+         function gtag(){{dataLayer.push(arguments);}}\n\
+         gtag('js', new Date());\n\
+         gtag('config', '{measurement_id}');\n\
+         </script>"
+    )
 }
 
 fn print_next(host: &str) {
@@ -951,7 +1133,8 @@ async fn resolve(cfg: &Config, target: &str) -> Result<Found> {
 
     // Not configured here under that name, so ask which property measures it.
     let ga = Ga::new()?;
-    match find_existing(&ga, &host).await? {
+    let (existing, _) = find_existing(&ga, &host).await?;
+    match existing {
         Some(Existing::Measured(property, _)) | Some(Existing::Unfinished(property)) => Ok(Found {
             id: property.id,
             name: property.name,
@@ -1093,6 +1276,25 @@ mod tests {
         ] {
             assert!(snippet.contains(line), "missing {line:?}:\n{snippet}");
         }
+    }
+
+    #[test]
+    fn the_bare_snippet_is_paste_safe_and_carries_the_id_both_places() {
+        // What the MCP `configure_site` tool hands over in JSON: same id in
+        // the same two places, and no ANSI or panel belong to a string another
+        // program is going to read.
+        let snippet = tag_snippet("G-1A2BCD345E");
+        assert_eq!(
+            snippet.matches("G-1A2BCD345E").count(),
+            2,
+            "the id belongs in the script src and the config call:\n{snippet}"
+        );
+        assert!(
+            !snippet.contains('\u{1b}'),
+            "escape codes leaked into the plain snippet:\n{snippet}"
+        );
+        assert!(snippet.contains("<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-1A2BCD345E\">"));
+        assert!(snippet.contains("gtag('config', 'G-1A2BCD345E');"));
     }
 
     #[tokio::test]

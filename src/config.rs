@@ -144,6 +144,13 @@ pub struct Config {
     /// anybody can edit: a preference, not an entitlement.
     #[serde(default, skip_serializing_if = "is_false")]
     pub supporter: bool,
+    /// Which of the three plans that subscription is on: `basic`, `pro` or
+    /// `elite`. Kept beside `supporter` — the flag says the person has paid,
+    /// this says for what — and written by the same lookup, so the two are
+    /// never out of step for long. A subscription that predates plans has no
+    /// tier, which reads as Basic ([`Config::tier`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tier: Option<crate::license::Tier>,
 }
 
 /// Keeps `supporter = false` out of the written config, the way every other
@@ -205,6 +212,7 @@ impl Config {
             // The pre-0.4 config predates subscriptions, so a migrated one
             // never carries the flag.
             supporter: false,
+            tier: None,
         };
         if let Some(id) = old.property_id {
             cfg.properties.push(Property {
@@ -300,6 +308,18 @@ impl Config {
     /// A property's watch settings, if it named any.
     pub fn watch_for(&self, id: &str) -> Option<&Watch> {
         self.find(id).and_then(|p| p.watch.as_ref())
+    }
+
+    /// The plan this machine believes it is on, off the cached answer.
+    ///
+    /// `None` unless something has actually been paid for. An active flag with
+    /// no tier named is Basic — the $2.99 plan is the one sold since the start,
+    /// so that is the only honest reading of a config that predates plans.
+    pub fn tier(&self) -> Option<crate::license::Tier> {
+        if !self.supporter {
+            return None;
+        }
+        self.tier.or(Some(crate::license::Tier::Basic))
     }
 
     /// Palette for a property: its own, else the global default.

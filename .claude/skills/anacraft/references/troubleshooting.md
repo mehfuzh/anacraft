@@ -17,7 +17,8 @@ went wrong. Almost every message names the command that fixes it.
 | `Google rate-limited this request; try again shortly` | GA4 quota, shared with anything else reading the property | Wait. If it repeats, lengthen `refresh`, or register your own OAuth client so the quota is yours |
 | `unexpected response shape from Google` | An API returned something unparseable — nearly always an error page behind a proxy or captive portal | Check the network before the tool |
 | `no theme called <name>` | Typo | `craft theme` lists them |
-| `craft mcp is part of the Anacraft subscription` | The gate. Returned by every tool call, and printed to the client's log at startup — the server keeps running | `craft subscribe`, then `supporter = true` in the config. Or `craft mcp --demo` |
+| `craft mcp is on Anacrafter Elite` | The gate. Returned by every tool call, and printed to the client's log at startup — the server keeps running | `craft subscribe --plan elite`, then `supporter = true` and `tier = "elite"` in the config. Or `craft mcp --demo` |
+| `Slack alerts are on Anacrafter Pro` | The gate around a `craft watch --webhook` run on a plan below Pro | `craft subscribe --plan pro`, or drop `--webhook` and read the watch in the terminal |
 | `not logged in — run craft login in a terminal, then restart the MCP client` | The MCP server found no token | Run `craft login` yourself, in a terminal — the server will not open a browser |
 | `found nowhere writable to install to` | Installer could not write to `/usr/local/bin` or `~/.local/bin` | `INSTALL_DIR=~/bin curl … \| bash` |
 | `could not work out the latest release` | GitHub API unreachable or rate-limited | `VERSION=v0.6.0 curl … \| bash` to pin one |

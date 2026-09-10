@@ -394,6 +394,10 @@ struct Dash {
     live_every: Duration,
     /// Whether to wear the subscriber star in the header.
     supporter: bool,
+    /// The plan this machine is on, when one is. Worn on the supporter line so
+    /// a Pro or Elite knows the box is talking about the plan they bought,
+    /// rather than a plan the CLI believes on their behalf.
+    tier: Option<crate::license::Tier>,
     /// Running on synthetic data. Only the demo lets `s` flip `supporter`, so
     /// the Anacrafter treatment can be looked at before it is paid for.
     demo: bool,
@@ -456,6 +460,7 @@ impl Dash {
             report_every,
             live_every,
             supporter: false,
+            tier: None,
             demo: false,
             avatar: Avatar::demo(),
             supporter_line: crate::license::demo_supporter_line(),
@@ -1191,6 +1196,7 @@ pub async fn run(cfg: &Config, property: &str, settings: Settings) -> Result<()>
         rotation,
         index,
         cfg.supporter,
+        cfg.tier(),
     )
     .await
 }
@@ -1218,6 +1224,7 @@ pub async fn run_demo(days: u32, refresh: u64, live_refresh: u64) -> Result<()> 
         Vec::new(),
         0,
         false,
+        None,
     )
     .await
 }
@@ -1233,6 +1240,7 @@ async fn drive(
     rotation: Vec<Property>,
     index: usize,
     supporter: bool,
+    tier: Option<crate::license::Tier>,
 ) -> Result<()> {
     let opening = match rotation.get(index) {
         Some(property) => settings.for_property(property),
@@ -1249,6 +1257,7 @@ async fn drive(
         Duration::from_secs(opening.live_refresh.max(LIVE_FLOOR)),
     );
     dash.supporter = supporter;
+    dash.tier = tier;
     dash.demo = matches!(source, Source::Demo(_));
     // The demo keeps the fixed face even on a machine that is signed in: it is
     // what the site's captures show, and it is not this account's to hand out.
@@ -1540,8 +1549,16 @@ async fn event_loop(
                         // worth it, so it can wear the Anacrafter treatment on
                         // request. Gated to the demo: on real data the flag
                         // answers to the subscription lookup, and a key that
-                        // granted it would make the box meaningless.
-                        KeyCode::Char('s') if dash.demo => dash.supporter = !dash.supporter,
+                        // granted it would make the box meaningless. The preview
+                        // wears Pro so the higher plans get looked at too.
+                        KeyCode::Char('s') if dash.demo => {
+                            dash.supporter = !dash.supporter;
+                            dash.tier = if dash.supporter {
+                                Some(crate::license::Tier::Pro)
+                            } else {
+                                None
+                            };
+                        }
                         // Nothing to announce: every color on screen changes,
                         // which is the feedback.
                         KeyCode::Char('t') => {
@@ -2053,6 +2070,16 @@ fn supporter_box(dash: &Dash) -> Paragraph<'static> {
                     "  ·  preview  ·  press s to switch back".to_string()
                 } else {
                     format!("  ·  {}", dash.supporter_line)
+                },
+                Style::default().fg(ore::stone()),
+            ),
+            Span::styled(
+                // The plan this machine is on, when the box has one to name.
+                // Matches `dash.supporter` rather than the config, so the demo
+                // preview reads the way a real dashboard would.
+                match dash.tier {
+                    Some(plan) if !dash.demo => format!("  ·  on {}", plan.label()),
+                    _ => String::new(),
                 },
                 Style::default().fg(ore::stone()),
             ),

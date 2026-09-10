@@ -26,10 +26,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from stripe_api import call, each  # noqa: E402
 
-# The link `SUBSCRIBE_URL` in src/main.rs opens, and the one the pricing page's
-# Subscribe button points at. Matched on `url` because the short code in the URL
-# is not the link's id.
-LINK_URL = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02"
+# The links `craft subscribe --plan <name>` opens and the pricing page's
+# buttons point at. Matched on the metadata tag `stripe-plans.py` stamps on its
+# own links rather than on `url`, because the short code in a URL is not the
+# link's id and the Basic link predates tags and keeps working alongside.
+PLANS = {"basic", "pro", "elite"}
 
 # `{CHECKOUT_SESSION_ID}` is Stripe's own placeholder and it substitutes it on
 # the way out. The page does not read it — a static page has no secret key and
@@ -40,11 +41,22 @@ SUCCESS_URL = "https://anacraft.dev/success.html?session_id={CHECKOUT_SESSION_ID
 APPLY = "--apply" in sys.argv
 
 
-def find_link():
+def plan_links():
+    found = []
     for link in each("payment_links"):
-        if link.get("url") == LINK_URL:
-            return link
-    sys.exit(f"no payment link with url {LINK_URL}\n(is STRIPE_SECRET_KEY the live key?)")
+        if (link.get("metadata") or {}).get("plan") in PLANS:
+            found.append(link)
+    # The Basic link predates the metadata tag, so its URL names it here too,
+    # exactly the way the first version of this script found it. Reading the
+    # code from src/main.rs keeps it in one place and honest.
+    bearer = None
+    for link in each("payment_links"):
+        if link.get("url") == "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02":
+            bearer = link
+            break
+    if bearer:
+        found.append(bearer)
+    return found
 
 
 def describe(link):
@@ -58,21 +70,26 @@ def describe(link):
 
 
 def main():
-    link = find_link()
-    print(f"  link      {link['id']}  {link['url']}")
-    print(f"  now       {describe(link)}")
-    print(f"  would be  redirects to {SUCCESS_URL}")
+    links = plan_links()
+    if not links:
+        sys.exit("no plan payment links to point at success.html")
+
+    for link in links:
+        print(f"  link      {link['id']}  {link['url']}")
+        print(f"  now       {describe(link)}")
+        print(f"  would be  redirects to {SUCCESS_URL}")
+
+        if APPLY:
+            updated = call("POST", f"payment_links/{link['id']}", {
+                "after_completion[type]": "redirect",
+                "after_completion[redirect][url]": SUCCESS_URL,
+            })
+            print(f"  done      {describe(updated)}")
 
     if not APPLY:
         print("\n  dry run — nothing changed. Re-run with --apply.")
         return
-
-    updated = call("POST", f"payment_links/{link['id']}", {
-        "after_completion[type]": "redirect",
-        "after_completion[redirect][url]": SUCCESS_URL,
-    })
-    print(f"\n  done      {describe(updated)}")
-    print("  Pay $2.99 with a real card to check it, then refund yourself in Stripe —")
+    print("\n  pay with a real <$5 card to check a link, then refund yourself in Stripe —")
     print("  a test-mode card cannot exercise a live link.")
 
 

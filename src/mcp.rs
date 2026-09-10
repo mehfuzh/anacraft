@@ -6,11 +6,17 @@
 //! the protocol**. Everything human-facing goes to stderr, which is why the
 //! error printing in `main.rs` uses `eprintln!`.
 //!
-//! Every tool is a read. Nothing here writes to `~/.anacraft/`, starts an OAuth
-//! flow, or moves the default property — `login` and `use` stay human-only
-//! commands. An agent should not be able to silently repoint the tool at
-//! another property, and a browser consent flow has no business running inside
-//! a client's subprocess.
+//! All but one tool is a read. `configure_site` creates the GA4 property and
+//! web stream for a domain the account does not measure yet — the same work as
+//! `craft configure`, whose shared core it runs (see `configure::setup`) with
+//! the browser consent swapped for a check of the stored grant, because a
+//! consent flow has no business running inside a client's subprocess.
+//!
+//! Nothing here writes to `~/.anacraft/` or moves the default property —
+//! `login` and `use` stay human-only commands. An agent should not be able to
+//! silently repoint the tool at another property, and the one thing that does
+//! write, `configure_site`, says so on its schema and never changes what the
+//! other tools open on by default.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -61,13 +67,17 @@ const LIVE_TTL: Duration = Duration::from_secs(10);
 
 /// What the assistant is told the server is for, once, at handshake time.
 const INSTRUCTIONS: &str = "\
-Read-only Google Analytics 4 for the site this machine is signed in to. \
+Google Analytics 4 for the site this machine is signed in to. \
 Every tool takes an optional `property` (a numeric GA4 property id) and falls \
 back to the saved default, so you can call them without knowing the config. \
 Numbers are labelled with their unit and carry the date window they cover — \
 quote the window when you quote a number. `site_status` answers \"how is the \
 site doing\" in one call; the `list_*` tools rank a dimension; the `search_*` \
-tools filter one by a substring.";
+tools filter one by a substring. The exception is `configure_site`, the one \
+tool that writes: give it a domain nobody measures yet and it creates the \
+property and the web stream, and hands back the gtag.js snippet to paste into \
+that site's <head>. Nothing that runs here changes which property is the saved \
+default — that stays `craft use` in a terminal.";
 
 // ------------------------------------------------------------------ entry ---
 
@@ -81,10 +91,10 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
     // Same check the dashboard runs on the way in: ask Supabase where the
     // subscription stands, cache the answer, and write it back to the config.
     // Cheap, short-timeout and best-effort — see `license::sync`.
-    let supporter = if demo {
-        false
+    let tier = if demo {
+        None
     } else {
-        crate::license::sync(cfg.supporter).await
+        crate::license::sync(&cfg).await
     };
 
     // The badge's number, kept current by a session the assistant was having
@@ -110,7 +120,7 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
         // unmet requirement locks the tools instead: the handshake succeeds,
         // the client stays connected, and every call answers with the one
         // sentence that gets the user unstuck.
-        match unlock(supporter) {
+        match unlock(tier) {
             Ok(ga) => Source::Api(Box::new(ga)),
             Err(reason) => {
                 // stderr is the client's log, and the protocol owns stdout.
@@ -133,8 +143,8 @@ pub async fn serve(demo: bool, property: Option<&str>) -> Result<()> {
 /// Everything the live tools need, or the one sentence explaining what is
 /// missing. The `Err` is a message for a human and for the assistant relaying
 /// it, never a reason to stop serving — see `serve`.
-fn unlock(supporter: bool) -> std::result::Result<Ga, String> {
-    crate::license::gate(supporter, "craft mcp")?;
+fn unlock(tier: Option<crate::license::Tier>) -> std::result::Result<Ga, String> {
+    crate::license::gate(tier, crate::license::Tier::Elite, "craft mcp")?;
     login()?;
     // A client is not a place to open a browser, so this only builds the HTTP
     // client and reads the stored credentials; consent stays in `craft login`.
@@ -255,6 +265,13 @@ impl Server {
     /// A tool call, served from the cache when the same question was asked a
     /// moment ago.
     async fn tool(&mut self, name: &str, args: &Value) -> Result<Value> {
+        // A write is never served from memory and never remembered: the cache
+        // exists so chatty readers cost one request, and there is no version of
+        // `configure_site` worth re-answering — each run is a real create.
+        if name == "configure_site" {
+            return self.fetch(name, args).await;
+        }
+
         let ttl = if name == "live_visitors" {
             LIVE_TTL
         } else {
@@ -297,6 +314,12 @@ impl Server {
             Source::Locked(reason) => bail!("{}", one_line(reason)),
             Source::Api(ga) => ga.as_ref(),
         };
+
+        // The one writer has no property to resolve (it may be about to make
+        // one), so it is handled before the envelope machinery below.
+        if name == "configure_site" {
+            return configure_site(ga, args).await;
+        }
 
         if name == "list_properties" {
             let props = ga.properties().await?;
@@ -434,7 +457,7 @@ fn initialize(params: &Value, source: &Source) -> Value {
         "name": "anacraft",
         "title": "Anacraft",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Google Analytics 4 for the terminal, read-only over MCP.",
+        "description": "Google Analytics 4 for the terminal, served over MCP.",
         "websiteUrl": "https://anacraft.dev",
     });
     // Dates sort as strings, so this stays right when the spoken revision moves on.
@@ -532,6 +555,9 @@ struct Tool {
     days: bool,
     limit: bool,
     query: Option<&'static str>,
+    /// Whether the tool only reads. `configure_site`, the one writer, is the
+    /// sole false here — the schema says so, and a client like Claude shows it.
+    read_only: bool,
 }
 
 const TOOLS: &[Tool] = &[
@@ -545,6 +571,7 @@ const TOOLS: &[Tool] = &[
         days: true,
         limit: false,
         query: None,
+        read_only: true,
     },
     Tool {
         name: "live_visitors",
@@ -554,6 +581,7 @@ const TOOLS: &[Tool] = &[
         days: false,
         limit: false,
         query: None,
+        read_only: true,
     },
     Tool {
         name: "list_pages",
@@ -562,6 +590,7 @@ const TOOLS: &[Tool] = &[
         days: true,
         limit: true,
         query: None,
+        read_only: true,
     },
     Tool {
         name: "list_events",
@@ -571,6 +600,7 @@ const TOOLS: &[Tool] = &[
         days: true,
         limit: true,
         query: None,
+        read_only: true,
     },
     Tool {
         name: "list_referrers",
@@ -580,6 +610,7 @@ const TOOLS: &[Tool] = &[
         days: true,
         limit: true,
         query: None,
+        read_only: true,
     },
     Tool {
         name: "list_traffic_sources",
@@ -589,6 +620,7 @@ const TOOLS: &[Tool] = &[
         days: true,
         limit: true,
         query: None,
+        read_only: true,
     },
     Tool {
         name: "list_countries",
@@ -597,6 +629,7 @@ const TOOLS: &[Tool] = &[
         days: true,
         limit: true,
         query: None,
+        read_only: true,
     },
     Tool {
         name: "list_properties",
@@ -606,6 +639,7 @@ const TOOLS: &[Tool] = &[
         days: false,
         limit: false,
         query: None,
+        read_only: true,
     },
     Tool {
         name: "search_pages",
@@ -615,6 +649,7 @@ const TOOLS: &[Tool] = &[
         days: true,
         limit: true,
         query: Some("Substring to match against the page path, case-insensitive."),
+        read_only: true,
     },
     Tool {
         name: "search_events",
@@ -624,6 +659,21 @@ const TOOLS: &[Tool] = &[
         days: true,
         limit: true,
         query: Some("Substring to match against the event name, case-insensitive."),
+        read_only: true,
+    },
+    Tool {
+        name: "configure_site",
+        title: "Set up a site",
+        description: "Set up GA4 for a domain the account does not measure yet: creates the \
+                      property and its web data stream and returns the gtag.js snippet to paste \
+                      into the site's <head>. Re-running for a domain that already has a stream \
+                      returns that tag instead of creating a second property. This is the one \
+                      tool that writes to the Analytics account — and it still never changes \
+                      which property is the saved default.",
+        days: false,
+        limit: false,
+        query: None,
+        read_only: false,
     },
 ];
 
@@ -665,7 +715,46 @@ fn tool_schemas() -> Vec<Value> {
                     }),
                 );
             }
-            if tool.name != "list_properties" {
+            if !tool.read_only {
+                // The one writer takes no `property` — it may be about to make
+                // one — so its arguments are the where and how of creating it.
+                properties.insert(
+                    "domain".into(),
+                    json!({
+                        "type": "string",
+                        "description": "The domain to set up, e.g. example.com. A pasted URL is \
+                                        trimmed to its host; ports, paths and emails are refused.",
+                    }),
+                );
+                required.push("domain");
+                properties.insert(
+                    "account".into(),
+                    json!({
+                        "type": "string",
+                        "description": "The GA4 account to create the property under, by numeric \
+                                        id or display name. Only needed when the login can see \
+                                        more than one.",
+                    }),
+                );
+                properties.insert(
+                    "timezone".into(),
+                    json!({
+                        "type": "string",
+                        "description": "IANA time zone for the new property, e.g. Europe/London. \
+                                        Otherwise the machine's own is used, and the answer says \
+                                        when it fell back to UTC.",
+                    }),
+                );
+                properties.insert(
+                    "currency".into(),
+                    json!({
+                        "type": "string",
+                        "description": "ISO 4217 reporting currency for the new property.",
+                        "default": "USD",
+                    }),
+                );
+            }
+            if tool.name != "list_properties" && tool.name != "configure_site" {
                 properties.insert(
                     "property".into(),
                     json!({
@@ -684,7 +773,7 @@ fn tool_schemas() -> Vec<Value> {
                     "properties": properties,
                     "required": required,
                 },
-                "annotations": { "readOnlyHint": true, "openWorldHint": true },
+                "annotations": { "readOnlyHint": tool.read_only, "openWorldHint": true },
             })
         })
         .collect()
@@ -958,6 +1047,89 @@ fn query_of(args: &Value) -> Result<String> {
     Ok(query.to_string())
 }
 
+/// The `domain` argument: required, and left as typed for `configure::host_of`
+/// to normalise — lower-casing, trimming a pasted scheme or path, and refusing
+/// ports, emails and non-domains.
+fn domain_of(args: &Value) -> Result<String> {
+    let domain = args
+        .get("domain")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if domain.is_empty() {
+        bail!("`configure_site` needs a `domain`, e.g. example.com");
+    }
+    Ok(domain.to_string())
+}
+
+/// `configure_site` — the one tool that writes.
+///
+/// Same Google-shaped work as `craft configure` (they share
+/// `configure::setup`), with the consent screen swapped for a check of the
+/// stored grant: a client's subprocess has no browser to open, so a missing
+/// write scope is an error that names the terminal command to refresh it.
+///
+/// Deliberately not wrapped in `envelope`: there is no existing property to
+/// attribute an answer to — this makes one. And deliberately not written to
+/// the config: which property the tools open on stays a human's call.
+async fn configure_site(ga: &Ga, args: &Value) -> Result<Value> {
+    let host = crate::configure::host_of(&domain_of(args)?)?;
+    let opts = crate::configure::Options {
+        account: args.get("account").and_then(Value::as_str).map(str::to_string),
+        timezone: args
+            .get("timezone")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        currency: args
+            .get("currency")
+            .and_then(Value::as_str)
+            .unwrap_or("USD")
+            .to_string(),
+    };
+
+    let setup =
+        crate::configure::setup(ga, &host, opts, crate::configure::Consent::HeldOnly).await?;
+
+    let status = match setup.action {
+        crate::configure::SetupAction::Reused => "reused",
+        crate::configure::SetupAction::Finished => "finished",
+        crate::configure::SetupAction::Created => "created",
+    };
+
+    // The one thing this server never does, and an assistant should hear it at
+    // least once: the property was not saved as what the other tools open on.
+    // That stays a human's `craft use` — an agent must not silently repoint
+    // the whole tool.
+    let mut note = format!(
+        "not saved as your default property — that stays `craft use {}` in a terminal",
+        setup.property.id,
+    );
+    if let Some(scan) = &setup.note {
+        note = format!("{note}. {scan}.");
+    }
+
+    let mut out = json!({
+        "host": host,
+        "property": setup.property.id,
+        "property_name": setup.property.name,
+        "status": status,
+        "measurement_id": setup.stream.measurement_id,
+        "default_uri": setup.stream.default_uri,
+        "tag": crate::configure::tag_snippet(&setup.stream.measurement_id),
+        "note": note,
+    });
+    if let Some(timezone) = &setup.timezone {
+        out["timezone"] = json!(timezone);
+    }
+    if setup.timezone_fell_back {
+        out["timezone_note"] = json!(
+            "this machine's time zone could not be read, so the property reports in UTC — \
+             pass `timezone` to report in a specific one"
+        );
+    }
+    Ok(out)
+}
+
 pub(crate) fn unit_of(kind: Kind) -> &'static str {
     match kind {
         Kind::Count => "count",
@@ -1085,6 +1257,12 @@ mod demo {
             }));
         }
 
+        // A set up that writes nothing is one of the demo's own answers, not a
+        // report about a property — so it skips the envelope the rest use.
+        if name == "configure_site" {
+            return configure_site_demo(args);
+        }
+
         let payload = match name {
             "site_status" => status_payload(&TOTALS, &PREVIOUS, &daily(&DAILY_USERS, days), false),
             "live_visitors" => live_payload(&take(&LIVE, LIVE.len() as i64)),
@@ -1114,6 +1292,25 @@ mod demo {
         let mut out = envelope(PROPERTY, Some(NAME), window, payload);
         out["synthetic"] = json!(true);
         Ok(out)
+    }
+
+    /// `configure_site` with nothing to write to: answers as if a fresh
+    /// property and stream had just been made for the domain, marked synthetic
+    /// like everything else invented here.
+    fn configure_site_demo(args: &Value) -> Result<Value> {
+        let host = crate::configure::host_of(&domain_of(args)?)?;
+        let id = "G-DEMO1A2B3C4D";
+        Ok(json!({
+            "host": host,
+            "property": "3900000000",
+            "property_name": host,
+            "status": "created",
+            "measurement_id": id,
+            "default_uri": format!("https://{host}"),
+            "tag": crate::configure::tag_snippet(id),
+            "note": "synthetic — with `craft login` and a subscription this creates the real thing",
+            "synthetic": true,
+        }))
     }
 
     fn take(rows: &[(&str, f64)], limit: i64) -> Vec<(String, f64)> {
@@ -1250,7 +1447,7 @@ pub fn install(demo: bool) -> Result<()> {
         // Installing is not serving, so this leans on the cached flag rather
         // than going out to Supabase: the next `craft mcp` refreshes it.
         Ok(cfg) => {
-            if let Err(reason) = unlock(cfg.supporter) {
+            if let Err(reason) = unlock(cfg.tier()) {
                 println!("  {} {reason}\n", paint("·", ore::iron()));
             }
         }
@@ -1488,7 +1685,13 @@ mod tests {
         assert_eq!(listed.len(), TOOLS.len());
         for tool in &listed {
             assert!(tool["inputSchema"]["properties"].is_object(), "{tool}");
-            assert_eq!(tool["annotations"]["readOnlyHint"], json!(true), "{tool}");
+            // All but `configure_site` are reads; the one writer says so, and
+            // the annotation is what makes a client think before calling it.
+            assert_eq!(
+                tool["annotations"]["readOnlyHint"],
+                json!(tool["name"] != "configure_site"),
+                "{tool}"
+            );
         }
 
         // The search tools are the only ones that demand an argument.
@@ -1617,6 +1820,102 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn configure_site_is_the_one_writer_and_asks_for_a_domain() {
+        let mut server = server();
+        let reply = server
+            .dispatch(request(1, "tools/list", json!({})))
+            .await
+            .unwrap();
+        let tools = reply["result"]["tools"].as_array().unwrap().clone();
+
+        let listed = tools
+            .iter()
+            .find(|t| t["name"].as_str() == Some("configure_site"))
+            .expect("configure_site is listed");
+        assert_eq!(listed["annotations"]["readOnlyHint"], json!(false));
+        let schema = &listed["inputSchema"];
+
+        // A tool that makes a property cannot also take one.
+        assert_eq!(schema["properties"]["property"], json!(null));
+        assert_eq!(schema["required"], json!(["domain"]));
+        assert!(schema["properties"]["account"].is_object());
+        assert!(schema["properties"]["timezone"].is_object());
+        assert!(schema["properties"]["currency"].is_object());
+
+        // And the one writer is the only one: every other tool stays a read.
+        for tool in &tools {
+            if tool["name"].as_str() != Some("configure_site") {
+                assert_eq!(
+                    tool["annotations"]["readOnlyHint"],
+                    json!(true),
+                    "unwanted writer: {tool}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn configure_site_in_the_demo_answers_with_a_synthetic_setup() {
+        let mut server = server();
+        let out = payload(&mut server, "configure_site", json!({ "domain": "example.com" })).await;
+
+        assert_eq!(out["synthetic"], json!(true));
+        assert_eq!(out["status"], json!("created"));
+        assert_eq!(out["measurement_id"], json!("G-DEMO1A2B3C4D"));
+        assert_eq!(out["property_name"], json!("example.com"));
+        let tag = out["tag"].as_str().unwrap();
+        assert_eq!(tag.matches("G-DEMO1A2B3C4D").count(), 2);
+        assert!(
+            out["note"].as_str().is_some(),
+            "a synthetic answer must say it is synthetic: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn configure_site_demo_refuses_a_domain_that_is_not_one() {
+        let mut server = server();
+        let result = call(&mut server, "configure_site", json!({ "domain": "localhost" })).await;
+        assert_eq!(result["isError"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn configure_site_requires_its_domain_argument() {
+        let mut server = server();
+        let result = call(&mut server, "configure_site", json!({})).await;
+        assert_eq!(result["isError"], json!(true));
+        assert!(result["structuredContent"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("domain"));
+    }
+
+    #[tokio::test]
+    async fn configure_site_is_never_served_from_memory() {
+        // A write has no idempotent answer to cache: asking twice must mean
+        // two real attempts, not the same JSON twice.
+        let mut server = server();
+        let first = payload(&mut server, "configure_site", json!({ "domain": "example.com" })).await;
+        assert!(first["cached"].is_null());
+        let second = payload(&mut server, "configure_site", json!({ "domain": "example.com" })).await;
+        assert!(
+            second["cached"].is_null(),
+            "a write got cached: {second}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_locked_configure_site_says_why_like_any_other_tool() {
+        let mut server = locked_server();
+        let result = call(&mut server, "configure_site", json!({ "domain": "example.com" })).await;
+
+        assert_eq!(result["isError"], json!(true));
+        let error = result["structuredContent"]["error"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(error.contains("craft subscribe"), "got {error}");
+    }
+
+    #[tokio::test]
     async fn limits_and_windows_are_clamped_rather_than_trusted() {
         let mut server = server();
         let out = payload(&mut server, "list_pages", json!({ "limit": 9999 })).await;
@@ -1689,7 +1988,8 @@ mod tests {
 
     #[test]
     fn the_gate_wants_a_subscription() {
-        let err = crate::license::gate(false, "craft mcp").unwrap_err();
+        let err = crate::license::gate(None, crate::license::Tier::Elite, "craft mcp")
+            .unwrap_err();
         assert!(err.contains("craft subscribe"), "got {err}");
         assert!(
             err.contains("craft mcp --demo"),
@@ -1700,13 +2000,29 @@ mod tests {
             "a subscriber on a new machine is left guessing: {err}"
         );
 
-        assert!(crate::license::gate(true, "craft mcp").is_ok());
+        // Any plan runs the demo; the live server is Elite.
+        assert!(crate::license::gate(Some(crate::license::Tier::Elite), crate::license::Tier::Elite, "craft mcp").is_ok());
+    }
+
+    /// Pro is real and not enough: it buys Slack alerts, not the MCP server,
+    /// and the refusal names the plan that does.
+    #[test]
+    fn a_pro_subscriber_is_told_what_elite_adds() {
+        let err = crate::license::gate(Some(crate::license::Tier::Pro), crate::license::Tier::Elite, "craft mcp")
+            .unwrap_err();
+        assert!(err.contains("Anacrafter Elite"), "got {err}");
+        assert!(
+            err.contains("craft subscribe --plan elite"),
+            "no way up, named: {err}"
+        );
     }
 
     fn locked_server() -> Server {
         Server {
             cfg: Config::default(),
-            source: Source::Locked(crate::license::gate(false, "craft mcp").unwrap_err()),
+            source: Source::Locked(
+                crate::license::gate(None, crate::license::Tier::Elite, "craft mcp").unwrap_err(),
+            ),
             property: None,
             cache: HashMap::new(),
         }

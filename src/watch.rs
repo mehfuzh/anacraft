@@ -950,9 +950,17 @@ pub async fn run(cfg: &Config, property: Option<&str>, opts: Options) -> Result<
 
     // Ask Supabase where the subscription stands, the same way the dashboard
     // does on the way in, then gate on the answer.
-    let supporter = crate::license::sync(cfg.supporter).await;
+    let tier = crate::license::sync(cfg).await;
     let cfg = &Config::load().unwrap_or_default();
-    crate::license::gate(supporter, "craft watch").map_err(|reason| anyhow::anyhow!(reason))?;
+    crate::license::gate(tier, crate::license::Tier::Basic, "craft watch")
+        .map_err(|reason| anyhow::anyhow!(reason))?;
+
+    // The watch itself is Basic. Posting a finding to Slack costs more to make
+    // and more to support, and it is what the Pro plan exists for.
+    if opts.webhook.is_some() {
+        crate::license::gate(tier, crate::license::Tier::Pro, "Slack alerts (craft watch)")
+            .map_err(|reason| anyhow::anyhow!(reason))?;
+    }
 
     let id = cfg.resolve_property(property)?;
     let title = cfg

@@ -39,6 +39,95 @@ use serde_json::json;
 use std::path::PathBuf;
 
 use crate::auth::Account;
+use crate::config::Config;
+
+/// One of the three Anacraft plans, in the order somebody climbs them.
+///
+/// Basic — $2.99 — is `craft configure` and `craft watch`. Pro — $5.99 — adds
+/// Slack alerts. Elite — $9.99 — adds `craft mcp` and the rest of the AI-tool
+/// integration. A plan contains everything below it, so every gate is one
+/// `meets` comparison and every dollar figure lives here, once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+pub enum Tier {
+    Basic,
+    Pro,
+    Elite,
+}
+
+impl Tier {
+    /// 1, 2, 3 — the order the plans climb in, which is what `meets` compares.
+    pub fn level(self) -> u8 {
+        match self {
+            Tier::Basic => 1,
+            Tier::Pro => 2,
+            Tier::Elite => 3,
+        }
+    }
+
+    /// The word the config and the service use, lowercase: `tier = "elite"`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Tier::Basic => "basic",
+            Tier::Pro => "pro",
+            Tier::Elite => "elite",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Tier> {
+        match name {
+            "basic" => Some(Tier::Basic),
+            "pro" => Some(Tier::Pro),
+            "elite" => Some(Tier::Elite),
+            _ => None,
+        }
+    }
+
+    /// The name the site and the dashboard wear. Basic keeps the plain word —
+    /// "Anacrafter" is the plan that has been sold since the start — and the
+    /// two above it tag theirs on.
+    pub fn label(self) -> &'static str {
+        match self {
+            Tier::Basic => "Anacrafter",
+            Tier::Pro => "Anacrafter Pro",
+            Tier::Elite => "Anacrafter Elite",
+        }
+    }
+
+    /// The monthly line, quoted in the ask and by `craft subscribe`.
+    pub fn monthly(self) -> &'static str {
+        match self {
+            Tier::Basic => "$2.99/month",
+            Tier::Pro => "$5.99/month",
+            Tier::Elite => "$9.99/month",
+        }
+    }
+
+    /// Whether this plan includes `required` — true when they are the same or
+    /// this is the one above it.
+    pub fn meets(self, required: Tier) -> bool {
+        self.level() >= required.level()
+    }
+}
+
+impl Serialize for Tier {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.name())
+    }
+}
+
+impl<'de> Deserialize<'de> for Tier {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let name = String::deserialize(deserializer)?;
+        Tier::parse(&name)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown plan {name:?}")))
+    }
+}
 
 /// Baked in at build time by the release pipeline, the way the OAuth client is:
 ///   ANACRAFT_SUPABASE_URL=... ANACRAFT_SUPABASE_KEY=... cargo build --release
@@ -114,6 +203,12 @@ pub struct Status {
     /// paid, which is why it is an `Option` and not a zero.
     #[serde(default)]
     pub founder: Option<u32>,
+    /// The plan this subscription is on — "basic", "pro" or "elite", as the
+    /// service spells it. Absent from a row that predates tiers, in which case
+    /// [`Status::tier`] reads the subscription as Basic: that is what the old
+    /// $2.99 plan was.
+    #[serde(default)]
+    pub tier: Option<String>,
 }
 
 impl Status {
@@ -155,6 +250,19 @@ impl Status {
         } else {
             &self.status
         }
+    }
+
+    /// The plan a live subscription is on.
+    ///
+    /// A subscription that is not live has no plan at all — a cancelled Elite
+    /// subscription is not Pro. And a live one with no tier to read is Basic:
+    /// the row predates tiers, and Basic is what the $2.99 subscription always
+    /// was, so nobody is ever downgraded by an older record.
+    pub fn tier(&self) -> Option<Tier> {
+        if !self.is_active() {
+            return None;
+        }
+        Some(self.tier.as_deref().and_then(Tier::parse).unwrap_or(Tier::Basic))
     }
 }
 
@@ -284,7 +392,7 @@ pub fn forget() -> Result<()> {
     if path.exists() {
         std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     }
-    set_supporter(false)?;
+    set_plan(None)?;
     Ok(())
 }
 
@@ -346,7 +454,7 @@ pub async fn already_paid(account: Option<&Account>, token: Option<&str>) -> Opt
     if !status.is_active() {
         return None;
     }
-    let _ = set_supporter(true);
+    let _ = set_plan(status.tier());
     Some(status)
 }
 
@@ -488,15 +596,17 @@ fn parse(body: &str) -> Result<Status> {
     serde_json::from_value(row).context("reading the subscription row")
 }
 
-/// The launch-time check, run on the way into the dashboard and the MCP server.
+/// The launch-time check, run on the way into the dashboard, `craft watch`
+/// and the MCP server.
 ///
 /// Cheap by design: a fresh cache answers without a request, an unreachable
 /// service keeps a paid-up subscriber going for `GRACE`, and a build with no
 /// project configured leaves the hand-set flag exactly as it found it. Returns
-/// whether this machine should behave as a subscriber.
-pub async fn sync(cfg_supporter: bool) -> bool {
+/// the plan this machine should behave as — `None` is "not subscribed", and is
+/// also what a cancelled subscription becomes.
+pub async fn sync(cfg: &Config) -> Option<Tier> {
     let Some(_) = project() else {
-        return cfg_supporter;
+        return cfg.tier();
     };
     let account = crate::auth::Auth::account().ok().flatten();
     let record = Record::load();
@@ -509,16 +619,14 @@ pub async fn sync(cfg_supporter: bool) -> bool {
 
     // A flag left behind by another account comes down on the way past. It is
     // the one piece of local state that outlives a sign-out, and every gate in
-    // the binary reads it, so leaving it standing while answering `false` would
+    // the binary reads it, so leaving it standing while answering `None` would
     // hand the next command the answer this one just refused.
-    let cfg_supporter = if mine {
-        cfg_supporter
-    } else {
-        if cfg_supporter {
-            let _ = set_supporter(false);
+    if !mine {
+        if cfg.supporter {
+            let _ = set_plan(None);
         }
-        false
-    };
+        return None;
+    }
 
     // A token belongs to the checkout that minted it. Offering somebody
     // else's to the lookup asks it about their subscription and writes the
@@ -526,17 +634,17 @@ pub async fn sync(cfg_supporter: bool) -> bool {
     let token = if mine { record.token.clone() } else { None };
 
     if record.is_fresh(account.as_ref(), now) {
-        let active = record.status.is_active();
+        let tier = record.status.tier();
         // The cache is the answer, so the config has to agree with it — a
         // hand-set flag does not outrank a lookup that has actually run.
-        if active != cfg_supporter {
-            let _ = set_supporter(active);
+        if tier != cfg.tier() {
+            let _ = set_plan(tier);
         }
-        return active;
+        return tier;
     }
     // Nothing to ask about: no account signed in and no checkout ever started.
     if account.is_none() && token.is_none() {
-        return cfg_supporter;
+        return cfg.tier();
     }
 
     // An account this machine has not linked yet: register it, and let it pick
@@ -569,17 +677,31 @@ pub async fn sync(cfg_supporter: bool) -> bool {
             let _ = updated.save();
 
             match verdict(&status) {
-                Some(active) => {
-                    let _ = set_supporter(active);
-                    active
+                // Active: the plan the row names, or Basic when the row is
+                // older than tiers. The flag and the plan are one write.
+                Some(true) => {
+                    let tier = status.tier();
+                    let _ = set_plan(tier);
+                    tier
                 }
-                None => cfg_supporter,
+                // A recorded no: clear the flag and the plan both.
+                Some(false) => {
+                    let _ = set_plan(None);
+                    None
+                }
+                // Nothing to say — the flag and plan are the only evidence
+                // there is, and this machine's own copy of them is kept.
+                None => cfg.tier(),
             }
         }
         // Unreachable. Ride on the last good answer rather than demoting
         // somebody mid-flight — but only where that answer was about this
         // account.
-        Err(_) => (mine && record.within_grace(now)) || cfg_supporter,
+        Err(_) => record
+            .within_grace(now)
+            .then(|| record.status.tier())
+            .flatten()
+            .or_else(|| cfg.tier()),
     }
 }
 
@@ -619,16 +741,20 @@ fn verdict(status: &Status) -> Option<bool> {
     }
 }
 
-/// Write the flag the dashboard and `craft mcp` read.
+/// Write the flag and plan the dashboard and the gates read.
 ///
 /// Returns whether anything changed, so a check that finds what it expected can
-/// stay quiet. The config round-trips whole; this is the only field touched.
-pub fn set_supporter(active: bool) -> Result<bool> {
+/// stay quiet. The config round-trips whole; these are the only fields touched.
+///
+/// `None` clears both: a cancelled subscription is not a Pro, it is just a
+/// subscriber who stopped.
+pub fn set_plan(tier: Option<Tier>) -> Result<bool> {
     let mut cfg = crate::config::Config::load()?;
-    if cfg.supporter == active {
+    if cfg.supporter == tier.is_some() && cfg.tier == tier {
         return Ok(false);
     }
-    cfg.supporter = active;
+    cfg.supporter = tier.is_some();
+    cfg.tier = tier;
     cfg.save()?;
     Ok(true)
 }
@@ -708,23 +834,61 @@ fn line_from_seed(seed: &[u8]) -> &'static str {
 /// bails with it. `command` names the caller, because "run this with --demo"
 /// is only useful advice if it names the thing to run.
 ///
-/// It is a soft gate either way. The flag it consults is a line of TOML in a
+/// `tier` is the plan this machine is on — the cached answer from [`sync`] —
+/// and `required` is the plan the command needs. Two shapes of refusal come
+/// out of that: somebody with no subscription at all is told how to start one,
+/// and somebody on a lower plan is told which plan has the thing they are
+/// reaching for, because moving up is a different and smaller decision.
+///
+/// It is a soft gate either way. The answer it consults is a line of TOML in a
 /// config anybody can edit, in a binary anybody can rebuild — the point is to
 /// ask honestly, not to be unpickable.
-pub fn gate(supporter: bool, command: &str) -> std::result::Result<(), String> {
-    if supporter {
-        return Ok(());
+pub fn gate(
+    tier: Option<Tier>,
+    required: Tier,
+    command: &str,
+) -> std::result::Result<(), String> {
+    match tier {
+        Some(have) if have.meets(required) => Ok(()),
+        Some(have) => Err(upgrade(have, required, command)),
+        None => Err(subscribe_first(command)),
     }
-    Err(format!(
+}
+
+/// The ask for somebody who has not subscribed at all.
+fn subscribe_first(command: &str) -> String {
+    format!(
         "{command} is part of the Anacraft subscription.\n     \
-         Run `craft subscribe` to start one — it writes `supporter = true` in {} \
+         Run `craft subscribe` to start one — it writes the plan into {} \
          once the payment clears. Already subscribed on another machine? \
          `craft login` with the same Google account, then `craft subscribe --check`.\n     \
          `{command} --demo` runs on synthetic data and needs no subscription.",
         crate::config::Config::path()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| "your config".into())
-    ))
+    )
+}
+
+/// The ask for somebody whose plan is real but short of what they reached for.
+fn upgrade(have: Tier, required: Tier, command: &str) -> String {
+    // What the higher plan's price buys, in the words the site uses on it.
+    let worth_it = match required {
+        Tier::Pro => "Slack alerts",
+        Tier::Elite => "craft mcp and the AI-tool integration",
+        Tier::Basic => "everything in the plan you already have",
+    };
+    format!(
+        "{command} is on Anacrafter {} ({}).\n     \
+         It needs Anacrafter {} ({}), which adds {}.\n     \
+         Run `craft subscribe --plan {}` to move up;\n     \
+         the change is billed going forward, not charged again.",
+        have.label(),
+        have.monthly(),
+        required.label(),
+        required.monthly(),
+        worth_it,
+        required.name(),
+    )
 }
 
 #[cfg(test)]
@@ -888,6 +1052,7 @@ mod tests {
                 since: None,
                 subscribed: None,
                 founder: None,
+                tier: None,
             },
             checked: Some(now - Duration::hours(1)),
         };
@@ -906,6 +1071,7 @@ mod tests {
                 since: None,
                 subscribed: None,
                 founder: None,
+                tier: None,
             },
             checked: Some(now),
         };
@@ -921,6 +1087,7 @@ mod tests {
             since: None,
             subscribed: None,
             founder: None,
+            tier: None,
         };
         assert_eq!(verdict(&pending), None, "a hand-set flag was cleared");
         assert_eq!(verdict(&Status::default()), None, "an empty answer decided");
@@ -931,6 +1098,7 @@ mod tests {
             since: None,
             subscribed: None,
             founder: None,
+            tier: None,
         };
         assert_eq!(verdict(&active), Some(true));
         let gone = Status {
@@ -938,6 +1106,7 @@ mod tests {
             since: None,
             subscribed: None,
             founder: None,
+            tier: None,
         };
         assert_eq!(verdict(&gone), Some(false));
     }
@@ -995,6 +1164,7 @@ mod tests {
                 since: None,
                 subscribed: Some(true),
                 founder: Some(41),
+                tier: None,
             },
             checked: Some(Utc::now()),
         };
@@ -1033,6 +1203,7 @@ mod tests {
                 since: None,
                 subscribed: Some(true),
                 founder: None,
+                tier: None,
             },
             checked: Some(now - Duration::days(1)),
         };
@@ -1088,6 +1259,7 @@ mod tests {
                     since: None,
                     subscribed: None,
                     founder: None,
+                    tier: None,
                 },
                 checked: Some(now),
             };
@@ -1119,6 +1291,7 @@ mod tests {
                 since: None,
                 subscribed: None,
                 founder: None,
+                tier: None,
             },
             checked: Some(now - age),
         };
@@ -1132,6 +1305,7 @@ mod tests {
                 since: None,
                 subscribed: None,
                 founder: None,
+                tier: None,
             },
             checked: Some(now),
             ..Record::default()
@@ -1174,5 +1348,75 @@ mod tests {
         assert_eq!(record.token.as_deref(), Some("tok"));
         assert!(record.checked.is_none());
         assert!(record.status.is_pending());
+    }
+
+    // ------------------------------------------------------------- the plans ---
+
+    #[test]
+    fn a_live_row_names_its_plan_and_an_older_one_reads_as_basic() {
+        // The row the webhook keeps now carries the tier the price implies.
+        let elite = parse("[{\"status\":\"active\",\"tier\":\"elite\"}]").unwrap();
+        assert_eq!(elite.tier(), Some(Tier::Elite));
+
+        // A row from before tiers says nothing about the plan, and that is
+        // Basic: it is what the $2.99 subscription always was, so nothing
+        // already paid is ever downgraded by an older record.
+        let legacy = parse("[{\"status\":\"active\"}]").unwrap();
+        assert_eq!(legacy.tier(), Some(Tier::Basic));
+    }
+
+    #[test]
+    fn a_subscription_that_is_not_live_has_no_plan_at_all() {
+        // A cancelled Elite is not Pro. The plan travels with the payment, so a
+        // lapsed one stops answering for anything.
+        let gone = parse("[{\"status\":\"canceled\",\"tier\":\"elite\"}]").unwrap();
+        assert_eq!(gone.tier(), None);
+    }
+
+    #[test]
+    fn every_plan_contains_the_ones_below_it() {
+        assert!(Tier::Basic.meets(Tier::Basic));
+        assert!(!Tier::Basic.meets(Tier::Pro));
+        assert!(Tier::Pro.meets(Tier::Basic));
+        assert!(Tier::Pro.meets(Tier::Pro));
+        assert!(!Tier::Pro.meets(Tier::Elite));
+        assert!(Tier::Elite.meets(Tier::Basic));
+        assert!(Tier::Elite.meets(Tier::Elite));
+    }
+
+    #[test]
+    fn the_plan_names_and_prices_are_the_sites() {
+        assert_eq!(Tier::Basic.name(), "basic");
+        assert_eq!(Tier::Pro.name(), "pro");
+        assert_eq!(Tier::Elite.name(), "elite");
+        assert_eq!(Tier::Pro.label(), "Anacrafter Pro");
+        assert_eq!(Tier::Elite.label(), "Anacrafter Elite");
+        assert_eq!(Tier::Basic.monthly(), "$2.99/month");
+        assert_eq!(Tier::Pro.monthly(), "$5.99/month");
+        assert_eq!(Tier::Elite.monthly(), "$9.99/month");
+        assert_eq!(Tier::Pro.monthly(), "$5.99/month");
+        assert_eq!(Tier::Pro.name(), Tier::parse("pro").unwrap().name());
+    }
+
+    #[test]
+    fn an_unrecognised_tier_word_is_not_a_plan() {
+        assert_eq!(Tier::parse("platinum"), None);
+        assert_eq!(Tier::parse("BASIC"), None, "case is significant");
+    }
+
+    #[test]
+    fn a_basic_subscriber_is_told_what_pro_adds() {
+        let err = gate(Some(Tier::Basic), Tier::Pro, "Slack alerts").unwrap_err();
+        assert!(err.contains("Anacrafter Pro"), "got {err}");
+        assert!(err.contains("$5.99"), "no price in the ask: {err}");
+        assert!(err.contains("craft subscribe --plan pro"), "no way up: {err}");
+    }
+
+    #[test]
+    fn a_known_plan_and_a_new_one_pass_their_own_gate() {
+        assert!(gate(Some(Tier::Basic), Tier::Basic, "craft watch").is_ok());
+        assert!(gate(Some(Tier::Pro), Tier::Pro, "craft watch").is_ok());
+        assert!(gate(Some(Tier::Elite), Tier::Elite, "craft mcp").is_ok());
+        assert!(gate(None, Tier::Basic, "craft watch").is_err());
     }
 }

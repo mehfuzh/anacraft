@@ -53,12 +53,14 @@ reading it knows not to quote the numbers as real.
 Two preconditions, both checked at startup so the reason is known before the
 first tool call:
 
-1. **A subscription.** `supporter = true` in `~/.config/anacraft/config.toml`,
-   after `craft subscribe`. `--demo` skips this.
+1. **The Elite plan.** `craft mcp` is what Anacrafter **Elite** ($9.99/month) is
+   for — `craft subscribe` for the starter, `--plan elite` for this. The config
+   carries it as `supporter = true` and `tier = "elite"`. `--demo` skips this.
 2. **A stored token.** `craft login`, run in a terminal by a person. The server
    will not start an OAuth flow — a browser consent screen inside a client's
-   subprocess is not something an agent can complete, and read-only means
-   read-only.
+   subprocess is not something an agent can complete. `configure_site`, the one
+   write, works off that same stored grant (a fresh `craft login` carries the
+   `analytics.edit` scope it needs) instead of opening a browser of its own.
 
 Neither is fatal. Missing one **locks** the server rather than exiting it: the
 reason goes to stderr — the client's log — the handshake still succeeds, the
@@ -70,10 +72,12 @@ carry the reason too, so it can be relayed before anything is called.
 
 ## The tools
 
-Every tool takes an optional `property` (numeric GA4 id) and falls back to the
-saved default, so an assistant that knows nothing about the config still gets
-answers. `days` defaults to 7 and is clamped to 1–365; `limit` defaults to 10
-and is clamped to 1–100.
+Every report tool takes an optional `property` (numeric GA4 id) and falls back
+to the saved default, so an assistant that knows nothing about the config still
+gets answers. `days` defaults to 7 and is clamped to 1–365; `limit` defaults to 10
+and is clamped to 1–100. `configure_site`, the one write, takes a `domain`
+instead — creating the property is the point, so there is none to point at yet;
+it also takes an optional `account`, `timezone` and `currency` (default `USD`).
 
 | Tool | Arguments | Answers |
 |---|---|---|
@@ -87,8 +91,10 @@ and is clamped to 1–100.
 | `list_properties` | — | Every property this account can read, and which is default |
 | `search_pages` | `query`\*, `days`, `limit` | Pages whose path contains a substring |
 | `search_events` | `query`\*, `days`, `limit` | Events whose name contains a substring |
+| `configure_site` | `domain`\*, `account`, `timezone`, `currency` | Creates a property and web stream for a domain and returns the gtag.js snippet |
 
-\* required; the match is case-insensitive.
+\* required. `query` matches case-insensitively; `domain` belongs to
+`configure_site`, the one writer — every other tool is read-only.
 
 Which tool answers which question:
 
@@ -99,6 +105,11 @@ Which tool answers which question:
 - "Where is the traffic coming from?" → `list_traffic_sources` for the channel
   mix, `list_referrers` for the actual links
 - "Did the signup flow get used?" → `search_events` with `signup`
+- "We're not tracking a site yet — set it up." → `configure_site` with the
+  `domain`. It says whether it created the property (`created`), finished one
+  that was already started (`finished`), or found one (`reused`) — and never
+  changes the saved default, so follow up with `craft use` only if that is what
+  is wanted.
 
 ## What comes back
 
@@ -134,6 +145,11 @@ On top of that envelope:
   `"window": "the last 30 minutes"` in place of a date range.
 - **`list_properties`** — `properties[]` only, with no property or window: it is
   not a question about one site.
+- **`configure_site`** — no property or window on it (there was none to ask
+  about). Instead `host`, `property`, `property_name`, `status`
+  (`created` / `finished` / `reused`), `measurement_id`, `default_uri`, the
+  `tag` to paste, a `note` saying it was not saved as the default, and — when
+  a new property was made — `timezone` and `timezone_note`.
 
 Two flags worth reading:
 
@@ -150,7 +166,9 @@ readable and actionable rather than looking like a broken server.
 
 ## What it will not do
 
-Every tool is a read. Nothing in the server writes to `~/.anacraft/`, starts an
-OAuth flow, or changes the default property: `craft login` and `craft use` stay
-human-only commands. An agent cannot silently repoint the tool at another
-property — it can only pass `property` on a single call.
+Every report is a read. Nothing in the server opens an OAuth flow or changes
+the default property: `craft login` and `craft use` stay human-only commands.
+An agent cannot silently repoint the tool at another property — it can only
+pass `property` on a single call. `configure_site` is the one exception, and
+even it keeps its hands off the config: it creates the property and web stream
+on Google's side and returns the tag, but never saves it as the default.

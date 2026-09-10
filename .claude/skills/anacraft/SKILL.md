@@ -157,7 +157,10 @@ meant to be safe to commit. Repeat alerts are
 suppressed per day via `~/.anacraft/watch.json`, recorded only after delivery
 succeeds.
 
-Part of the subscription, like `craft mcp`. `--demo` is not.
+Watching in the terminal is the **Anacrafter** plan part of the subscription;
+delivering the alert to Slack is what **Pro** covers (`craft subscribe --plan
+pro`), and the gate around a `--webhook` run on a lower plan says exactly that.
+`--demo` is none of them and needs no subscription.
 
 ## 6. The dashboard
 
@@ -202,11 +205,13 @@ nothing.
 
 Three things to know before promising it will work:
 
-- **It needs a subscription.** `craft subscribe`, then `supporter = true` in
-  `config.toml`. `--demo` is ungated.
-- **It needs `craft login` to have been run first**, in a terminal. The server
-  is read-only by design and will not open a browser inside a client
-  subprocess.
+- **It needs the Elite plan.** `craft mcp` is what Anacrafter **Elite**
+  ($9.99/month) is for — `craft subscribe --plan elite`, then `supporter = true`
+  and `tier = "elite"` in `config.toml`. `--demo` is ungated. A Pro subscriber
+  is told "craft mcp is on Anacrafter Elite" and handed `--plan elite`.
+- **It needs `craft login` to have been run first**, in a terminal. Every
+  report is read-only, and the one writer — `configure_site` — works off the
+  stored grant rather than opening a browser inside a client subprocess.
 - **Neither missing one breaks the connection.** The server starts anyway and
   every tool call answers with what is missing, so a client that shows
   `Server disconnected` has a wiring problem — a wrong path, an old binary —
@@ -214,9 +219,12 @@ Three things to know before promising it will work:
 - **Use an absolute path** in any config written by hand. A desktop app is not
   launched from a shell and often cannot find a bare `craft`.
 
-Ten tools: `site_status`, `live_visitors`, `list_pages`, `list_events`,
+Eleven tools: `site_status`, `live_visitors`, `list_pages`, `list_events`,
 `list_referrers`, `list_traffic_sources`, `list_countries`, `list_properties`,
-`search_pages`, `search_events`. Arguments, response shapes, and wiring for
+`search_pages`, `search_events`, and `configure_site` — the one that writes:
+it creates the property and web stream for a domain the account doesn't track
+yet and returns the tag to paste, without ever changing the saved default.
+Arguments, response shapes, and wiring for
 clients other than Claude Desktop are in `references/mcp.md`.
 
 ## Palettes
@@ -247,6 +255,7 @@ honoured. A pre-0.4 `~/.anacraft/config.json` is migrated on first run.
 active    = "397412345"
 theme     = "osaka-jade"   # for any property that doesn't name its own
 supporter = true           # set once a subscription is active
+tier      = "elite"        # "basic" | "pro" | "elite" — the plan that is active
 
 [[property]]
 id           = "397412345"

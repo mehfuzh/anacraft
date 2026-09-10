@@ -65,7 +65,8 @@ craft use 1234567  # save it as the default
 craft
 ```
 
-`craft configure` is part of the [Anacrafter subscription](https://anacraft.dev/pricing.html).
+`craft configure` is part of the [Anacrafter plan](https://anacraft.dev/pricing.html)
+($2.99/month; the plans above it each add one more thing).
 It creates the property and its web data stream, prints the gtag.js snippet with
 your measurement id already in it, and saves the property as the default. The
 subscription ask arrives on the page the Google sign-in already ends on, and the
@@ -258,9 +259,10 @@ dotfile repo, and a URL that can post into your Slack is not.
 
 `--webhook` stays for cron, CI, and workspaces where you cannot install apps.
 
-`craft watch` is part of the subscription, the same as `craft mcp`.
-`craft watch --demo` is not, so what an alert looks like can be seen before
-anything is paid for or wired up.
+`craft watch` to the terminal is part of the Anacrafter plan; delivering it to
+Slack is what Anacrafter Pro adds (the same command, a `--webhook`).
+`craft watch --demo` needs neither, so what an alert looks like can be seen
+before anything is paid for or wired up.
 
 ## The dashboard
 
@@ -338,24 +340,33 @@ works. `which craft` gives the value to paste.
 | `list_properties` | Every property this account can read |
 | `search_pages` | Pages whose path contains a substring |
 | `search_events` | Events whose name contains a substring |
+| `configure_site` | Creates the property and web stream for a domain and returns the tag to paste — the one write |
 
-Every tool takes an optional `property` and falls back to the saved default, so
-an assistant that knows nothing about your config still gets answers. Responses
-are structured JSON — labelled numbers carrying the property id and the date
-window they cover, not rendered panels.
+Every report tool takes an optional `property` and falls back to the saved
+default, so an assistant that knows nothing about your config still gets
+answers. `configure_site`, the one writer, takes a `domain` instead — the point
+is to create the property. Responses are structured JSON — labelled numbers
+carrying the property id and the date window they cover, not rendered panels.
 
-**Read-only.** Nothing here starts an OAuth flow, writes to `~/.anacraft/`, or
-changes the default property: `login` and `use` stay human-only commands. If no
+**One writer.** `configure_site` creates a property and web stream for a domain
+the account doesn't track yet and returns the tag; it works off the stored
+grant rather than opening a browser. Nothing else here starts an OAuth flow,
+writes to `~/.anacraft/`, or changes the default property: `login` and `use`
+stay human-only commands, and `configure_site` never sets the default either
+(say `craft use` for that). If no
 credentials are stored the tools say to run `craft login` rather than opening a
 browser inside your client's subprocess. Identical reports
 are cached for a minute so a chatty agent does not burn the GA4 quota that the
 dashboard needs.
 
-**Subscription.** `craft mcp` needs an active subscription — `craft subscribe`
-for $2.99/month, and [anacraft.dev/pricing](https://anacraft.dev/pricing.html)
-for what is on each side of that line. It opens Stripe,
-waits for the payment to clear, and writes `supporter = true` itself; the
-dashboard and the MCP server re-check on launch and keep that line current. The
+**Subscription.** `craft mcp` is the Anacrafter **Elite** plan — `craft subscribe`
+for the $2.99 starter, `--plan pro` / `--plan elite` for the two above it, and
+[anacraft.dev/pricing](https://anacraft.dev/pricing.html) for what is on each
+side of that line. It opens Stripe,
+waits for the payment to clear, and writes `supporter = true` (and the plan)
+itself; the
+dashboard, `craft watch` and the MCP server re-check on launch and keep that
+line current. The
 record is keyed to the Google account you signed in with, so a second machine
 only has to `craft login` — add `--check` to look it up without opening a
 browser. Missing it does not take the process

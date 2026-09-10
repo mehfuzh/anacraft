@@ -231,13 +231,16 @@ enum Command {
     },
     /// Start an Anacraft subscription, or pick up the one you have.
     ///
-    /// Opens Stripe, waits for the payment to clear, and writes
-    /// `supporter = true` itself. The subscription is keyed to the Google
-    /// account you signed in with, so a second machine only has to sign in.
+    /// Opens Stripe, waits for the payment to clear, and writes the plan into
+    /// the config itself. The subscription is keyed to the Google account you
+    /// signed in with, so a second machine only has to sign in.
     Subscribe {
-        /// Take the yearly plan — $29/year rather than $2.99/month.
-        #[arg(long)]
-        annual: bool,
+        /// Which plan to take — `basic` ($2.99, the Anacrafter),
+        /// `pro` ($5.99, adds Slack alerts) or `elite` ($9.99, adds
+        /// `craft mcp`). With no plan named, it opens the pricing page, where
+        /// the three stand side by side.
+        #[arg(long, value_enum)]
+        plan: Option<license::Tier>,
         /// Only look up where the account already stands. Opens no browser,
         /// so it is the one to run on a second machine or from a script.
         #[arg(long)]
@@ -325,7 +328,7 @@ async fn run() -> Result<()> {
             )
             .await
         }
-        Command::Subscribe { annual, check } => cmd_subscribe(annual, check).await,
+        Command::Subscribe { plan, check } => cmd_subscribe(plan, check).await,
         Command::Mcp {
             demo,
             install,
@@ -475,8 +478,10 @@ async fn run() -> Result<()> {
             // Ask Supabase where the subscription stands on the way in. It is
             // cached, short-timeout and best-effort — the star it decides is
             // never worth making somebody wait for their numbers.
-            let cfg = match license::sync(cfg.supporter).await {
-                active if active != cfg.supporter => Config::load()?,
+            let tier = license::sync(&cfg).await;
+            let cfg = match tier {
+                Some(tier) if cfg.tier() != Some(tier) => Config::load()?,
+                None if cfg.tier().is_some() => Config::load()?,
                 _ => cfg,
             };
             // Flags win; otherwise fall back to what this property saved.
@@ -525,43 +530,54 @@ async fn run() -> Result<()> {
 /// the page its OAuth trip already ends on, rather than through a second tab.
 pub(crate) const PRICING_URL: &str = "https://anacraft.dev/pricing.html";
 
-/// Stripe's hosted page for the $2.99/month plan — the Payment Link the
-/// pricing page's Subscribe button points at, and the one place in the CLI
-/// that goes straight there.
+/// Stripe's hosted page for the Basic plan — the Payment Link the pricing
+/// page's first Subscribe button points at, and the one place in the CLI that
+/// goes straight there.
 ///
 /// That place is the button on the page Google's consent screen hands back
-/// (see `configure::Paywall`). Everywhere else opens [`PRICING_URL`] instead,
-/// and the difference is whether the ask has been made yet. A tab that opens
-/// out of nowhere onto a card field is a decision nobody was asked for. That
-/// button is the asking: it is captioned "Become an Anacrafter", the price and
-/// "cancel any time" are on the line beneath it, and pressing it is the answer
-/// — so putting a page of plans in front of it re-asks a question that was
-/// just answered.
+/// (see `configure::Paywall`): `craft configure` is Basic, so its ask opens
+/// the plan's own checkout. Everywhere else opens [`PRICING_URL`] instead, and
+/// the difference is whether the ask has been made yet. A tab that opens out of
+/// nowhere onto a card field is a decision nobody was asked for. That button is
+/// the asking: it is captioned "Become an Anacrafter", the price and "cancel
+/// any time" are on the line beneath it, and pressing it is the answer — so
+/// putting a page of plans in front of it re-asks a question that was just
+/// answered.
 ///
 /// A Payment Link rather than a checkout session built here: a session needs a
 /// secret key, and a key shipped inside a binary anybody can download is a key
 /// that has leaked. The link is public by design and safe to hardcode — but it
-/// now exists in two places, here and on `docs/pricing.html`, so a new one has
-/// to land in both.
+/// exists in two places, here and on `docs/pricing.html`, so a new one has to
+/// land in both.
 pub(crate) const SUBSCRIBE_URL: &str = "https://buy.stripe.com/3cIdR93sU4SbfECab79MY02";
 
-/// The same, for the $29/year plan — empty until that Payment Link exists.
+/// The same two, for Pro and Elite — empty until those Payment Links exist.
 ///
 /// A hardcoded link that 404s is worse than a plan that admits it is not ready,
-/// because the first one looks like it worked. So everything that would quote
-/// the yearly price checks this first, and the option appears across the CLI and
-/// the dashboard the moment the real URL lands here.
-const SUBSCRIBE_ANNUAL_URL: &str = "";
+/// because the first one looks like it worked. So `craft subscribe --plan pro`
+/// (and `--plan elite`) checks its link first, and refuses with "not ready yet"
+/// until the real URL lands here — at which point `--plan` quotes the price and
+/// opens the checkout just like Basic does.
+const SUBSCRIBE_PRO_URL: &str = "https://buy.stripe.com/cNieVd1kMacvgIGab79MY03";
+const SUBSCRIBE_ELITE_URL: &str = "https://buy.stripe.com/3cI7sL4wY98r8caern9MY04";
 
-/// The price the dashboard's ask and `craft subscribe` both quote, written once
-/// so the two cannot drift apart. Names the yearly plan only once there is
-/// somewhere to buy it.
-pub(crate) fn price_line() -> &'static str {
-    if SUBSCRIBE_ANNUAL_URL.is_empty() {
-        "$2.99/month"
-    } else {
-        "$2.99/mo or $29/yr"
+/// The Payment Link a plan's `craft subscribe --plan <name>` opens.
+///
+/// Empty means the plan is not for sale yet: the caller that puts these in
+/// front of a human checks first. Basic's is never empty — it is the plan the
+/// site has sold since the start.
+pub(crate) fn subscribe_url(plan: license::Tier) -> &'static str {
+    match plan {
+        license::Tier::Basic => SUBSCRIBE_URL,
+        license::Tier::Pro => SUBSCRIBE_PRO_URL,
+        license::Tier::Elite => SUBSCRIBE_ELITE_URL,
     }
+}
+
+/// The price the dashboard's ask and `craft subscribe` quote when no plan is
+/// named — the entry plan, which is what a first ask is asking for.
+pub(crate) fn price_line() -> &'static str {
+    license::Tier::Basic.monthly()
 }
 
 /// How long to wait on a checkout before handing back a way to finish later,
@@ -591,7 +607,7 @@ const CHECKOUT_POLL: std::time::Duration = std::time::Duration::from_secs(3);
 /// than asked for twice. That same first step is the whole of `--check`, and it is what
 /// makes a new laptop work — the record is keyed to the Google account, so
 /// signing in is all a second machine has to do.
-async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
+async fn cmd_subscribe(plan: Option<license::Tier>, check: bool) -> Result<()> {
     let account = auth::Auth::account()?;
     let record = license::Record::load();
 
@@ -647,9 +663,9 @@ async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
 
     if check {
         return match known {
-            // Cancelled or lapsed: stop the flag claiming otherwise.
+            // Cancelled or lapsed: stop the flag and plan claiming otherwise.
             Some(status) if !status.is_pending() => {
-                let cleared = license::set_supporter(false)?;
+                let cleared = license::set_plan(None)?;
                 println!(
                     "\n  {} subscription {}{}\n",
                     paint("○", ore::stone()),
@@ -721,19 +737,29 @@ async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
         return Ok(());
     }
 
-    if annual && SUBSCRIBE_ANNUAL_URL.is_empty() {
-        println!(
-            "\n  no yearly plan yet — {} is {}\n",
-            bold("craft subscribe"),
-            price_line()
-        );
-        return Ok(());
-    }
-
-    let (url, price) = if annual {
-        (SUBSCRIBE_ANNUAL_URL, "$29/year")
-    } else {
-        (PRICING_URL, price_line())
+    // A plan named means a specific checkout. A Payment Link that does not
+    // exist yet is worse than a plan that says so, so `--plan pro` and `--plan
+    // elite` admit they are not for sale until a real URL lands in
+    // SUBSCRIBE_PRO_URL / SUBSCRIBE_ELITE_URL. Basic has been sold since the
+    // start, and is never refused.
+    let (url, price) = match plan {
+        Some(pick) if subscribe_url(pick).is_empty() => {
+            println!(
+                "\n  {} the {} plan is not for sale yet — {} is {}\n",
+                paint(theme::glyph::STAR, ore::gold()),
+                bold(pick.label()),
+                bold("craft subscribe"),
+                price_line(),
+            );
+            return Ok(());
+        }
+        // A plan named opens that plan's own checkout — the person has already
+        // chosen, so the pricing page between them and the card field asks a
+        // question that just got answered.
+        Some(pick) => (subscribe_url(pick), pick.monthly()),
+        // No plan: the page, where the three stand side by side and the first
+        // click does the choosing.
+        None => (PRICING_URL, price_line()),
     };
 
     // A fresh token per checkout: an old one belongs to the old subscription,
@@ -762,14 +788,6 @@ async fn cmd_subscribe(annual: bool, check: bool) -> Result<()> {
         price
     );
     let _ = open::that(&checkout);
-
-    // The cheaper plan is worth a sentence rather than a flag to go and find.
-    if !annual && !SUBSCRIBE_ANNUAL_URL.is_empty() {
-        println!(
-            "  or {} — $29/year, two months off\n",
-            bold("craft subscribe --annual")
-        );
-    }
 
     if account.is_none() {
         // Two different people to talk to: somebody who never signed in, and
@@ -884,13 +902,15 @@ fn clear_line() {
     let _ = std::io::stdout().flush();
 }
 
-/// The one place that turns a confirmed subscription into the saved flag.
+/// The one place that turns a confirmed subscription into the saved plan.
 fn activated(status: &license::Status) -> Result<()> {
-    let changed = license::set_supporter(true)?;
+    let tier = status.tier();
+    let changed = license::set_plan(tier)?;
+    let name = tier.map(|t| t.label()).unwrap_or("Anacrafter");
     println!(
         "\n  {} {}{}\n",
         paint("✓", ore::emerald()),
-        bold(&paint("you're an Anacrafter", ore::gold())),
+        bold(&paint(&format!("you're an {name}"), ore::gold())),
         match status.since {
             Some(since) => dim(&format!("  ·  since {}", since.format("%-d %b %Y"))),
             None => String::new(),
@@ -898,15 +918,17 @@ fn activated(status: &license::Status) -> Result<()> {
     );
     if changed {
         println!(
-            "  {} written to {}\n",
-            bold("supporter = true"),
+            "  {} = {} in {}\n",
+            bold("tier"),
+            tier.map(|t| t.name()).unwrap_or("basic"),
             dim(&config::Config::path()?.display().to_string()),
         );
     }
     println!(
         "  {}\n",
-        dim("craft configure, craft watch and craft mcp are unlocked, \
-             and the dashboard wears a gold star")
+        dim("craft configure and craft watch are unlocked on every plan, \
+             Slack alerts on Pro, craft mcp on Elite — and the dashboard \
+             wears a gold star")
     );
     Ok(())
 }
@@ -924,7 +946,7 @@ async fn cmd_login() -> Result<()> {
     // valid, and the next dashboard launch tries again.
     if let Some(account) = auth::Auth::account()? {
         let _ = license::link(&account).await;
-        if license::sync(Config::load()?.supporter).await {
+        if license::sync(&Config::load()?).await.is_some() {
             println!(
                 "  {} {}\n",
                 paint(theme::glyph::STAR, ore::gold()),

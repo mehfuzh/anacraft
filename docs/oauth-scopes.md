@@ -11,7 +11,7 @@ is written to be pasted into the Cloud Console verification form.
 | `openid` | Non-sensitive | `craft login` | Keying a subscription to an account so it survives a new laptop |
 | `email` | Non-sensitive | `craft login` | Naming the account in support questions |
 | `.../auth/analytics.readonly` | Sensitive | `craft login` | Every report, the dashboard, `craft watch`, `craft mcp`, and the `accounts.list` / `properties.list` / `dataStreams.list` reads `craft configure` does before it creates anything |
-| `.../auth/analytics.edit` | Sensitive | **`craft configure`, and `craft delete --all`** | `properties.create`, `dataStreams.create`, and `properties.delete` on the property the user names — nothing else |
+| `.../auth/analytics.edit` | Sensitive | `craft login`, with the read scope | `properties.create`, `dataStreams.create`, and `properties.delete` on the property the user names — nothing else. Credentials granted before the edit scope joined the login set are topped up the first time a write command runs after that (`ensure_scope`) |
 
 Only one scope is being added: `analytics.edit`. The reads `craft configure`
 performs — finding the account, and checking whether the domain already has a
@@ -91,19 +91,17 @@ than merely documenting an intention.
 
 **How the request is minimised.** Four things, all verifiable in the source:
 
-1. **It is not requested at sign-in, and not until something will be created.**
-   `craft login` asks for the read-only set and nothing else. The write scope is
-   requested through Google's incremental authorization, by the one command that
-   writes, at the point in that command where a property is about to be created
-   — after the search for an existing one has come back empty — with a line on
-   screen naming what it is for. Re-running `craft configure` on a domain that
-   is already set up therefore completes entirely within read-only access and
-   shows no consent screen at all. (The one exception is a machine with no
-   credentials, where signing in and granting are the same browser trip rather
-   than two.) A user who only reads their numbers is never shown a screen
-   offering anacraft permission to change their Analytics setup. (`src/auth.rs`,
-   `ensure_scope`; `src/configure.rs`, `run`; pinned by the tests
-   `signing_in_asks_for_one_read_only_analytics_scope_and_nothing_else` and
+1. **It is requested once, at sign-in, on the same consent screen as everything
+   else.** `craft login` asks for the full set — read and edit together — in a
+   single browser trip, so `craft configure` never has to interrupt the setup
+   guide with a second screen. The write scope is not hidden from the review: it
+   sits on the same screen as the read scope, and `configure` names the line
+   what it is for. Credentials granted before the edit scope joined the login
+   set are topped up through Google's incremental authorization the first time a
+   write command runs after that (`src/auth.rs`, `ensure_scope`). Re-running
+   `craft configure` on a domain that is already set up therefore completes
+   entirely within access it already holds and shows no consent screen.
+   (Pinned by the tests `signing_in_asks_for_analytics_and_nothing_else` and
    `the_write_scope_is_the_narrowest_one_that_creates_a_property`.)
 2. **It never modifies, and it deletes only what the user names.** The client
    issues no update against the Admin API at all — no `PATCH`, no `PUT`, no
@@ -158,14 +156,17 @@ lookup that sees an account id and no analytics data.
 
 For the verification submission, recording the whole flow end to end:
 
-1. `craft login` — show the consent screen. Read the scopes out loud: it asks
-   for read-only Analytics access, and offers no permission to make changes.
+1. `craft login` — show the consent screen. Read the scopes out loud: read-only
+   Analytics access for the reports, and edit access for the one command that
+   sets a site up (`craft configure`).
 2. `craft` — the dashboard, reading the account's numbers. This is the product,
-   and it works entirely within read-only access.
-3. `craft configure example.com` — show the *second* consent screen appearing
-   at this point, listing the edit permission, with the terminal line above it
-   naming what it is for.
-4. Approve. Show the property and the stream being created, and the printed tag.
+   and it works entirely within the read scope.
+3. `craft configure example.com` — the property and stream are created with the
+   permission already granted at login; no second consent screen appears. (For
+   an account whose credentials predate the edit scope, this is where the
+   one-time incremental grant is asked for, with the terminal line naming what
+   it is for.)
+4. Show the property and the stream being created, and the printed tag.
 5. Open the Analytics console and show the new property and its data stream,
    matching what the terminal printed.
 6. `craft configure example.com` again — show that it finds the existing
