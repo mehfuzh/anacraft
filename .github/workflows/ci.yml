@@ -20,3 +20,19 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+
+  sync-maker:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Grant maker (Elite) access to repo collaborators
+        env:
+          # Listing collaborators needs push-access-level read on the repo.
+          # The default token usually covers it; set MAKER_SYNC_TOKEN (a PAT
+          # with `repo` scope) as a secret if it ever doesn't.
+          GITHUB_TOKEN: ${{ secrets.MAKER_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python3 scripts/sync-maker.py

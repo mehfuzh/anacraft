@@ -77,6 +77,26 @@ is there with its Stripe customer on it; setting its `user_id` by hand is the
 fix, and `craft subscribe --check` now names the address it asked about so that
 case is recognisable rather than mysterious.
 
+## Maker access
+
+`users.maker`, added by the `maker` migration, is Elite granted by hand and not
+by Stripe — currently, to anybody with push access to the anacraft repo.
+Where `comped` only ever grants `subscribed`, `maker` reaches `tier` too:
+`subscription_status` reads a maker row as `elite` even with no payment row
+behind it at all, because the point of the flag is "every gate opens", not
+"treat this like a $9.99 subscription".
+
+It is the one column on `users` nothing writes by hand — `sync_makers` is the
+only path, and it is a full sync rather than a grant: it takes the current
+list of collaborator emails and settles every row to match it, so leaving the
+repo revokes the flag the same run that joining it would have granted it.
+`.github/workflows/ci.yml` calls it (via `scripts/sync-maker.py`) on every push
+to `main`, matched against whatever email each collaborator has made public on
+their GitHub profile — a private email, or an account that has never run
+`craft login`, is left untouched. It authenticates with the project's URL and
+service-role key, held as the `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+repo secrets — the same service key the webhook and `burn` function use.
+
 ## What the binary carries
 
 The publishable key, which is public by design. The table has RLS on and no
