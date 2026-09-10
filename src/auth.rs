@@ -29,8 +29,7 @@ use std::net::{Ipv4Addr, TcpListener, TcpStream};
 /// stream, and deleting a property — the three Admin API calls this binary
 /// makes. Asking once at login rather than mid-configure avoids a second
 /// consent screen when somebody is already following the setup guide.
-const SCOPE: &str =
-    "openid email https://www.googleapis.com/auth/analytics.readonly \
+const SCOPE: &str = "openid email https://www.googleapis.com/auth/analytics.readonly \
      https://www.googleapis.com/auth/analytics.edit";
 
 /// The write scope, included in [`SCOPE`] so login covers it from the start.
@@ -332,9 +331,12 @@ impl Auth {
         if stored.as_ref().is_some_and(|t| t.granted(scope)) {
             return Ok(Consented::AlreadyHeld);
         }
-        self.consent(&extend_scopes(stored.as_ref(), scope), Grant::Additional { scope, why })
-            .await
-            .map(Consented::Granted)
+        self.consent(
+            &extend_scopes(stored.as_ref(), scope),
+            Grant::Additional { scope, why },
+        )
+        .await
+        .map(Consented::Granted)
     }
 
     /// One trip through the browser, for either kind of grant.
@@ -1124,9 +1126,8 @@ mod tests {
 
         // Read-only credentials — the login scope before the edit scope joined
         // it — must not satisfy the write check.
-        tokens.scope = Some(
-            "openid email https://www.googleapis.com/auth/analytics.readonly".to_string(),
-        );
+        tokens.scope =
+            Some("openid email https://www.googleapis.com/auth/analytics.readonly".to_string());
         assert!(
             !tokens.granted(SCOPE_EDIT),
             "read-only must not imply write"

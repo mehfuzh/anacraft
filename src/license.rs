@@ -124,8 +124,7 @@ impl<'de> Deserialize<'de> for Tier {
         D: serde::Deserializer<'de>,
     {
         let name = String::deserialize(deserializer)?;
-        Tier::parse(&name)
-            .ok_or_else(|| serde::de::Error::custom(format!("unknown plan {name:?}")))
+        Tier::parse(&name).ok_or_else(|| serde::de::Error::custom(format!("unknown plan {name:?}")))
     }
 }
 
@@ -262,7 +261,12 @@ impl Status {
         if !self.is_active() {
             return None;
         }
-        Some(self.tier.as_deref().and_then(Tier::parse).unwrap_or(Tier::Basic))
+        Some(
+            self.tier
+                .as_deref()
+                .and_then(Tier::parse)
+                .unwrap_or(Tier::Basic),
+        )
     }
 }
 
@@ -843,11 +847,7 @@ fn line_from_seed(seed: &[u8]) -> &'static str {
 /// It is a soft gate either way. The answer it consults is a line of TOML in a
 /// config anybody can edit, in a binary anybody can rebuild — the point is to
 /// ask honestly, not to be unpickable.
-pub fn gate(
-    tier: Option<Tier>,
-    required: Tier,
-    command: &str,
-) -> std::result::Result<(), String> {
+pub fn gate(tier: Option<Tier>, required: Tier, command: &str) -> std::result::Result<(), String> {
     match tier {
         Some(have) if have.meets(required) => Ok(()),
         Some(have) => Err(upgrade(have, required, command)),
@@ -1409,7 +1409,10 @@ mod tests {
         let err = gate(Some(Tier::Basic), Tier::Pro, "Slack alerts").unwrap_err();
         assert!(err.contains("Anacrafter Pro"), "got {err}");
         assert!(err.contains("$5.99"), "no price in the ask: {err}");
-        assert!(err.contains("craft subscribe --plan pro"), "no way up: {err}");
+        assert!(
+            err.contains("craft subscribe --plan pro"),
+            "no way up: {err}"
+        );
     }
 
     #[test]

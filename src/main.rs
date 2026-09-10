@@ -926,9 +926,11 @@ fn activated(status: &license::Status) -> Result<()> {
     }
     println!(
         "  {}\n",
-        dim("craft configure and craft watch are unlocked on every plan, \
+        dim(
+            "craft configure and craft watch are unlocked on every plan, \
              Slack alerts on Pro, craft mcp on Elite — and the dashboard \
-             wears a gold star")
+             wears a gold star"
+        )
     );
     Ok(())
 }

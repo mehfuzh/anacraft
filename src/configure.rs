@@ -122,7 +122,7 @@ fn print_setup(setup: &Setup, host: &str, uri: &str) {
             println!(
                 "  {} {} is already measured by {} {}",
                 paint("✓", ore::emerald()),
-                bold(&host),
+                bold(host),
                 bold(&paint(&setup.property.name, ore::diamond())),
                 dim(&format!("({})", setup.property.id)),
             );
@@ -135,7 +135,7 @@ fn print_setup(setup: &Setup, host: &str, uri: &str) {
             println!(
                 "  {} finishing {} {}",
                 glyph::PICKAXE,
-                bold(&paint(&host, ore::diamond())),
+                bold(&paint(host, ore::diamond())),
                 dim(&format!(
                     "({}, created earlier but never given a stream)",
                     setup.property.id
@@ -147,13 +147,13 @@ fn print_setup(setup: &Setup, host: &str, uri: &str) {
             println!(
                 "  {} creating a property for {} in {}",
                 glyph::PICKAXE,
-                bold(&host),
+                bold(host),
                 dim(setup.account.as_deref().unwrap_or("your Analytics account")),
             );
             println!(
                 "  {} property {} {}",
                 paint("✓", ore::emerald()),
-                bold(&paint(&host, ore::diamond())),
+                bold(&paint(host, ore::diamond())),
                 dim(&format!(
                     "({}, reporting in {})",
                     setup.property.id,
@@ -183,7 +183,7 @@ fn print_setup(setup: &Setup, host: &str, uri: &str) {
     }
 
     print_tag(&setup.stream.measurement_id);
-    print_next(&host);
+    print_next(host);
 }
 
 // ------------------------------------------------------------------- setup ---
@@ -326,9 +326,8 @@ async fn finish_stream(ga: &Ga, property: &Property, host: &str, uri: &str) -> R
 
 /// Ask for the write scope, to the depth `consent` permits.
 async fn consent_to_write(ga: &Ga, host: &str, consent: &Consent) -> Result<()> {
-    let why = format!(
-        "setting up {host} needs permission to add a property to your Analytics account"
-    );
+    let why =
+        format!("setting up {host} needs permission to add a property to your Analytics account");
     match consent {
         // There is a browser nearby, so this is the consent screen — the same
         // page every other write in the CLI lands on.
@@ -681,7 +680,10 @@ pub(crate) enum Existing {
 /// Properties named after the domain are checked first, because that is what
 /// this command names them, so the common re-run costs one extra call rather
 /// than one per property.
-pub(crate) async fn find_existing(ga: &Ga, host: &str) -> Result<(Option<Existing>, Option<String>)> {
+pub(crate) async fn find_existing(
+    ga: &Ga,
+    host: &str,
+) -> Result<(Option<Existing>, Option<String>)> {
     let mut properties = ga.properties().await?;
     properties.sort_by_key(|p| p.name.to_lowercase() != host);
 
@@ -1293,7 +1295,9 @@ mod tests {
             !snippet.contains('\u{1b}'),
             "escape codes leaked into the plain snippet:\n{snippet}"
         );
-        assert!(snippet.contains("<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-1A2BCD345E\">"));
+        assert!(snippet.contains(
+            "<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-1A2BCD345E\">"
+        ));
         assert!(snippet.contains("gtag('config', 'G-1A2BCD345E');"));
     }
 

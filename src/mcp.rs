@@ -1075,7 +1075,10 @@ fn domain_of(args: &Value) -> Result<String> {
 async fn configure_site(ga: &Ga, args: &Value) -> Result<Value> {
     let host = crate::configure::host_of(&domain_of(args)?)?;
     let opts = crate::configure::Options {
-        account: args.get("account").and_then(Value::as_str).map(str::to_string),
+        account: args
+            .get("account")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         timezone: args
             .get("timezone")
             .and_then(Value::as_str)
@@ -1857,7 +1860,12 @@ mod tests {
     #[tokio::test]
     async fn configure_site_in_the_demo_answers_with_a_synthetic_setup() {
         let mut server = server();
-        let out = payload(&mut server, "configure_site", json!({ "domain": "example.com" })).await;
+        let out = payload(
+            &mut server,
+            "configure_site",
+            json!({ "domain": "example.com" }),
+        )
+        .await;
 
         assert_eq!(out["synthetic"], json!(true));
         assert_eq!(out["status"], json!("created"));
@@ -1874,7 +1882,12 @@ mod tests {
     #[tokio::test]
     async fn configure_site_demo_refuses_a_domain_that_is_not_one() {
         let mut server = server();
-        let result = call(&mut server, "configure_site", json!({ "domain": "localhost" })).await;
+        let result = call(
+            &mut server,
+            "configure_site",
+            json!({ "domain": "localhost" }),
+        )
+        .await;
         assert_eq!(result["isError"], json!(true));
     }
 
@@ -1894,19 +1907,31 @@ mod tests {
         // A write has no idempotent answer to cache: asking twice must mean
         // two real attempts, not the same JSON twice.
         let mut server = server();
-        let first = payload(&mut server, "configure_site", json!({ "domain": "example.com" })).await;
+        let first = payload(
+            &mut server,
+            "configure_site",
+            json!({ "domain": "example.com" }),
+        )
+        .await;
         assert!(first["cached"].is_null());
-        let second = payload(&mut server, "configure_site", json!({ "domain": "example.com" })).await;
-        assert!(
-            second["cached"].is_null(),
-            "a write got cached: {second}"
-        );
+        let second = payload(
+            &mut server,
+            "configure_site",
+            json!({ "domain": "example.com" }),
+        )
+        .await;
+        assert!(second["cached"].is_null(), "a write got cached: {second}");
     }
 
     #[tokio::test]
     async fn a_locked_configure_site_says_why_like_any_other_tool() {
         let mut server = locked_server();
-        let result = call(&mut server, "configure_site", json!({ "domain": "example.com" })).await;
+        let result = call(
+            &mut server,
+            "configure_site",
+            json!({ "domain": "example.com" }),
+        )
+        .await;
 
         assert_eq!(result["isError"], json!(true));
         let error = result["structuredContent"]["error"]
@@ -1988,8 +2013,7 @@ mod tests {
 
     #[test]
     fn the_gate_wants_a_subscription() {
-        let err = crate::license::gate(None, crate::license::Tier::Elite, "craft mcp")
-            .unwrap_err();
+        let err = crate::license::gate(None, crate::license::Tier::Elite, "craft mcp").unwrap_err();
         assert!(err.contains("craft subscribe"), "got {err}");
         assert!(
             err.contains("craft mcp --demo"),
@@ -2001,15 +2025,24 @@ mod tests {
         );
 
         // Any plan runs the demo; the live server is Elite.
-        assert!(crate::license::gate(Some(crate::license::Tier::Elite), crate::license::Tier::Elite, "craft mcp").is_ok());
+        assert!(crate::license::gate(
+            Some(crate::license::Tier::Elite),
+            crate::license::Tier::Elite,
+            "craft mcp"
+        )
+        .is_ok());
     }
 
     /// Pro is real and not enough: it buys Slack alerts, not the MCP server,
     /// and the refusal names the plan that does.
     #[test]
     fn a_pro_subscriber_is_told_what_elite_adds() {
-        let err = crate::license::gate(Some(crate::license::Tier::Pro), crate::license::Tier::Elite, "craft mcp")
-            .unwrap_err();
+        let err = crate::license::gate(
+            Some(crate::license::Tier::Pro),
+            crate::license::Tier::Elite,
+            "craft mcp",
+        )
+        .unwrap_err();
         assert!(err.contains("Anacrafter Elite"), "got {err}");
         assert!(
             err.contains("craft subscribe --plan elite"),
