@@ -656,7 +656,7 @@ async fn cmd_subscribe(plan: Option<license::Tier>, check: bool) -> Result<()> {
     };
 
     if let Some(status) = &known {
-        if status.is_active() {
+        if status.is_active() && should_skip_active_checkout(status, plan) {
             return activated(status);
         }
     }
@@ -933,6 +933,42 @@ fn activated(status: &license::Status) -> Result<()> {
         )
     );
     Ok(())
+}
+
+fn should_skip_active_checkout(status: &license::Status, plan: Option<license::Tier>) -> bool {
+    let Some(current) = status.tier() else {
+        return false;
+    };
+    match plan {
+        Some(target) if target > current => false,
+        _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn status_for(tier: Option<license::Tier>) -> license::Status {
+        license::Status {
+            status: "active".into(),
+            since: None,
+            subscribed: Some(true),
+            founder: None,
+            tier: tier.map(|t| t.name().to_string()),
+        }
+    }
+
+    #[test]
+    fn basic_subscribers_can_upgrade_to_higher_plans() {
+        let basic = status_for(Some(license::Tier::Basic));
+        assert!(!should_skip_active_checkout(&basic, Some(license::Tier::Pro)));
+        assert!(!should_skip_active_checkout(&basic, Some(license::Tier::Elite)));
+
+        let pro = status_for(Some(license::Tier::Pro));
+        assert!(should_skip_active_checkout(&pro, Some(license::Tier::Pro)));
+        assert!(!should_skip_active_checkout(&pro, Some(license::Tier::Elite)));
+    }
 }
 
 async fn cmd_login() -> Result<()> {
