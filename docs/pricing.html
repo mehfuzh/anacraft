@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pricing — anacraft</title>
-<meta name="description" content="The dashboard and the one-shot reports are free. craft configure, craft watch and craft mcp are the Anacrafter subscription — $2.99 a month, in the browser or with craft subscribe.">
+<meta name="description" content="The dashboard and the one-shot reports are free. craft configure and craft watch are the Anacrafter (Basic) plan, Slack alerts come with Pro, craft mcp with Elite — $2.99 to $9.99 a month, in the browser or with craft subscribe.">
 <link rel="canonical" href="https://anacraft.dev/pricing.html">
 <meta name="robots" content="index, follow">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://anacraft.dev/pricing.html">
 <meta property="og:title" content="Pricing — anacraft">
-<meta property="og:description" content="The dashboard and the one-shot reports are free. craft configure, craft watch and craft mcp are the Anacrafter subscription — $2.99 a month, in the browser or with craft subscribe.">
+<meta property="og:description" content="The dashboard and the one-shot reports are free. craft configure and craft watch are the Anacrafter (Basic) plan, Slack alerts come with Pro, craft mcp with Elite — $2.99 to $9.99 a month, in the browser or with craft subscribe.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=2dd77504">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -97,32 +97,66 @@
   .tldr .h { font-family: var(--mono); font-size: 11.5px; letter-spacing: .14em;
              text-transform: uppercase; color: var(--jade); margin-bottom: 10px; }
 
-  /* ── the two plans ─────────────────────────────────── */
-  /* Two cards, not three: there is one thing to buy, and a fake middle tier
-     would be an invention. The free column is a column rather than a footnote
-     because most of what anacraft does lives in it. */
-  .plans { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 34px 0 8px; }
+  /* ── the plans ─────────────────────────────────────── */
+  /* Three columns: the three plans, read left to right as a ladder — each is
+     the ones before it plus one more thing. The free half sits on its own
+     full-width row above them, because most of what anacraft does lives in
+     it, and a fourth column beside the money is what makes the money cramped. */
+  .plans { display: grid; grid-template-columns: repeat(3, 1fr);
+           grid-template-rows: auto auto auto auto 1fr auto auto auto;
+           gap: 18px; margin: 34px 0 8px; }
+  .plans .plan:first-child { grid-column: 1 / -1; }
+  /* Row 1 is the free card. Rows 2-8 are the seven rows a paid card is made
+     of — name, fig, per, bullets, button, note, foot — and each paid card is a
+     subgrid over them rather than a column of its own. So a row is as tall as
+     the tallest card's content and every card's button starts on the same
+     line, however many lines the copy above or below it wraps to. The bullets
+     take the 1fr, which is what used to be the ul's flex-grow. Row gutters are
+     the card's own zero, not the 18px that separates the cards. */
+  @supports (grid-template-rows: subgrid) {
+    .plans .plan.paid { display: grid; grid-row: span 7;
+                        grid-template-rows: subgrid; row-gap: 0; }
+    /* The foot is bottom-of-the-card by flex; in its own row it reads from the
+       top like the rest of the copy. */
+    .plans .plan.paid .foot { margin-top: 0; }
+  }
+  /* One column: the cards stack, so there is nothing left to align across and
+     each goes back to being a flex column of its own. */
+  @media (max-width: 980px) {
+    .plans { grid-template-columns: 1fr; grid-template-rows: none; }
+    .plans .plan:first-child { grid-column: auto; }
+    .plans .plan.paid { display: flex; grid-row: auto; }
+    .plans .plan.paid .foot { margin-top: auto; }
+  }
   .plan { border: 1px solid var(--line-2); background: var(--panel); padding: 26px 26px 28px;
           display: flex; flex-direction: column; }
   .plan.paid { border-color: var(--jade-deep); }
+  .plan.two { background: linear-gradient(180deg, rgba(255,225,107,.06), var(--panel) 42%); }
   .plan .name { font-family: var(--mono); font-size: 11.5px; letter-spacing: .14em;
                 text-transform: uppercase; color: var(--dim); margin-bottom: 14px; }
   .plan.paid .name { color: var(--gold); }
   .plan .fig { font-family: 'Archivo', sans-serif; font-weight: 900; color: var(--white);
                font-size: 40px; line-height: 1; letter-spacing: -.04em; }
   .plan .per { font-family: var(--mono); font-size: 12.5px; color: var(--dim); margin: 10px 0 20px; }
-  .plan ul { padding-left: 0; list-style: none; margin: 0 0 22px; }
+  .plan ul { padding-left: 0; list-style: none; margin: 0 0 22px;
+             flex-grow: 1; }
   .plan li { font-size: 14.5px; margin-bottom: 9px; padding-left: 20px; position: relative; }
   .plan li::before { content: "▪"; position: absolute; left: 0; color: var(--jade-deep); }
   .plan.paid li::before { color: var(--gold); }
-  .plan .foot { margin-top: auto; font-size: 13px; color: var(--dim); }
+  /* The two min-heights reserve the two lines a note usually runs to. The
+     subgrid above is what actually squares the rows up; these keep the cards
+     from looking cramped when a note happens to fit on one line, and are the
+     old alignment for a browser without subgrid, where the card is still a
+     flex column and the bullets' flex-grow pins the bottom. */
+  .plan .foot { margin-top: auto; font-size: 13px; color: var(--dim); line-height: 1.5;
+             min-height: 39px; }
 
-  /* The one button on the site that costs money. Gold rather than jade — it
-     belongs to the ★ the dashboard wears, not to the free half of the page —
-     but a solid #ffe16b panel on a #060a09 ground is about as far apart as two
-     colours get, and it glared. So the gold is the ink and the edge, over a
-     ground barely lifted off the page. Filling in on hover is what makes it
-     read as a button rather than a bordered link. */
+  /* The buttons that cost money. Gold rather than jade — they belong to the ★
+     the dashboard wears, not to the free half of the page — but a solid
+     #ffe16b panel on a #060a09 ground is about as far apart as two colours
+     get, and it glared. So the gold is the ink and the edge, over a ground
+     barely lifted off the page. Filling in on hover is what makes it read as a
+     button rather than a bordered link. */
   .buy {
     display: block; text-align: center; color: var(--gold);
     background: rgba(255, 225, 107, .07);
@@ -139,7 +173,23 @@
      Same specificity as the rule they answer, and later in the file. */
   .doc a.buy { border-bottom: 1px solid rgba(255, 225, 107, .45); }
   .doc a.buy:hover { border-bottom-color: var(--gold); }
-  .plan .then { font-size: 12.5px; color: var(--dim); margin: 0 0 20px; line-height: 1.55; }
+  /* The button that is not for sale yet: the Stripe link does not exist until
+     `scripts/stripe-plans.py` has been run and its URL has been pasted into
+     src/main.rs, so between those two a card must stay honest about it. */
+  .buy.soon {
+    color: var(--dim); border-color: var(--line-2);
+    background: transparent; cursor: default;
+  }
+  .buy.soon:hover { background: transparent; border-color: var(--line-2); }
+  .doc a.buy.soon { border-bottom-color: var(--line-2); }
+  .doc a.buy.soon:hover { border-bottom-color: var(--line-2); }
+  .plan .then { font-size: 12.5px; color: var(--dim); margin: 0 0 20px;
+             line-height: 1.55; min-height: 39px; }
+  /* The card's notes are narrow columns on the wide row, and a <code> that
+     refuses to wrap (the document's default) is a card that overflows its
+     track on anything but the widest monitor. The commands in these two
+     paragraphs can go onto two lines; the button's label never appears here. */
+  .plan .then code, .plan .foot code { white-space: normal; }
 
   /* The copy-the-command button, same component as the home page's install.
      Still here beside the Buy button: somebody already in a terminal would
@@ -276,7 +326,7 @@
 
 <div class="eyebrow">Pricing</div>
 <h1>Become an <em>Anacrafter.</em></h1>
-<div class="stamp">$2.99 a month · one plan · cancel any time</div>
+<div class="stamp">three plans · $2.99 to $9.99 a month · cancel any time</div>
 
 <div class="tldr">
   <div class="h">Where the line is</div>
@@ -285,7 +335,9 @@
   <p>Three things do more than read. <code>craft configure</code> <b>creates</b> the GA4 property for
   a domain and hands you its tag; <code>craft watch</code> checks the numbers against their own recent
   normal and tells you what broke; <code>craft mcp</code> lets an assistant read the site for you.
-  Those three are the subscription.</p>
+  Those are the subscription, read as a ladder: Basic is what the original $2.99 plan was, Pro adds
+  Slack delivery of a watch, and Elite adds the MCP server. Every plan includes the ones below it, and
+  moving up is billed going forward, never charged again.</p>
 </div>
 
 <div class="plans">
@@ -310,17 +362,47 @@
     <ul>
       <li><b>craft configure</b> — creates the GA4 property and its web stream,
         prints the tag</li>
-      <li><b>craft watch</b> — drops, spikes and silences, to the terminal or
-        <a href="/alerts.html">Slack</a></li>
-      <li><b>craft mcp</b> — ten read-only tools for Claude Desktop or any MCP client</li>
       <li>Everything in Miner, which is most of it</li>
       <li>One subscription, every machine you sign in on</li>
     </ul>
     <a class="buy" href="https://buy.stripe.com/3cIdR93sU4SbfECab79MY02">Subscribe — $2.99/month</a>
-    <p class="then">Pay with the same email you sign in to Google with, then
-      <code>craft login</code> on any machine. That is the whole of it.</p>
-    <div class="foot"><code>craft watch</code> and <code>craft mcp</code> both have a
-      <code>--demo</code> mode that needs no subscription.</div>
+    <p class="then">Pay with your Google sign-in email, then <code>craft login</code> on any
+      machine.</p>
+    <div class="foot"><code>craft watch</code> has a <code>--demo</code> mode that needs
+      no subscription.</div>
+  </div>
+
+  <div class="plan paid two">
+    <div class="name">★ Anacrafter Pro</div>
+    <div class="fig">$5.99</div>
+    <div class="per">per month · cancel any time</div>
+    <ul>
+      <li>Everything in Anacrafter</li>
+      <li><b>craft watch → Slack</b> — the same drops, spikes and silences, to a
+        <a href="/alerts.html">Slack channel</a> instead of only the terminal</li>
+    </ul>
+    <a class="buy" href="https://buy.stripe.com/cNieVd1kMacvgIGab79MY03">Subscribe — $5.99/month</a>
+    <p class="then"><code>craft subscribe --plan pro</code> opens the same
+      Stripe page.</p>
+    <div class="foot">Pro only moves an alert to Slack — same watch, same thresholds
+      and formats.</div>
+  </div>
+
+  <div class="plan paid two">
+    <div class="name">★ Anacrafter Elite</div>
+    <div class="fig">$9.99</div>
+    <div class="per">per month · cancel any time</div>
+    <ul>
+      <li>Everything in Anacrafter Pro</li>
+      <li><b>craft mcp</b> — the dashboard's numbers over the Model Context
+        Protocol, for Claude Desktop or any MCP client</li>
+      <li><b>craft mcp --demo</b> stays ungated for trying it out</li>
+    </ul>
+    <a class="buy" href="https://buy.stripe.com/3cI7sL4wY98r8caern9MY04">Subscribe — $9.99/month</a>
+    <p class="then"><code>craft subscribe --plan elite</code> opens the same
+      Stripe page.</p>
+    <div class="foot"><code>craft mcp</code> is eleven tools; the assistant reads your
+      reports and can set a new site up, but never changes your default property.</div>
   </div>
 </div>
 
@@ -333,9 +415,10 @@
   <tr><td>craft login · props · use</td><td class="free">Free</td><td>Sign in, list properties, pick the default</td></tr>
   <tr><td>craft overview · pages · portals · realms · live</td><td class="free">Free</td><td>One-shot reports that print and exit</td></tr>
   <tr><td>craft theme · demo</td><td class="free">Free</td><td>Palettes, and the whole dashboard on synthetic data</td></tr>
-  <tr><td>craft watch</td><td class="sub">★ Anacrafter</td><td>Compares the last complete day against its own normal and reports what moved</td></tr>
-  <tr><td>craft slack</td><td class="free">Free</td><td>Picks the channel <code>craft watch</code> posts to — free to set up, though the watch that uses it is not</td></tr>
-  <tr><td>craft mcp</td><td class="sub">★ Anacrafter</td><td>Serves the same numbers over the Model Context Protocol</td></tr>
+  <tr><td>craft watch</td><td class="sub">★ Anacrafter</td><td>Compares the last complete day against its own normal and reports what moved — to the terminal</td></tr>
+  <tr><td>craft slack</td><td class="sub">★ Pro</td><td>Picks the channel a watch posts to. Free to set up; the delivery <code>craft watch</code> makes of it is what Pro covers</td></tr>
+  <tr><td>craft mcp</td><td class="sub">★ Elite</td><td>Serves the same numbers over the Model Context Protocol, for Claude Desktop or any MCP client</td></tr>
+  <tr><td>craft subscribe --plan &lt;name&gt;</td><td class="sub">Any</td><td>Opens the buy page for <code>basic</code>, <code>pro</code> or <code>elite</code> — <code>--check</code> only reads where the account stands</td></tr>
 </table>
 
 <h2>Starting one from the browser</h2>
@@ -401,8 +484,10 @@ writes the flag itself when it does.</p>
     from Apache-2.0 source. We are not going to pretend otherwise: no phone-home, no licence check
     on launch beyond the one keeping your own subscription current, and no telemetry anywhere in
     the binary.</p>
-    <p>So it is an honest ask rather than a lock — $2.99 a month for the command that sets the
-    thing up and the two that work while you are asleep, from the people who wrote them.</p>
+    <p>So it is an honest ask rather than a lock — three plans, from the $2.99 that
+    always bought the setup command and the watch, up to Elite for the ones that
+    send you a Slack message or answer an assistant, from the people who wrote
+    them.</p>
   </div>
 
   <div class="note">
@@ -421,7 +506,7 @@ writes the flag itself when it does.</p>
   <div class="wrap" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;width:100%">
     <span class="by"><span class="tag">crafted</span> in San Francisco <svg class="heart" role="img" aria-label="love" viewBox="0 0 9 8" fill="var(--jade)" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="5" y="1" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="1" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/></svg></span>
     <span class="legal">© 2026 · All rights reserved</span>
-    <span class="ver">v0.17.0</span>
+    <span class="ver">v0.18.0</span>
     <span class="r">
       <a href="/privacy.html">Privacy Policy</a>
       <a href="/terms.html">Terms of Service</a>
@@ -440,19 +525,22 @@ writes the flag itself when it does.</p>
   // sign-in to adopt it by email.
   //
   // Only the two parameters the checkout itself understands are carried across,
-  // so a link somebody pastes around cannot smuggle anything else onto the
+  // so a link somebody pastes around cannot smuggle anything else onto a
   // button. Anything else in the query string — a campaign tag, a ref — stays
-  // where it is.
+  // where it is. Every buy button gets it: the token that came from `craft
+  // subscribe --plan <name>` has to land on the very link that plan opens.
   (function () {
-    var buy = document.querySelector('a.buy');
-    if (!buy) return;
+    var buys = document.querySelectorAll('a.buy');
+    if (!buys.length) return;
     var from = new URLSearchParams(location.search);
-    var to = new URL(buy.href);
-    ['client_reference_id', 'prefilled_email'].forEach(function (key) {
-      var value = from.get(key);
-      if (value) to.searchParams.set(key, value);
+    buys.forEach(function (buy) {
+      var to = new URL(buy.href);
+      ['client_reference_id', 'prefilled_email'].forEach(function (key) {
+        var value = from.get(key);
+        if (value) to.searchParams.set(key, value);
+      });
+      buy.href = to.toString();
     });
-    buy.href = to.toString();
   })();
 
   function cp(el, text) {

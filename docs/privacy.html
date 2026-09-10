@@ -196,14 +196,19 @@
 </div>
 
 <h2><span class="n">01</span>What anacraft accesses</h2>
-<p>anacraft asks Google for one read-only scope,
-<code>https://www.googleapis.com/auth/analytics.readonly</code>. With it the program reads the same
-aggregate figures the GA4 web interface shows you — visitors, sessions, page views and events, broken
-down by things like date, page, country, device and traffic source — plus the list of properties your
-account can open.</p>
-<p>Being read-only, anacraft cannot alter your Analytics configuration or data. It does not request your
-name, email, profile, or any other Google service, so it never learns who you are. Requests go directly
-from your machine to Google's Analytics APIs and to nothing else.</p>
+<p>anacraft asks Google for two Analytics scopes on the sign-in screen:
+<code>https://www.googleapis.com/auth/analytics.readonly</code> and
+<code>https://www.googleapis.com/auth/analytics.edit</code>. The read scope covers everything the
+program is for — the same aggregate figures the GA4 web interface shows, visitors, sessions, page views
+and events, broken down by things like date, page, country, device and traffic source — plus the list
+of properties your account can open. The edit scope is only ever used by <code>craft configure</code>,
+which creates a GA4 property and its web stream for a domain you name, and by
+<code>craft delete --all</code>, which deletes exactly the property you name. Keeping the edit scope on
+the same consent screen as the read one is deliberate: signing in once is the whole browser trip, and
+setup never has to interrupt the guide with a second one.</p>
+<p>anacraft does not request your name, profile, or any other Google service, so reports and setup both
+stay inside your own Analytics account. Requests go directly from your machine to Google's Analytics
+APIs and to nothing else.</p>
 
 <h2><span class="n">02</span>What is stored on your computer</h2>
 <p>Two files, plus one you may never create. Your Google tokens live in
@@ -232,9 +237,12 @@ challenge from a single-use random verifier, so an intercepted authorization cod
 by anyone else. Google redirects to a loopback address on <code>127.0.0.1</code> using a port the
 operating system assigns for that one login, and the reply is checked against a random
 <code>state</code> value — a mismatch aborts the login rather than proceeding.</p>
-<p><b>By scope.</b> anacraft requests one scope,
-<code>https://www.googleapis.com/auth/analytics.readonly</code>. Being read-only, the token it holds
-cannot modify or delete anything in your Analytics account even if it were misused.</p>
+<p><b>By scope.</b> anacraft requests two scopes,
+<code>https://www.googleapis.com/auth/analytics.readonly</code> for reading reports and
+<code>https://www.googleapis.com/auth/analytics.edit</code> for the two write commands. The write scope
+is wider than the code's use of it — it could change any configuration — so what keeps it bounded is
+that anacraft issues no analytics writes except the one create in <code>craft configure</code> and the
+one named delete behind <code>craft delete --all</code>, each against a domain or property you typed.</p>
 <p><b>By not transmitting it.</b> The strongest protection here is structural: there is no anacraft
 server to breach, no account to compromise, and no copy of your data anywhere but your own machine.
 Nothing is sent to the maintainers or to any third party.</p>
@@ -312,7 +320,7 @@ site's Git history. anacraft is published by Smartloop Inc. Questions about this
   <div class="wrap" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;width:100%">
     <span class="by"><span class="tag">crafted</span> in San Francisco <svg class="heart" role="img" aria-label="love" viewBox="0 0 9 8" fill="var(--jade)" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="5" y="1" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="1" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/></svg></span>
     <span class="legal">© 2026 · All rights reserved</span>
-    <span class="ver">v0.17.0</span>
+    <span class="ver">v0.18.0</span>
     <span class="r">
       <a href="/privacy.html">Privacy Policy</a>
       <a href="/terms.html">Terms of Service</a>

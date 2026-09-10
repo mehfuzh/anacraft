@@ -1660,7 +1660,7 @@
       the terminal.
     </p>
     <div class="rows">
-      <div class="row"><span class="n">01</span><h3>It configures your analytics</h3><p><code style="font-family:var(--mono)">craft configure yoursite.com</code> creates the Google Analytics property, adds the web stream and prints the tag with its real measurement id in it — the three console steps between a new domain and its first number. Run it twice and it hands the tag back rather than quietly creating a second property. Part of the <a href="/pricing.html">Anacrafter subscription</a>, $2.99/mo — the ask arrives on the page the Google sign-in already ends on, and the terminal picks the payment up from there.</p><span class="arw">→</span></div>
+      <div class="row"><span class="n">01</span><h3>It configures your analytics</h3><p><code style="font-family:var(--mono)">craft configure yoursite.com</code> creates the Google Analytics property, adds the web stream and prints the tag with its real measurement id in it — the three console steps between a new domain and its first number. Run it twice and it hands the tag back rather than quietly creating a second property. Part of the <a href="/pricing.html">Anacrafter</a> plan, $2.99/mo — the ask arrives on the page the Google sign-in already ends on, and the terminal picks the payment up from there.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">02</span><h3>Seven toggleable panels</h3><p>Events, Right Now, Top Chunks, Daily Villagers, Realms, Vitals and Top Realms — keys <code style="font-family:var(--mono)">1</code>–<code style="font-family:var(--mono)">7</code>, or their letter aliases.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">03</span><h3>Realtime event feed</h3><p>Players online polled every few seconds, with spawn and wander-off events that fade as they age out of the window.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">04</span><h3>Achievement toasts</h3><p>Diamond Streak, Creeper Repelled, Deep Vein — unlocks pop in when a metric crosses a milestone, then get out of the way.</p><span class="arw">→</span></div>
@@ -1668,7 +1668,7 @@
       <div class="row"><span class="n">06</span><h3>One-shot reports</h3><p>Not everything needs a dashboard. <code style="font-family:var(--mono)">overview</code>, <code style="font-family:var(--mono)">pages</code>, <code style="font-family:var(--mono)">portals</code>, <code style="font-family:var(--mono)">realms</code> and <code style="font-family:var(--mono)">live</code> print and exit — pipe them anywhere.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">07</span><h3>Runs before you sign in</h3><p><code style="font-family:var(--mono)">craft</code> on its own opens the dashboard, and with no property saved it drives the whole thing from synthetic data — so you see it working before touching OAuth.</p><span class="arw">→</span></div>
       <div class="row"><span class="n">08</span><h3>Every property in one session</h3><p>Save as many GA4 properties as you like and <code style="font-family:var(--mono)">Tab</code> walks them without leaving the dashboard — each one keeping its own palette and time window.</p><span class="arw">→</span></div>
-      <div class="row"><span class="n">09</span><h3>Readable by an assistant</h3><p><code style="font-family:var(--mono)">craft mcp</code> serves the dashboard's numbers over the Model Context Protocol — ten read-only tools, one command to wire into <a href="#mcp">Claude Desktop</a>. Part of the <a href="/pricing.html">Anacrafter subscription</a>, $2.99/mo — <code style="font-family:var(--mono)">craft mcp --demo</code> is ungated.</p><span class="arw">→</span></div>
+      <div class="row"><span class="n">09</span><h3>Readable by an assistant</h3><p><code style="font-family:var(--mono)">craft mcp</code> serves the dashboard's numbers over the Model Context Protocol — eleven tools, one command to wire into <a href="#mcp">Claude Desktop</a>. Part of the <a href="/pricing.html">Anacrafter Elite</a> plan, $9.99/mo — <code style="font-family:var(--mono)">craft mcp --demo</code> is ungated.</p><span class="arw">→</span></div>
     </div>
 
     <div class="sec-label" style="margin-top:64px">On the roadmap</div>
@@ -1689,15 +1689,15 @@
         <span class="arw">→</span>
       </div>
       <div class="row soon">
-        <span class="n"><span class="tag">Soon</span></span>
-        <h3>Usage tracking and plans</h3>
-        <p>A Supabase-backed count of AI usage per install, so plan tiers have something to meter — with your own key overriding the shipped one.</p>
+        <span class="n"><span class="tag live">Live</span></span>
+        <h3>Plans and tiers</h3>
+        <p>Three plans from one checkout — Anacrafter ($2.99), Pro ($5.99) and Elite ($9.99) — sold by <code style="font-family:var(--mono)">craft subscribe --plan pro|elite</code>. The tier rides the payment: Slack alerts gate on Pro, the MCP server on Elite.</p>
         <span class="arw">→</span>
       </div>
       <div class="row soon">
-        <span class="n"><span class="tag">Soon</span></span>
-        <h3>Custom theme support</h3>
-        <p>Build a palette with <code style="font-family:var(--mono)">craft theme create</code>, load one from JSON with <code style="font-family:var(--mono)">craft theme import</code>, or pull someone else's with <code style="font-family:var(--mono)">craft theme install user/repo</code>.</p>
+        <span class="n"><span class="tag live">Live</span></span>
+        <h3>Themes</h3>
+        <p>Five palettes — Osaka Jade, Catppuccin, GitHub, Tokyo Night and Catppuccin Latte. <code style="font-family:var(--mono)">craft theme &lt;name&gt;</code> switches and persists, <code style="font-family:var(--mono)">t</code> cycles inside the dashboard, and a property can keep its own palette.</p>
         <span class="arw">→</span>
       </div>
     </div>
@@ -1712,7 +1712,7 @@
       Official builds carry their own OAuth client, so <code style="font-family:var(--mono);color:var(--fg)">craft login</code> needs no
       Google Cloud project — and <code style="font-family:var(--mono);color:var(--fg)">craft configure</code> replaces the four console
       screens between a new domain and its first number. That one is part of the
-      <a href="/pricing.html" style="color:var(--jade)">Anacrafter subscription</a>; everything else
+      <a href="/pricing.html" style="color:var(--jade)">Anacrafter</a> plan ($2.99/mo); everything else
       on this page is free.
     </p>
     <div class="two">
@@ -1749,7 +1749,7 @@
         <table class="keys" style="margin-top:38px">
           <tr><th>Command</th><th>What it does</th></tr>
           <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">craft</code></td><td>Opens the dashboard — <code style="font-family:var(--mono)">dash</code> is the default</td></tr>
-          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">craft configure &lt;domain&gt;</code></td><td><b>Creates the GA4 property</b>, adds the web stream, prints the tag — <a href="/setup-ga4.html" style="color:var(--jade)">the guide</a>, and part of the <a href="/pricing.html" style="color:var(--jade)">subscription</a></td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">craft configure &lt;domain&gt;</code></td><td><b>Creates the GA4 property</b>, adds the web stream, prints the tag — <a href="/setup-ga4.html" style="color:var(--jade)">the guide</a>, and part of the <a href="/pricing.html" style="color:var(--jade)">Anacrafter</a> plan</td></tr>
         </table>
         <table class="keys" style="margin-top:38px">
           <tr><th>Path</th><th>What lives there</th></tr>
@@ -1769,9 +1769,10 @@
       <code style="font-family:var(--mono);color:var(--fg)">craft mcp</code> serves the same numbers over the Model Context
       Protocol, so Claude Desktop — or any MCP client — answers “how is the site
       doing” without a human reading a TUI.
-      The dashboard and the one-shot reports are free; this is one of the three
-      parts the <a href="/pricing.html" style="color:var(--jade)">Anacrafter subscription</a>
-      pays for — $2.99 a month — and
+      The dashboard and the one-shot reports are free; this is the one thing
+      the <a href="/pricing.html" style="color:var(--jade)">Anacrafter Elite</a>
+      plan ($9.99 a month) adds beyond
+      <a href="/pricing.html" style="color:var(--jade)">Pro</a>, and
       <code style="font-family:var(--mono);color:var(--fg)">craft mcp --demo</code>
       is ungated so it can be wired up and looked at first.
     </p>
@@ -1807,16 +1808,21 @@
           <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">list_properties</code></td><td>Every property this account can read</td></tr>
           <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">search_pages</code></td><td>Pages whose path contains a substring</td></tr>
           <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">search_events</code></td><td>Events whose name contains a substring</td></tr>
+          <tr><td style="width:auto"><code style="font-family:var(--mono);color:var(--fg)">configure_site</code></td><td>The one write — creates the property and web stream for a domain and returns the tag to paste</td></tr>
         </table>
       </div>
     </div>
     <p class="sec-sub" style="margin-top:34px;max-width:72ch">
-      Every tool is a read. Nothing here signs in, writes to disk, or moves your
-      default property — <code style="font-family:var(--mono)">login</code> and <code style="font-family:var(--mono)">use</code> stay
-      human-only commands. Answers come back as labelled JSON carrying the
+      Every tool is a read but one: <code style="font-family:var(--mono)">configure_site</code>
+      takes a <code style="font-family:var(--mono)">domain</code>, creates the Google Analytics property
+      and web stream for it, and hands back the tag with its real measurement id. Nothing
+      here signs in, writes to disk, or moves your default property — <code style="font-family:var(--mono)">login</code> and
+      <code style="font-family:var(--mono)">use</code> stay human-only commands, and <code style="font-family:var(--mono)">configure_site</code>
+      never changes what the dashboard opens on. Answers come back as labelled JSON carrying the
       property and the date window they cover, so an assistant can attribute the
-      numbers it quotes. Needs <code style="font-family:var(--mono)">craft login</code> first, and a
-      subscription; <code style="font-family:var(--mono)">--demo</code> needs neither.
+      numbers it quotes. Needs <code style="font-family:var(--mono)">craft login</code> first (a fresh one carries the
+      write scope), and a subscription — Anacrafter Elite for the server, the
+      configure for the write; <code style="font-family:var(--mono)">--demo</code> needs neither.
     </p>
   </div>
 </section>
@@ -1908,7 +1914,7 @@
   <div class="wrap" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;width:100%">
     <span class="by"><span class="tag">crafted</span> in San Francisco <svg class="heart" role="img" aria-label="love" viewBox="0 0 9 8" fill="var(--jade)" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="0" y="1" width="1" height="1"/><rect x="3" y="1" width="1" height="1"/><rect x="5" y="1" width="1" height="1"/><rect x="8" y="1" width="1" height="1"/><rect x="0" y="2" width="1" height="1"/><rect x="4" y="2" width="1" height="1"/><rect x="8" y="2" width="1" height="1"/><rect x="0" y="3" width="1" height="1"/><rect x="8" y="3" width="1" height="1"/><rect x="1" y="4" width="1" height="1"/><rect x="7" y="4" width="1" height="1"/><rect x="2" y="5" width="1" height="1"/><rect x="6" y="5" width="1" height="1"/><rect x="3" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/></svg></span>
     <span class="legal">© 2026 · All rights reserved</span>
-    <span class="ver">v0.17.0</span>
+    <span class="ver">v0.18.0</span>
     <span class="r">
       <a href="/privacy.html">Privacy Policy</a>
       <a href="/terms.html">Terms of Service</a>
